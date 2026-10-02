@@ -29,7 +29,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from feasibility.jobs.handlers import listing_query
+from feasibility.listings import listing_query
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import RentCastListings
 from feasibility.snapshot.cad_layout import HEADERS, format_csv, money

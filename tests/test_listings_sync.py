@@ -17,11 +17,10 @@ from feasibility.jobs.handlers import (
     JobContext,
     ListingsSyncPayload,
     build_registry,
-    listing_query,
     run_listings_sync,
 )
 from feasibility.jobs.worker import Worker
-from feasibility.listings import upsert_listings
+from feasibility.listings import listing_query, upsert_listings
 from feasibility.markets.loader import get_pack
 from feasibility.sources.base import ListingBatch
 from feasibility.sources.rentcast import models
