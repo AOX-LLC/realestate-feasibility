@@ -37,7 +37,7 @@ def test_s1_costs_and_financing_match_the_formula_section() -> None:
     assert financing.interest_progressive == Decimal("24648.62")
     assert financing.interest == Decimal("54884.44")
     assert financing.points == Decimal("18175.14")
-    assert financing.draw_fees == Decimal("1000")
+    assert str(financing.draw_fees) == "1000.00"  # stated in cents like every money line
     assert financing.total == Decimal("74059.58")
 
 

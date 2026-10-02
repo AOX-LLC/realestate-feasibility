@@ -75,7 +75,7 @@ def _financing(costs: Costs, hold_months: Decimal, assumptions: CostAssumptions)
     )
     interest = interest_front + interest_progressive
     points = round_money(loan * terms.points_pct / PERCENT)
-    draw_fees = terms.draw_count * terms.draw_fee
+    draw_fees = round_money(terms.draw_count * terms.draw_fee)
     return FinancingResult(
         months=FinancingMonths(hold=hold_months, construction=construction, sale=sale),
         financeable_cost=financeable,
