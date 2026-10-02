@@ -81,3 +81,8 @@ def test_the_buildable_size_rounds_half_up_to_whole_feet() -> None:
     # 6405 x .45 x 2 x .55 = 3170.475 -> 3170; 6403 x .495 = 3169.485 -> 3169
     assert buildable_size(Decimal("6405"), "R-7.5(A)", CONFIG).sizing.buildable_sqft == 3170
     assert buildable_size(Decimal("6403"), "R-7.5(A)", CONFIG).sizing.buildable_sqft == 3169
+
+
+def test_an_exact_half_foot_rounds_up_not_to_even() -> None:
+    # 3100 x .45 x 2 x .55 = 1534.5
+    assert buildable_size(Decimal("3100"), "R-7.5(A)", CONFIG).sizing.buildable_sqft == 1535

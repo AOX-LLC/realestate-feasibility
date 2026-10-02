@@ -43,3 +43,8 @@ def test_round_ratio_keeps_four_places() -> None:
 def test_round_sqft_keeps_whole_feet() -> None:
     assert str(round_sqft(Decimal("3167.5"))) == "3168"
     assert str(round_sqft(Decimal("3167.49"))) == "3167"
+
+
+def test_exact_halves_round_up_not_to_even() -> None:
+    assert str(round_sqft(Decimal("3166.5"))) == "3167"
+    assert str(round_sqft(Decimal("3167.5"))) == "3168"

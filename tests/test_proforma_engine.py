@@ -211,3 +211,26 @@ def test_a_missing_lot_is_unsizable_and_fills_only_the_site(lot: Decimal | None)
 
 def test_the_listing_lot_source_is_carried_to_the_site() -> None:
     assert run(inputs(lot_source="listing")).site.lot_source == "listing"
+
+
+def test_a_loss_smaller_than_the_cash_invested_is_not_flagged_as_exceeding_equity() -> None:
+    result = run(inputs(price=Decimal("600000")))
+
+    assert result.totals is not None
+    assert result.totals.profit < 0
+    assert result.totals.profit > -result.totals.cash_invested
+    assert "loss_exceeds_equity" not in result.flags
+
+
+def test_a_blank_zoning_among_the_values_seen_is_not_a_disagreement() -> None:
+    result = run(inputs(is_gis_group=True, zoning_values_seen=("R-7.5(A)", "", "  ")))
+
+    assert "zoning_mixed" not in result.flags
+    assert result.site.rule_used == "R-7.5(A)"
+
+
+def test_comps_that_price_the_house_at_nothing_are_no_arv() -> None:
+    result = run(inputs(estimate=estimate([(1, 30000), (1, 30000), (1, 30000)])))
+
+    assert (result.status, result.reason) == ("no_arv", "arv_not_positive")
+    assert result.financing is not None and result.totals is None
