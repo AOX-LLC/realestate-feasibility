@@ -20,6 +20,7 @@ from feasibility.sources.rentcast.transport import SnapshotTransport, TransportR
 from feasibility.sourcing import estimate_store
 from feasibility.sourcing.estimate_store import EstimateTarget
 from feasibility.sourcing.estimates import (
+    SPEND_LOCK,
     EstimateCounts,
     SpendLimits,
     plan_spend,
@@ -534,3 +535,31 @@ def test_a_fresh_cache_answer_keeps_its_date_and_is_not_counted_as_bought(engine
     with engine.connect() as connection:
         dates = set(connection.execute(select(candidate_estimate.c.fetched_on)).scalars())
     assert dates == {date(2026, 9, 28)}
+
+
+def test_only_one_stage_spends_at_a_time(spend: Spend) -> None:
+    """While a stage is between reading the headroom and finishing its calls, another stage
+    cannot take the spend lock, so it cannot read the same headroom."""
+    seen: list[bool] = []
+
+    def try_to_take_the_lock() -> None:
+        with spend.engine.connect() as other:
+            taken = other.execute(
+                text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
+            ).scalar_one()
+            if taken:
+                other.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK
+                )
+            seen.append(bool(taken))
+
+    spend.transport.before_call[2] = try_to_take_the_lock
+    spend.spend()
+
+    assert seen == [False]
+    with spend.engine.connect() as other:
+        # Released again afterwards: the pool would otherwise keep the session lock.
+        assert other.execute(
+            text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
+        ).scalar_one()
+        other.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK)
