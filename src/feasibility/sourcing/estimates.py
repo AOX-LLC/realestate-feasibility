@@ -200,11 +200,22 @@ def _spend(
     tally = _Tally(reused=len(plan.reuse), deferred=len(plan.defer))
     try:
         _call_all(engine, client, plan.call, tally, run_id, as_of, secrets)
-    finally:
-        counts = tally.counts(len(targets))
-        with engine.begin() as connection:
-            store.merge_counts(connection, run_id, asdict(counts))
+    except Exception:
+        # The failure in flight must reach the caller as it is: a bookkeeping error here
+        # would replace it, and a job retry of an unclassified error spends again.
+        try:
+            _save_counts(engine, run_id, tally.counts(len(targets)))
+        except Exception:
+            log.exception("could not save the estimate counts of run %s", run_id)
+        raise
+    counts = tally.counts(len(targets))
+    _save_counts(engine, run_id, counts)
     return counts
+
+
+def _save_counts(engine: Engine, run_id: int, counts: EstimateCounts) -> None:
+    with engine.begin() as connection:
+        store.merge_counts(connection, run_id, asdict(counts))
 
 
 def _limits(

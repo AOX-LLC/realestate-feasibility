@@ -5,6 +5,7 @@ A run is keyed by (market, as_of) and idempotent: running the same date again re
 run's own rows and leaves candidates and matches unduplicated. Runs go forward in time only.
 """
 
+import logging
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
@@ -35,6 +36,8 @@ from feasibility.sourcing.filters import (
 from feasibility.sourcing.keys import StreetKey, parse_listing_street, property_key
 from feasibility.sourcing.matching import MatchResult, aggregate, load_parcel_index, match_listing
 from feasibility.sourcing.scoring import RankKey, ScoreBreakdown, rank_order, score_candidate
+
+log = logging.getLogger(__name__)
 
 MOCK_SYNC_TIME = time(6, 0)
 MATCH_RATE_STEP = Decimal("0.0001")
@@ -174,8 +177,12 @@ def _spend_estimates(
         )
     except Exception as error:
         message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
-        with engine.begin() as connection:
-            store.set_run_error(connection, run_id, message)
+        try:
+            with engine.begin() as connection:
+                store.set_run_error(connection, run_id, message)
+        except Exception:
+            # The stage's own failure must propagate, not this one.
+            log.exception("could not record the error of run %s", run_id)
         raise
 
 

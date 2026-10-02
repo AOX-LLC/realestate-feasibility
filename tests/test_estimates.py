@@ -18,6 +18,7 @@ from feasibility.sources.rentcast import budget
 from feasibility.sources.rentcast.client import RentCastClient, SchemaDriftError, Ttls
 from feasibility.sources.rentcast.transport import SnapshotTransport, TransportResponse
 from feasibility.sourcing import estimate_store
+from feasibility.sourcing import store as run_store
 from feasibility.sourcing.estimate_store import EstimateTarget
 from feasibility.sourcing.estimates import (
     SPEND_LOCK,
@@ -563,3 +564,18 @@ def test_only_one_stage_spends_at_a_time(spend: Spend) -> None:
             text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
         ).scalar_one()
         other.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK)
+
+
+def test_a_failure_saving_the_counts_does_not_replace_the_failure_in_flight(
+    spend: Spend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    second = spend.one_lines()[1]
+    spend.transport.responses[second] = TransportResponse(200, {"price": "not a number"})
+
+    def broken(*_: object) -> None:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(run_store, "merge_counts", broken)
+
+    with pytest.raises(SchemaDriftError):
+        spend.spend()
