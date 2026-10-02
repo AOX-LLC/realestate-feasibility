@@ -1,9 +1,9 @@
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from sqlalchemy import select
 
-from feasibility.api.deps import DEFAULT_PAGE_SIZE, EngineDep, Limit
+from feasibility.api.deps import DEFAULT_PAGE_SIZE, AfterId, EngineDep, Limit
 from feasibility.api.schemas import JobOut, Page
 from feasibility.tables import job
 
@@ -16,7 +16,7 @@ JobStatus = Literal["queued", "running", "done", "failed", "dead"]
 def list_jobs(
     engine: EngineDep,
     status: JobStatus | None = None,
-    after: Annotated[int | None, Query(ge=0)] = None,
+    after: AfterId = None,
     limit: Limit = DEFAULT_PAGE_SIZE,
 ) -> Page[JobOut]:
     """Jobs, newest first. Payloads and error text stay in the database; this shows

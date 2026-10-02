@@ -407,3 +407,27 @@ def test_internal_error_is_opaque(engine: Engine, monkeypatch: pytest.MonkeyPatc
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error"}
     assert "boom" not in response.text
+
+
+def test_ids_beyond_bigint_are_rejected_not_crashed(engine: Engine) -> None:
+    client = _client(engine)
+    huge = "99999999999999999999999"
+
+    for path in (f"/jobs?after={huge}", f"/listings?after={huge}", f"/listings/{huge}"):
+        response = client.get(path)
+        assert response.status_code == 422, path
+        assert huge not in response.text
+
+
+def test_internal_errors_carry_the_security_headers(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("feasibility.api.routes.markets.load_registry", explode)
+
+    response = _client(engine).get("/markets")
+
+    assert response.status_code == 500
+    assert response.headers["X-Content-Type-Options"] == "nosniff"

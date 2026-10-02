@@ -61,6 +61,9 @@ async def _validation_error(request: Request, error: Exception) -> JSONResponse:
 
 async def _unexpected_error(request: Request, error: Exception) -> JSONResponse:
     log.exception("unhandled error on %s %s", request.method, request.url.path)
+    # This handler runs outside the middleware stack, so it sets the headers itself.
     return JSONResponse(
-        {"detail": "internal error"}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        {"detail": "internal error"},
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        headers=SECURITY_HEADERS,
     )

@@ -1,9 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, HTTPException, Path, status
 from sqlalchemy import select
 
-from feasibility.api.deps import DEFAULT_PAGE_SIZE, EngineDep, Limit, MarketQuery
+from feasibility.api.deps import (
+    DEFAULT_PAGE_SIZE,
+    MAX_ID,
+    AfterId,
+    EngineDep,
+    Limit,
+    MarketQuery,
+)
 from feasibility.api.schemas import ListingOut, Page
 from feasibility.tables import listing
 
@@ -17,7 +24,7 @@ LISTING_COLUMNS = [listing.c[name] for name in ListingOut.model_fields]
 def list_listings(
     engine: EngineDep,
     market: MarketQuery = "dallas",
-    after: Annotated[int | None, Query(ge=0)] = None,
+    after: AfterId = None,
     limit: Limit = DEFAULT_PAGE_SIZE,
 ) -> Page[ListingOut]:
     """Listings, oldest first, one keyset page at a time."""
@@ -34,7 +41,7 @@ def list_listings(
 
 
 @router.get("/{listing_id}")
-def get_listing(engine: EngineDep, listing_id: Annotated[int, Path(ge=1)]) -> ListingOut:
+def get_listing(engine: EngineDep, listing_id: Annotated[int, Path(ge=1, le=MAX_ID)]) -> ListingOut:
     with engine.connect() as connection:
         row = (
             connection.execute(select(*LISTING_COLUMNS).where(listing.c.id == listing_id))
