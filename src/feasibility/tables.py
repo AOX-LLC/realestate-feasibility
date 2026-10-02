@@ -228,8 +228,27 @@ run_listing = Table(
     Column("candidate_id", BigInteger, ForeignKey("candidate.id")),
     Column("is_primary", Boolean, nullable=False, server_default=text("false")),
     Column("filter_reason", Text),
+    # The match this run made; NULL when the run did not match the listing (and on rows
+    # written before migration 0003).
+    Column("match_status", Text),
+    Column("match_method", Text),
+    Column("match_account_id", Text),
     PrimaryKeyConstraint("run_id", "listing_id"),
     CheckConstraint(_in_list("change_kind", LISTING_CHANGE_KINDS), name="change_kind"),
+    CheckConstraint(
+        f"match_status IS NULL OR {_in_list('match_status', MATCH_STATUSES)}", name="match_status"
+    ),
+    CheckConstraint(
+        f"match_method IS NULL OR {_in_list('match_method', MATCH_METHODS)}", name="match_method"
+    ),
+    CheckConstraint(
+        "match_status IS NULL OR ((match_status = 'matched') = (match_method IS NOT NULL))",
+        name="match_complete",
+    ),
+    CheckConstraint(
+        "match_account_id IS NULL OR COALESCE(match_status = 'matched', false)",
+        name="match_account",
+    ),
     Index(None, "candidate_id"),
 )
 
