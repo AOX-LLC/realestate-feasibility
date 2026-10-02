@@ -130,10 +130,10 @@ def run_sourcing(
 def _start_run(engine: Engine, market: str, as_of: date) -> int:
     with engine.begin() as connection:
         store.lock_market_runs(connection, market)
-        latest = store.latest_completed_as_of(connection, market)
+        latest = store.latest_run_as_of(connection, market)
         if latest is not None and as_of < latest:
             raise RunOutOfOrderError(
-                f"cannot source {as_of}: the run for {latest} is already complete"
+                f"cannot source {as_of}: a run for {latest} has already been started"
             )
         return store.start_run(connection, market, as_of)
 

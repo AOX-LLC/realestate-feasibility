@@ -171,11 +171,11 @@ def lock_market_runs(connection: Connection, market: str) -> None:
     )
 
 
-def latest_completed_as_of(connection: Connection, market: str) -> date | None:
+def latest_run_as_of(connection: Connection, market: str) -> date | None:
+    """The latest date any run was started for, whatever its status. A failed or unfinished
+    run may already have moved the listings' last_seen_at, so it counts."""
     latest: date | None = connection.execute(
-        select(func.max(sourcing_run.c.as_of)).where(
-            sourcing_run.c.market == market, sourcing_run.c.status == "completed"
-        )
+        select(func.max(sourcing_run.c.as_of)).where(sourcing_run.c.market == market)
     ).scalar_one()
     return latest
 

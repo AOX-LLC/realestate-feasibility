@@ -112,7 +112,7 @@ def test_an_out_of_order_date_exits_two(seeded: Engine) -> None:
     assert _invoke("run", "--as-of", "2026-10-02").exit_code == 0
     result = _invoke("run", "--as-of", "2026-10-01")
     assert result.exit_code == 2
-    assert "already complete" in result.output
+    assert "already been started" in result.output
 
 
 def test_enqueue_twice_yields_one_queued_job(seeded: Engine) -> None:

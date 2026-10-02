@@ -535,3 +535,14 @@ def test_a_failed_rerun_leaves_no_candidates_behind(seeded: Engine) -> None:
             select(func.count()).select_from(run_listing).where(run_listing.c.run_id == run_id)
         ).scalar_one()
     assert (rows, listings) == (0, 0)
+
+
+def test_an_earlier_date_is_refused_after_a_failed_later_run(seeded: Engine) -> None:
+    """The failed run may already have moved last_seen_at past the earlier day."""
+    _run(seeded, DAY_ONE)
+    error = RentCastError("/listings/sale", 500, "server_error")
+    with pytest.raises(RentCastError):
+        _run_with(seeded, StubClient(seeded, error=error))
+
+    with pytest.raises(RunOutOfOrderError):
+        _run(seeded, DAY_ONE)

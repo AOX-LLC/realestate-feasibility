@@ -113,7 +113,7 @@ docker compose run --rm migrate feasibility source run --as-of 2026-10-02
 docker compose run --rm migrate feasibility source show --status unscored
 ```
 
-- `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than the latest completed run is refused (exit code 2); running the same date again rewrites that run only.
+- `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than any run already started is refused (exit code 2); running the same date again rewrites that run only.
 - `feasibility source show [--run-id N] [--status ranked|filtered|unscored] [--limit 20]` prints a stored run.
 - A run costs one RentCast call in live mode (zero when the response is cached) and none in mock mode.
 
