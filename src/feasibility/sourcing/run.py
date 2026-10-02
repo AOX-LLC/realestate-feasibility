@@ -312,9 +312,9 @@ def _candidate_change_kind(
     primary: ResolvedListing,
     kinds: Mapping[int, str],
     in_previous_run: Collection[int],
-    is_first_run_date: bool,
+    candidate_is_new_today: bool,
 ) -> str:
-    if is_first_run_date:
+    if candidate_is_new_today:
         return "new"
     primary_kind = kinds[primary.row.id]
     if primary_kind == "relisted" or not any(item.row.id in in_previous_run for item in group):
