@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 import respx
@@ -19,10 +21,12 @@ from feasibility.jobs.handlers import (
     run_listings_sync,
 )
 from feasibility.jobs.worker import Worker
+from feasibility.listings import upsert_listings
 from feasibility.markets.loader import get_pack
+from feasibility.sources.base import ListingBatch
 from feasibility.sources.rentcast import models
 from feasibility.sources.rentcast.adapter import to_listing, to_value_estimate
-from feasibility.sources.rentcast.client import sale_listings_params
+from feasibility.sources.rentcast.client import RentCastClient, sale_listings_params
 from feasibility.sources.rentcast.transport import BASE_URL, SnapshotTransport, request_key
 from feasibility.sources.rentcast.verify import CallCeilingError, CeilingTransport, field_shapes
 
@@ -148,3 +152,96 @@ def test_field_shapes_report_types_never_values() -> None:
 
     assert shapes == {"[].id": "str", "[].history.*.price": "float", "[].hoa": "NoneType"}
     assert "secret-looking-value" not in json.dumps(shapes)
+
+
+def _stored(engine: Engine) -> Any:
+    with engine.connect() as connection:
+        return connection.execute(
+            text("SELECT first_seen_at, last_seen_at, unit, price FROM listing")
+        ).one()
+
+
+def _batch(price: int = 450000, *, stale: bool = False, unit: str | None = None) -> Any:
+    record = models.SaleListing.model_validate(
+        {**LISTING, "price": price, "addressLine2": unit, "listingAgent": None}
+    )
+    return ListingBatch([to_listing(record)], stale=stale)
+
+
+def test_observed_at_sets_both_stamps_on_insert(engine: Engine) -> None:
+    seen = datetime(2026, 10, 1, 6, 0, tzinfo=ZoneInfo("America/Chicago"))
+
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(), seen)
+
+    row = _stored(engine)
+    assert row.first_seen_at == seen
+    assert row.last_seen_at == seen
+
+
+def test_a_later_observation_moves_only_last_seen_at(engine: Engine) -> None:
+    first = datetime(2026, 10, 1, 6, 0, tzinfo=ZoneInfo("America/Chicago"))
+    second = first + timedelta(days=1)
+
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(450000), first)
+        upsert_listings(connection, "dallas", _batch(430000), second)
+
+    row = _stored(engine)
+    assert row.first_seen_at == first
+    assert row.last_seen_at == second
+    assert row.price == Decimal("430000")
+
+
+def test_a_stale_batch_moves_neither_stamp(engine: Engine) -> None:
+    first = datetime(2026, 10, 1, 6, 0, tzinfo=ZoneInfo("America/Chicago"))
+
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(), first)
+        upsert_listings(connection, "dallas", _batch(stale=True), first + timedelta(days=1))
+
+    row = _stored(engine)
+    assert row.first_seen_at == first
+    assert row.last_seen_at == first
+
+
+def test_without_observed_at_the_stamps_are_the_clock(engine: Engine) -> None:
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch())
+
+    assert abs(_stored(engine).first_seen_at - datetime.now(UTC)) < timedelta(minutes=5)
+
+
+def test_unit_round_trips_and_updates(engine: Engine) -> None:
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(unit="Unit 4B"))
+    assert _stored(engine).unit == "UNIT 4B"
+
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(unit=None))
+    assert _stored(engine).unit is None
+
+
+def test_snapshot_transport_prefers_the_overlay(tmp_path: Path) -> None:
+    base, overlay = tmp_path / "base", tmp_path / "day-2"
+    base.mkdir()
+    overlay.mkdir()
+    key = request_key("/a", {})
+    only_base = request_key("/b", {})
+    (base / f"{key}.json").write_text(json.dumps({"status": 200, "body": "base"}))
+    (base / f"{only_base}.json").write_text(json.dumps({"status": 200, "body": "base-only"}))
+    (overlay / f"{key}.json").write_text(json.dumps({"status": 200, "body": "overlay"}))
+
+    transport = SnapshotTransport(base, overlay)
+
+    assert transport.get("/a", {}).body == "overlay"
+    assert transport.get("/b", {}).body == "base-only"
+    assert transport.get("/c", {}).status_code == 404
+    assert SnapshotTransport(base).get("/a", {}).body == "base"
+
+
+def test_from_settings_rejects_a_snapshot_day_in_live_mode(engine: Engine, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="mock mode"):
+        RentCastClient.from_settings(
+            engine, _settings(tmp_path, DataMode.LIVE), snapshot_day="day-2"
+        )

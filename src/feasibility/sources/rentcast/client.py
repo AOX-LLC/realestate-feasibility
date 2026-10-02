@@ -152,13 +152,24 @@ class RentCastClient:
 
     @classmethod
     def from_settings(
-        cls, engine: Engine, settings: Settings, *, use_cache: bool = True
+        cls,
+        engine: Engine,
+        settings: Settings,
+        *,
+        use_cache: bool = True,
+        snapshot_day: str | None = None,
     ) -> "RentCastClient":
+        """`snapshot_day` names a sub-directory of the snapshot's rentcast directory that
+        overlays the base responses (mock mode only)."""
+        if snapshot_day is not None and settings.is_live:
+            raise ValueError("snapshot_day is only meaningful in mock mode")
         transport: Transport
         if settings.is_live and settings.rentcast_api_key is not None:
             transport = HttpTransport(settings.rentcast_api_key)
         else:
-            transport = SnapshotTransport(settings.snapshot_dir / "rentcast")
+            snapshot_dir = settings.snapshot_dir / "rentcast"
+            overlay = snapshot_dir / snapshot_day if snapshot_day else None
+            transport = SnapshotTransport(snapshot_dir, overlay)
         return cls(
             engine,
             transport,

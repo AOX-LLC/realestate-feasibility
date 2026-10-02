@@ -11,6 +11,7 @@ Layout written under DIR:
     cad/dallas/current/*.CSV     a values-free "Most Current Ownership" set
     cad/dallas/manifest.json     roll year and file dates for the two sets
     rentcast/<request key>.json  one recorded RentCast response per request
+    days.json                    the dates mock mode can source, and each day's overlay
 
 RentCast bodies are built by instantiating the response models and dumping them, so they
 cannot drift from the schema the application validates against.
@@ -534,6 +535,17 @@ def write_snapshot(out: Path) -> None:
     }
     (cad_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    days = {
+        "days": [
+            {"as_of": "2026-10-01", "overlay": None},
+            {"as_of": "2026-10-02", "overlay": "day-2"},
+        ],
+        "market": MARKET,
+    }
+    (out / "days.json").write_text(
+        json.dumps(days, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
     rentcast_dir = out / "rentcast"

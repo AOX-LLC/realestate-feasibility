@@ -10,9 +10,10 @@ import json
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine
 
@@ -21,6 +22,7 @@ from feasibility.jobs.handlers import listing_query
 from feasibility.listings import upsert_listings
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
+from feasibility.snapshot.days import snapshot_days
 from feasibility.sources.base import ImportReport, ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast.adapter import RentCastListingSource
@@ -42,6 +44,10 @@ class LiveModeSeedError(RuntimeError):
 
 
 def seed(engine: Engine, settings: Settings) -> SeedReport:
+    """Load the synthetic parcels and the first snapshot day's listings.
+
+    For a fresh database. Re-seeding one that has already sourced a later day would reset
+    the first day's listings' last_seen_at to the first day."""
     if settings.is_live:
         # Seeded listings look exactly like RentCast rows, and the synthetic CAD file key
         # would collide with a real import, so a live database never gets them.
@@ -106,6 +112,12 @@ def _load_listings(engine: Engine, settings: Settings, pack: MarketPack) -> int:
             value_estimates=settings.rentcast_ttl_value_estimates,
         ),
     )
+    days = snapshot_days(settings, pack.market.id)
+    observed_at = (
+        datetime.combine(days[0].as_of, time(6, 0), tzinfo=ZoneInfo(pack.market.timezone))
+        if days
+        else None
+    )
     loaded = 0
     try:
         source = RentCastListingSource(client)
@@ -114,7 +126,7 @@ def _load_listings(engine: Engine, settings: Settings, pack: MarketPack) -> int:
                 continue
             batch = source.fetch_listings(listing_query(pack, spec))
             with engine.begin() as connection:
-                loaded += upsert_listings(connection, pack.market.id, batch)
+                loaded += upsert_listings(connection, pack.market.id, batch, observed_at)
     finally:
         client.close()
     return loaded

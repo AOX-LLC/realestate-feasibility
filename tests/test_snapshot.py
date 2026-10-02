@@ -1,7 +1,7 @@
 import csv
 import importlib.util
 import json
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -13,9 +13,11 @@ from sqlalchemy import Engine, text
 
 from feasibility.config import DataMode, Settings
 from feasibility.snapshot.cad_layout import DO_NOT_IMPORT
+from feasibility.snapshot.days import snapshot_day
 from feasibility.snapshot.load import LiveModeSeedError, seed
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
 from feasibility.sources.rentcast.transport import request_key
+from feasibility.sourcing.errors import NoSnapshotForDateError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = REPO_ROOT / "data" / "snapshot"
@@ -233,3 +235,37 @@ def test_seed_refuses_a_live_database(engine: Engine) -> None:
         seed(engine, live)
 
     assert _counts(engine) == {"parcel": 0, "parcel_version": 0, "source_file": 0, "listing": 0}
+
+
+def test_days_file_lists_both_snapshot_days() -> None:
+    recorded = json.loads((SNAPSHOT / "days.json").read_text(encoding="utf-8"))
+
+    assert recorded == {
+        "days": [
+            {"as_of": "2026-10-01", "overlay": None},
+            {"as_of": "2026-10-02", "overlay": "day-2"},
+        ],
+        "market": "dallas",
+    }
+
+
+def test_snapshot_day_resolves_each_date_and_rejects_others() -> None:
+    settings = Settings()
+
+    assert snapshot_day(settings, "dallas", date(2026, 10, 1)) is None
+    assert snapshot_day(settings, "dallas", date(2026, 10, 2)) == "day-2"
+    with pytest.raises(NoSnapshotForDateError, match="2026-10-01, 2026-10-02"):
+        snapshot_day(settings, "dallas", date(2026, 10, 3))
+
+
+def test_seeded_listings_are_first_seen_on_the_first_snapshot_day(engine: Engine) -> None:
+    seed(engine, Settings())
+
+    with engine.connect() as connection:
+        stamps = connection.execute(
+            text(
+                "SELECT min(first_seen_at AT TIME ZONE 'America/Chicago'), "
+                "max(last_seen_at AT TIME ZONE 'America/Chicago') FROM listing"
+            )
+        ).one()
+    assert stamps == (datetime(2026, 10, 1, 6, 0), datetime(2026, 10, 1, 6, 0))
