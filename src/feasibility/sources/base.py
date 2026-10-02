@@ -55,10 +55,17 @@ class ParcelSource(Protocol):
     def import_archive(self, request: ImportRequest) -> ImportReport: ...
 
 
+@dataclass(frozen=True)
+class ListingBatch:
+    listings: list[Listing]
+    # True when the source could not refresh and answered from an expired cache.
+    stale: bool = False
+
+
 class ListingSource(Protocol):
     name: str
 
-    def fetch_listings(self, query: ListingQuery) -> list[Listing]: ...
+    def fetch_listings(self, query: ListingQuery) -> ListingBatch: ...
 
 
 class PropertyRecordSource(Protocol):

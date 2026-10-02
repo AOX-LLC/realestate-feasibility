@@ -39,6 +39,8 @@ class NoResponseError(TransportError):
 class Transport(Protocol):
     def get(self, path: str, params: Mapping[str, str]) -> TransportResponse: ...
 
+    def close(self) -> None: ...
+
 
 def canonical_params(params: Mapping[str, str | int | None]) -> dict[str, str]:
     """Sorted, stripped, string-valued; None values dropped."""
@@ -98,3 +100,6 @@ class SnapshotTransport:
             return TransportResponse(404, {"status": 404, "error": "snapshot/not-found"})
         recorded = json.loads(snapshot_file.read_text(encoding="utf-8"))
         return TransportResponse(int(recorded["status"]), recorded["body"])
+
+    def close(self) -> None:
+        """Nothing to release."""

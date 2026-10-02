@@ -21,6 +21,7 @@ from feasibility.markets.loader import PackError, get_pack, load_pack, pack_path
 from feasibility.markets.schema import FileKind
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
+from feasibility.sources.rentcast import verify
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 market_app = typer.Typer(no_args_is_help=True, help="Market pack commands.")
@@ -116,3 +117,14 @@ def worker(
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     job_worker.run_forever(stop)
+
+
+@app.command("verify-rentcast")
+def verify_rentcast() -> None:
+    """Check the live RentCast API against the models (at most 4 calls, from the budget)."""
+    settings = get_settings()
+    if not settings.is_live:
+        typer.echo("verify-rentcast needs DATA_MODE=live and RENTCAST_API_KEY", err=True)
+        raise typer.Exit(code=2)
+    report_path = verify.verify(get_engine(), settings)
+    typer.echo(f"field report written to {report_path}")

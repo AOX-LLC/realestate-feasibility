@@ -21,14 +21,13 @@ Agent and office fields (ListAgent*, ListOffice*) and any private remarks are
 never mapped, matching the personal-data rule for every other source.
 """
 
-from feasibility.domain import Listing
-from feasibility.sources.base import ListingQuery, NotConfiguredError
+from feasibility.sources.base import ListingBatch, ListingQuery, NotConfiguredError
 
 
 class MlsListingSource:
     name = "mls"
 
-    def fetch_listings(self, query: ListingQuery) -> list[Listing]:
+    def fetch_listings(self, query: ListingQuery) -> ListingBatch:
         raise NotConfiguredError(
             "no MLS feed is configured; this adapter shows where a client's RESO feed plugs in"
         )

@@ -49,6 +49,19 @@ PROPERTY_RECORDS = TypeAdapter(list[PropertyRecord])
 VALUE_ESTIMATE = TypeAdapter(ValueEstimate)
 
 
+def sale_listings_params(query: ListingQuery) -> dict[str, str]:
+    """Query parameters for GET /listings/sale; the snapshot generator keys on these too."""
+    return canonical_params(
+        {
+            "city": query.city,
+            "state": query.state,
+            "status": query.status,
+            "daysOld": str(query.days_old),
+            "limit": str(query.limit),
+        }
+    )
+
+
 class RentCastError(Exception):
     def __init__(self, endpoint: str, status: int | None, error_code: str | None) -> None:
         detail = f"status {status}" if status is not None else "request failed"
@@ -143,21 +156,20 @@ class RentCastClient:
             use_cache=use_cache,
         )
 
+    def close(self) -> None:
+        self._transport.close()
+
     def budget_usage(self) -> budget.BudgetUsage:
         period = budget.period_start(self._clock().date(), self._anchor_day)
         with self._engine.connect() as connection:
             return budget.usage(connection, PROVIDER, period, self._monthly_budget)
 
     def sale_listings(self, query: ListingQuery) -> Fetched[list[SaleListing]]:
-        params = {
-            "city": query.city,
-            "state": query.state,
-            "status": query.status,
-            "daysOld": str(query.days_old),
-            "limit": str(query.limit),
-        }
         request = self._request(
-            "/listings/sale", "/listings/sale", params, self._ttls.sale_listings
+            "/listings/sale",
+            "/listings/sale",
+            sale_listings_params(query),
+            self._ttls.sale_listings,
         )
         fetched = self._get(request, SALE_LISTINGS)
         return Fetched(fetched.data or [], fetched.stale)
