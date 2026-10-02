@@ -97,7 +97,7 @@ There is one client, one scrub path and one validation path. Only the transport 
 
 The refund rules follow RentCast's documented rule that error responses are not billed. Whether that covers 404 and 429 is not yet confirmed; see [Known gaps](docs/ARCHITECTURE.md#known-gaps-and-unverified-points).
 
-Budget math: about 30 listing syncs a month leave about 20 value estimates. Later phases spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed.
+Budget math: about 30 listing syncs a month leave about 20 value estimates. A run prices only its top 5 ranked candidates, reuses an estimate for 7 days, stops at 20 billed estimates a month and holds back one unit for each remaining day's listing sync. A real deployment needs a paid tier or the client's MLS feed.
 
 Live mode has not been exercised against the real API yet; it was built from RentCast's published OpenAPI definition. `feasibility verify-rentcast` (at most 4 calls) checks it. It needs `DATA_MODE=live` and a key, and writes `local/rentcast-verify-<timestamp>.json` with field names and types only.
 
@@ -113,7 +113,7 @@ docker compose run --rm migrate feasibility source run --as-of 2026-10-02
 docker compose run --rm migrate feasibility source show --status unscored
 ```
 
-- `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than any run already started is refused (exit code 2); running the same date again rewrites that run only.
+- `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts (including how many value estimates were called, reused and deferred) and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than any run already started is refused (exit code 2); running the same date again rewrites that run only.
 - `feasibility source show [--run-id N] [--status ranked|filtered|unscored] [--limit 20]` prints a stored run.
 - A run costs one RentCast call in live mode (zero when the response is cached) and none in mock mode.
 
@@ -124,7 +124,7 @@ Read-only API:
 | `GET /sourcing/runs` | Runs, most recently created first, with their counts |
 | `GET /sourcing/runs/{run_id}` | One run |
 | `GET /sourcing/runs/{run_id}/candidates?status=ranked\|filtered\|unscored` | A run's candidates (ranked by rank; the others by candidate id) |
-| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}` | One candidate with its score breakdown and the listings the run saw for it |
+| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}` | One candidate with its score breakdown, the listings the run saw for it and its newest value estimate (price, range and comp counts) bought on or before the run's date, or `null` |
 
 ## Importing real DCAD data
 

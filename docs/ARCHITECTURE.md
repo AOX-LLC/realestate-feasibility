@@ -66,7 +66,9 @@ sourcing/
   diff.py            the daily diff classification (pure)
   counts.py          RunCounts
   store.py           every SQL statement of a run
-  run.py             orchestration: date, sync, diff, match, filter, score, rank, write
+  estimate_store.py  every SQL statement of value estimates: targets, the stored answer, the billed-call count
+  estimates.py       the value-estimate spend: the plan (pure) and the call loop
+  run.py             orchestration: date, sync, diff, match, filter, score, rank, write, price the top
   errors.py          SourcingError and its subclasses
 api/                 app factory, identity, schemas, and routers: health, markets, parcels,
                      listings, jobs, budget, sourcing
@@ -210,7 +212,15 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Budget period.** It starts on `RENTCAST_BILLING_ANCHOR_DAY` (1 to 28). The limit defaults to 50. The hard stop keeps the counted requests under the plan's allowance. That holds only if the refund rule below matches how RentCast actually bills; see Known gaps.
 
-**Budget math.** About 30 listing syncs a month leave about 20 value estimates. Later phases must spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for. One sourcing run makes exactly one call (the listing sync) in live mode, and none when the response is still cached.
+**Budget math.** About 30 listing syncs a month leave about 20 value estimates, and the spend rule below keeps a month inside that. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for. A live run makes the listing sync call (none when the response is still cached) plus at most `top_n` estimate calls, so never more than 1 + 5 a day with the Dallas pack, and typically 1 or 2.
+
+**The spend rule** (`[sourcing.estimates]`, `sourcing/estimates.py`). After the run is ranked, the top `top_n` ranked candidates are the targets. A target that has a stored estimate fetched within `ttl_days` of the run date, whatever its outcome, is reused. The others are bought in rank order, one address at a time, up to
+
+`spendable = max(0, min(targets to buy, monthly_cap - billed estimate calls this period, remaining budget - reserve))`
+
+where `reserve = days left in the period after today x sync_reserve_per_day`, so every remaining day keeps its listing sync. Syncs outrank estimates. The cap counts every billed `/avm/value` row of the period, `feasibility verify-rentcast` calls included; cache hits and refunded calls are not billed. Worked day (31-day month, run on the 1st): 49 left after the sync, reserve 30, 49 - 30 = 19, cap left 20, five targets, so 5 are bought. On the last day the reserve is 0. In a 31-day month that is at most 31 syncs and 19 estimates, in a 30-day month 30 and 20, in a 28-day month 28 and 20.
+
+Each answer is committed the moment it arrives (`candidate_estimate`, one row per candidate and date), so a crash never loses a paid answer and a retry reuses it. A 404 is stored as `no_estimate` and reused like any other answer. A budget that runs out mid-loop defers the rest. Any other `RentCastError` counts that candidate as failed, is logged with secrets redacted and is not retried inside the run, because a job retry would spend again. A stale answer (the call failed and an old cache entry answered) is deferred and not stored. The estimate does not enter the score; it is stored for the pro-forma. In mock mode the snapshot answers, the budget is never touched and the monthly budget, cap and reserve are ignored (top N and reuse still apply). The counts record `estimates_targeted`, `estimates_reused`, `estimates_called`, `estimates_no_estimate`, `estimates_deferred` and `estimates_failed`; every target is reused, called, deferred or failed.
 
 **Scrubbing.** `listingAgent`, `listingOffice` and `owner` are removed at any depth before validation, caching, storage in `listing.raw`, or logging. The models do not declare them. A test asserts that a raw fixture carrying them leaves no trace in the cache.
 
@@ -252,7 +262,7 @@ The client never retries. Retries happen at the job level, with backoff.
 | `[sources.parcels]` | adapter `cad_csv`, source name, encoding, delimiter, archive-name regex with a `year` group, join key, base file, file kinds with `carries_values`, member files, `fields` map (canonical field to file, column, transform, aggregate, unit column), `unit_factors`, optional `skip_accounts` |
 | `[[sources.listings]]` | `rentcast` (city, state, status, `days_old`, `limit`) and `mls` (`enabled = false`) |
 | `[buy_box]` | zips, max price, minimum lot size, maximum year built, minimum land-to-total ratio, property types. Applied by `sourcing/filters.py`. |
-| `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. `[sourcing.estimates]` is the value-estimate spend policy: `top_n` candidates priced, `monthly_cap` billed calls a period, `ttl_days` of reuse, `sync_reserve_per_day` calls held back for the daily sync and `max_age_days` of use (`monthly_cap >= top_n`, `max_age_days >= ttl_days`). |
+| `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. `[sourcing.estimates]` is the value-estimate spend policy: `top_n` candidates priced, `monthly_cap` billed calls a period, `ttl_days` of reuse, and `sync_reserve_per_day` calls held back for the daily sync (`monthly_cap >= top_n`). |
 | `[cost_assumptions]` | `status` (`illustrative` or `reviewed`), `sources_read_on`, and the pro-forma inputs by group: `acquisition`, `demolition`, `construction`, `financing`, `holding`, `selling`, `target`, `arv`, `sizing` (home-size clamp, per-zoning coverage rules and a required `default` rule) and `sensitivity` (the grid, which must contain the base case). Every Dallas cost value is illustrative: a labelled default, not a quote or a builder's actuals. Sources are in `docs/proforma-assumptions.md`. |
 
 `feasibility market validate` checks every pack, and a parametrized test runs over `packs/*.toml`, so a new county is a new file.
@@ -261,7 +271,9 @@ The client never retries. Retries happen at the job level, with backoff.
 
 `sourcing/run.py` turns the stored listings and parcels into a ranked, diffed candidate list for one day. One run is keyed by (market, `as_of`), is idempotent (running the same date again rewrites that run's rows only), and goes forward in time (an earlier date than any run already started is refused). Starting the run, the sync, and recording the sync status are separate transactions; building the run (diff, match, score, rank, write) is one transaction, taken behind an advisory lock per market that re-checks the date order. The sync itself runs outside that lock.
 
-**Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write.
+**Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write. Then, outside any transaction, buy value estimates for the top candidates (the spend rule under the RentCast client's budget math).
+
+**A failure after the build.** The build transaction commits the ranking and completes the run before anything is paid for. If the estimate stage then fails, the run stays `completed` with its ranking, `sourcing_run.error` carries the redacted message (a completed run with a non-null `error` means "ranked, but a later stage failed"), the counts record what was bought and `estimates_failed`, and the exception propagates. An unclassified error retries the job; a shape change (`SchemaDriftError`) is permanent for the worker, and the next day's run tries again. A retry rebuilds the run's rows, reuses every stored estimate and finishes; completing the run clears `error`. A failure in the sync or the build still marks the run `failed` and clears its rows.
 
 **Schema (`0002_sourcing` to `0004_candidate_estimate`).**
 
@@ -364,6 +376,8 @@ Pre-commit runs gitleaks and ruff.
 - **A new source's listing can make a continuously listed property `relisted`.** A listing from a source not seen before, for a property that had a candidate on an earlier day, is classified as relisted by the property rule even though another source's listing was in the previous feed.
 - **The synthetic AVM comps for the six estimate candidates are not market data.** They are drawn from per-zip $/sqft ranges chosen so the demo's pro-formas spread out (`NEW_BUILD_PSF_BY_ZIP` in the generator), and say nothing about real Dallas prices.
 - **`/properties` fixtures are keyed on the title-case address** and would miss in mock mode; nothing calls that endpoint, so they are left alone. The `/avm/value` fixtures are keyed on the normalised one-line address the client sends.
-- **Value-estimate spend is not built.** Phase 3 spends RentCast estimates on top-ranked candidates (see the budget math above); nothing in phase 2 calls an estimate endpoint.
+- **The live estimate spend has never run against RentCast.** It is tested through stub transports only. Not verified live: whether `/avm/value` returns sale comps for most addresses, whether it returns any for a vacant lot, and (as above) whether 404 and 429 are billed.
+- **The spend and the client can disagree about the billing period near its boundary.** The cap and reserve use the period that contains the run date (the market's time zone); the budget reservation uses the UTC date. When the two differ, before the first call or between two calls, the stage spends nothing more and defers the rest until the next run; the hard budget stop is unaffected.
+- **Estimates are reused for `ttl_days` and a market move inside that window is not seen.**
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.

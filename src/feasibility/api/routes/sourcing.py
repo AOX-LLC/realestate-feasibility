@@ -21,6 +21,7 @@ from feasibility.api.schemas import (
     CandidateAddressOut,
     CandidateDetailOut,
     CandidateListingOut,
+    EstimateOut,
     MatchOut,
     Page,
     RunCandidateOut,
@@ -30,6 +31,7 @@ from feasibility.sourcing.counts import RunCounts
 from feasibility.sourcing.scoring import ScoreBreakdown
 from feasibility.tables import (
     candidate,
+    candidate_estimate,
     listing,
     run_candidate,
     run_listing,
@@ -186,7 +188,8 @@ def list_run_candidates(
 def get_run_candidate(
     engine: EngineDep, run_id: RunId, candidate_id: CandidateId
 ) -> CandidateDetailOut:
-    """One candidate in one run: its score breakdown and every listing that run saw for it."""
+    """One candidate in one run: its score breakdown, every listing that run saw for it and
+    the newest value estimate bought for it on or before the run's date."""
     with engine.connect() as connection:
         row = (
             connection.execute(
@@ -214,6 +217,30 @@ def get_run_candidate(
             .mappings()
             .all()
         )
+        estimate_row = (
+            connection.execute(
+                select(
+                    candidate_estimate.c.fetched_on,
+                    candidate_estimate.c.outcome,
+                    candidate_estimate.c.price,
+                    candidate_estimate.c.price_low,
+                    candidate_estimate.c.price_high,
+                    candidate_estimate.c.comp_count,
+                    candidate_estimate.c.dropped_comp_count,
+                )
+                .where(
+                    candidate_estimate.c.candidate_id == candidate_id,
+                    candidate_estimate.c.fetched_on
+                    <= select(sourcing_run.c.as_of)
+                    .where(sourcing_run.c.id == run_id)
+                    .scalar_subquery(),
+                )
+                .order_by(candidate_estimate.c.fetched_on.desc())
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
 
     breakdown = row["breakdown"]
     return CandidateDetailOut.model_validate(
@@ -221,5 +248,8 @@ def get_run_candidate(
             **_candidate_fields(row),
             "breakdown": None if breakdown is None else ScoreBreakdown.model_validate(breakdown),
             "listings": [CandidateListingOut.model_validate(dict(item)) for item in listing_rows],
+            "estimate": None
+            if estimate_row is None
+            else EstimateOut.model_validate(dict(estimate_row)),
         }
     )

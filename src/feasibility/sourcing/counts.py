@@ -39,3 +39,12 @@ class RunCounts(BaseModel):
     ranked: int = 0
     filtered: int = 0
     unscored: int = 0
+    # The value-estimate spend. Every targeted candidate is reused, called, deferred or
+    # failed; a call RentCast answered with no estimate is also counted in no_estimate.
+    # Zero on runs stored before the spend existed.
+    estimates_targeted: int = 0
+    estimates_reused: int = 0
+    estimates_called: int = 0
+    estimates_no_estimate: int = 0
+    estimates_deferred: int = 0
+    estimates_failed: int = 0

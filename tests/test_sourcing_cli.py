@@ -96,6 +96,8 @@ def test_run_prints_the_counts_and_the_top_ten(seeded: Engine) -> None:
     assert result.exit_code == 0, result.output
     assert "ranked 12" in result.output
     assert "listing_filtered 6" in result.output
+    assert "estimates_called 5" in result.output
+    assert "estimates: 5 called, 0 reused, 0 deferred, 0 failed" in result.output
     lines = result.output.splitlines()
     top = lines[lines.index("top 10 ranked:") + 1 :]
     assert len(top) == 10

@@ -118,14 +118,13 @@ max_drift_years = "2"
 stale_values_years = "1"
 
 # Value-estimate spend (sourcing/estimates.py): the top 5 ranked candidates are priced, at most
-# 20 billed calls a period, each estimate reused for 7 days and used for up to 30. One listing
+# 20 billed calls a period, each estimate reused for 7 days. One listing
 # sync a day is held back from the budget.
 [sourcing.estimates]
 top_n = 5
 monthly_cap = 20
 ttl_days = 7
 sync_reserve_per_day = 1
-max_age_days = 30
 
 # Every value below is an illustrative default, not a quote or a builder's actuals. Sources and
 # the date they were read are listed in docs/proforma-assumptions.md.

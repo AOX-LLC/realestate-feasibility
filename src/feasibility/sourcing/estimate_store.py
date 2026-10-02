@@ -10,11 +10,21 @@ from typing import Any
 from sqlalchemy import Connection, func, select
 from sqlalchemy.dialects.postgresql import distinct_on, insert
 
-from feasibility.tables import api_request_log, candidate_estimate
+from feasibility.domain.address import Address
+from feasibility.tables import api_request_log, candidate_estimate, listing, run_candidate
 
 # The endpoint literal the RentCast client logs for a value estimate.
 VALUE_ESTIMATE_ENDPOINT = "/avm/value"
 KEY_COLUMNS = ("candidate_id", "fetched_on")
+
+
+@dataclass(frozen=True, slots=True)
+class EstimateTarget:
+    """A ranked candidate worth pricing and the address of its primary listing."""
+
+    candidate_id: int
+    rank: int
+    address: Address
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +58,45 @@ class StoredEstimate:
     dropped_comp_count: int
     comps: list[dict[str, Any]]
     run_id: int | None
+
+
+def estimate_targets(connection: Connection, run_id: int, top_n: int) -> list[EstimateTarget]:
+    """The run's ranked candidates at rank top_n or better, best first, each with the address
+    of its primary listing as the run's feed spelled it."""
+    rows = connection.execute(
+        select(
+            run_candidate.c.candidate_id,
+            run_candidate.c.rank,
+            listing.c.address_line,
+            listing.c.unit,
+            listing.c.city,
+            listing.c.state,
+            listing.c.zip5,
+        )
+        .select_from(
+            run_candidate.join(listing, listing.c.id == run_candidate.c.primary_listing_id)
+        )
+        .where(
+            run_candidate.c.run_id == run_id,
+            run_candidate.c.status == "ranked",
+            run_candidate.c.rank <= top_n,
+        )
+        .order_by(run_candidate.c.rank)
+    )
+    return [
+        EstimateTarget(
+            row.candidate_id,
+            row.rank,
+            Address(
+                street=row.address_line,
+                unit=row.unit,
+                city=row.city,
+                state=row.state,
+                zip5=row.zip5,
+            ),
+        )
+        for row in rows
+    ]
 
 
 def save_estimate(connection: Connection, row: EstimateWrite) -> None:

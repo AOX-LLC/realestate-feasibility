@@ -167,7 +167,6 @@ def test_dallas_sourcing_section_loads() -> None:
         "monthly_cap": 20,
         "ttl_days": 7,
         "sync_reserve_per_day": 1,
-        "max_age_days": 30,
     }
 
 
@@ -186,8 +185,6 @@ ESTIMATE_BREAKS = [
     ("top_n", 25, "monthly_cap must be at least top_n"),  # the cap is 20
     ("monthly_cap", 4, "monthly_cap must be at least top_n"),  # top_n is 5
     ("ttl_days", 0, "greater than or equal to 1"),
-    ("ttl_days", 31, "max_age_days must be at least ttl_days"),  # max_age_days is 30
-    ("max_age_days", 6, "max_age_days must be at least ttl_days"),  # ttl_days is 7
     ("sync_reserve_per_day", -1, "greater than or equal to 0"),
 ]
 

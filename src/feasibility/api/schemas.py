@@ -65,7 +65,6 @@ class EstimatesOut(ResponseModel):
     monthly_cap: int
     ttl_days: int
     sync_reserve_per_day: int
-    max_age_days: int
 
 
 class SourcingOut(ResponseModel):
@@ -191,10 +190,25 @@ class CandidateListingOut(ResponseModel):
     is_primary: bool
 
 
+class EstimateOut(ResponseModel):
+    """A stored value estimate. The comparables stay in the database."""
+
+    fetched_on: date
+    outcome: Literal["ok", "no_estimate"]
+    # Null when RentCast had no estimate for the address.
+    price: Decimal | None
+    price_low: Decimal | None
+    price_high: Decimal | None
+    comp_count: int
+    dropped_comp_count: int
+
+
 class CandidateDetailOut(RunCandidateOut):
     # Null unless the candidate is ranked.
     breakdown: ScoreBreakdown | None
     listings: list[CandidateListingOut]
+    # The newest estimate bought on or before the run's date; null when there is none.
+    estimate: EstimateOut | None
 
 
 class Page[T](ResponseModel):
