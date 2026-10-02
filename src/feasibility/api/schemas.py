@@ -40,10 +40,32 @@ class BuyBoxOut(ResponseModel):
     property_types: list[str]
 
 
+class ScoringOut(ResponseModel):
+    land_ratio_weight: Decimal
+    land_ratio_full: Decimal
+    age_weight: Decimal
+    age_full_year: int
+    lot_weight: Decimal
+    lot_full_sqft: Decimal
+    price_land_weight: Decimal
+    price_land_full: Decimal
+    price_land_zero: Decimal
+    vacant_age_credit: Decimal
+    value_drift_pct_per_year: Decimal
+    max_drift_years: Decimal
+    stale_values_years: Decimal
+
+
+class SourcingOut(ResponseModel):
+    source_priority: list[str]
+    scoring: ScoringOut
+
+
 class MarketDetail(MarketSummary):
     parcel_source: str
     listing_sources: list[str]
     buy_box: BuyBoxOut
+    sourcing: SourcingOut
     cost_assumptions_status: str
 
 

@@ -154,3 +154,46 @@ def test_malformed_archive_pattern_is_a_validation_error() -> None:
 
     with pytest.raises(ValidationError, match="not a valid regex"):
         MarketPack.model_validate(data)
+
+
+def test_dallas_sourcing_section_loads() -> None:
+    sourcing = get_pack("dallas").sourcing
+
+    assert sourcing.source_priority == ["mls", "rentcast"]
+    assert sourcing.scoring.land_ratio_weight == 35
+
+
+SOURCING_BREAKS = [
+    ("scoring", "age_weight", "25", "weights must sum to 100"),
+    ("scoring", "age_full_year", 1965, "age_full_year"),
+    ("scoring", "land_ratio_full", "0.55", "land_ratio_full"),
+    ("scoring", "lot_full_sqft", "6000", "lot_full_sqft"),
+    ("scoring", "price_land_full", "1.75", "price_land_full"),
+]
+
+
+@pytest.mark.parametrize(("section", "key", "value", "message"), SOURCING_BREAKS)
+def test_sourcing_cross_field_rules_reject_one_wrong_field(
+    section: str, key: str, value: object, message: str
+) -> None:
+    data = dallas_dict()
+    data["sourcing"][section][key] = value
+
+    with pytest.raises(ValidationError, match=message):
+        MarketPack.model_validate(data)
+
+
+def test_sourcing_section_is_required() -> None:
+    data = dallas_dict()
+    del data["sourcing"]
+
+    with pytest.raises(ValidationError, match="sourcing"):
+        MarketPack.model_validate(data)
+
+
+def test_unknown_key_inside_sourcing_is_rejected() -> None:
+    data = dallas_dict()
+    data["sourcing"]["scoring"]["surprise"] = 1
+
+    with pytest.raises(ValidationError):
+        MarketPack.model_validate(data)
