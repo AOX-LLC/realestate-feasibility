@@ -164,9 +164,10 @@ def spend_estimates(
     """Price the run's top candidates and merge the counts into the run, also when a failure
     cuts the stage short.
 
-    A budget that runs out mid-loop defers the rest. Any other RentCast error defers that one
-    candidate, is logged redacted and is not retried: a job retry would spend again. A shape
-    change (`SchemaDriftError`) and anything unexpected propagate after the counts are saved.
+    A budget that runs out mid-loop defers the rest. Any other RentCast error counts that one
+    candidate as failed, is logged redacted and is not retried: a job retry would spend again.
+    A shape change (`SchemaDriftError`) and anything unexpected propagate after the counts
+    are saved.
     Only one stage spends at a time, so two overlapping runs cannot both read the same
     headroom under the cap and the sync reserve.
     """

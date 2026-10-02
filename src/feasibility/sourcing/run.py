@@ -112,8 +112,9 @@ def run_sourcing(
     *,
     client: RentCastClient | None = None,
 ) -> SourcingResult:
-    """Source one day. A failure other than an exhausted budget marks the run failed and
-    propagates, so a job retries it."""
+    """Source one day. A failure in the sync or the build marks the run failed and propagates.
+    A failure after the build (the estimate spend) leaves the ranked run completed with its
+    error recorded, and also propagates."""
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
     run_id = _start_run(engine, market, run_date)
