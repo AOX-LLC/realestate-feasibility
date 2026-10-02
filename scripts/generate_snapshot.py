@@ -14,6 +14,7 @@ Layout written under DIR:
     rentcast/day-2/<key>.json    the second snapshot day's listing feed (an overlay)
     days.json                    the dates mock mode can source, and each day's overlay
 
+An /avm/value file is keyed on the normalised one-line address the client sends.
 RentCast bodies are built by instantiating the response models and dumping them, so they
 cannot drift from the schema the application validates against.
 """
@@ -29,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from feasibility.domain.address import Address
 from feasibility.listings import listing_query
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import RentCastListings
@@ -85,6 +87,23 @@ CURRENT_ONLY_COUNT = 3
 
 LISTED = (0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 20, 21, 22, 23, 40, 41, 47, 50, 51)
 DETAILED = (0, 1, 20, 40, 50)
+# The six candidates whose value estimate feeds a demo pro-forma (accounts 051, 004, 052, 002,
+# 006, 015), in the order the new-construction stream `rng3` is consumed.
+ESTIMATE_PARCELS = (50, 3, 51, 1, 5, 14)
+# Synthetic new-construction resale $/sqft by zip, chosen so the demo's pro-formas spread out
+# (some clear the target margin, some are marginal, one loses). NOT market data: it says
+# nothing about real Dallas prices. A comp's psf is drawn from the range inset by $0.25 on each
+# side, so its price rounded to the nearest $1,000 (at most $0.19/sqft on a 2,600 sqft comp)
+# still lands inside the range.
+NEW_BUILD_PSF_BY_ZIP = {
+    "75209": (470, 490),
+    "75218": (450, 470),
+    "75206": (400, 420),
+    "75223": (440, 460),
+    "75228": (480, 500),
+}
+PSF_ROUNDING_INSET = 0.25
+NEW_BUILD_COMPARABLES = 7  # position 0 has no listing type, position 1 is a rental, 5 are sales
 AS_OF = datetime(2026, 10, 1, tzinfo=UTC)
 DAY_2 = datetime(2026, 10, 2, tzinfo=UTC)
 OVERLAY_DIR = "day-2"
@@ -533,6 +552,92 @@ def _value_estimate(
     )
 
 
+def _same_zip_sample(
+    houses: Sequence[Parcel], subject: Parcel, rng: random.Random, count: int
+) -> list[Parcel]:
+    """`count` houses, same-zip ones first and other houses only to fill up. Draws from `rng`
+    alone, so the stream `_neighbors` uses is never touched."""
+    others = [house for house in houses if house.index != subject.index]
+    nearby = [house for house in others if house.zip_code == subject.zip_code]
+    farther = [house for house in others if house.zip_code != subject.zip_code]
+    chosen = rng.sample(nearby, min(count, len(nearby)))
+    if len(chosen) < count:
+        chosen += rng.sample(farther, count - len(chosen))
+    return chosen
+
+
+def new_build_value_estimate(
+    parcel: Parcel, neighbors: Sequence[Parcel], rng3: random.Random, psf_range: tuple[int, int]
+) -> ValueEstimate:
+    """An estimate whose sale comps look like new-construction resales: 2,600-3,800 sqft at a
+    $/sqft drawn from the zip's range. The point estimate still values the existing property
+    (the pro-forma never uses it). Positions 0 and 1 are the two comparables the adapter drops."""
+    low, high = psf_range[0] + PSF_ROUNDING_INSET, psf_range[1] - PSF_ROUNDING_INSET
+    subject_price = float(_round(parcel.total_value * rng3.uniform(1.0, 1.25)))
+    comparables = []
+    for position, neighbor in enumerate(neighbors):
+        listing_type = (
+            SALE_LISTING_TYPES_OUT[position]
+            if position < 2
+            else rng3.choice(("Standard", "New Construction"))
+        )
+        square_footage = rng3.randint(260, 380) * 10
+        price = float(_round(rng3.uniform(low, high) * square_footage))
+        rental = listing_type == "Rental"
+        listed = LISTING_WINDOW_START.replace(month=7, day=rng3.randint(1, 28))
+        comparables.append(
+            Comparable(
+                id=neighbor.record_id,
+                formatted_address=neighbor.formatted_address,
+                address_line1=f"{neighbor.street_number} {neighbor.street_word} "
+                f"{neighbor.suffix.title()}",
+                city="Dallas",
+                state="TX",
+                zip_code=neighbor.zip_code,
+                property_type="Single Family",
+                square_footage=square_footage,
+                lot_size=float(rng3.randint(6000, 9500)),
+                year_built=rng3.randint(2019, 2025),
+                status="Inactive",
+                price=float(rng3.randint(18, 40) * 100) if rental else price,
+                listing_type=listing_type,
+                listed_date=listed,
+                removed_date=listed.replace(month=8),
+                days_on_market=rng3.randint(15, 70),
+                distance=round(rng3.uniform(0.2, 1.8), 2),
+                days_old=rng3.randint(20, 150),
+                correlation=round(rng3.uniform(0.93, 0.995), 4),
+            )
+        )
+    return ValueEstimate(
+        price=subject_price,
+        price_range_low=float(_round(subject_price * 0.92)),
+        price_range_high=float(_round(subject_price * 1.08)),
+        subject_property=SubjectProperty(
+            id=parcel.record_id,
+            formatted_address=parcel.formatted_address,
+            city="Dallas",
+            state="TX",
+            zip_code=parcel.zip_code,
+            property_type="Single Family",
+            square_footage=parcel.living_area or None,
+            lot_size=float(parcel.lot_sqft),
+            year_built=parcel.year_built or None,
+        ),
+        comparables=comparables,
+    )
+
+
+def value_estimate_record(parcel: Parcel, estimate: ValueEstimate) -> tuple[str, bytes]:
+    """The recorded /avm/value response, keyed on the one-line address the client sends."""
+    address = Address.normalized(
+        parcel.line1, city="Dallas", state="TX", zip_code=parcel.zip_code
+    ).one_line
+    return _snapshot_record(
+        "/avm/value", "/avm/value", value_estimate_params(address), _dump(estimate)
+    )
+
+
 def _snapshot_record(
     endpoint: str, path: str, params: Mapping[str, str], body: Any
 ) -> tuple[str, bytes]:
@@ -559,7 +664,10 @@ def _listings_record(listings: Sequence[SaleListing]) -> tuple[str, bytes]:
 
 
 def rentcast_files(
-    parcels: Sequence[Parcel], listings: Sequence[SaleListing], rng: random.Random
+    parcels: Sequence[Parcel],
+    listings: Sequence[SaleListing],
+    rng: random.Random,
+    rng3: random.Random,
 ) -> dict[str, bytes]:
     by_index = {parcel.index: parcel for parcel in parcels}
     files = dict([_listings_record(listings)])
@@ -581,14 +689,22 @@ def rentcast_files(
                     property_record_params(parcel.formatted_address),
                     [_dump(_property_record(parcel, rng))],
                 ),
-                _snapshot_record(
-                    "/avm/value",
-                    "/avm/value",
-                    value_estimate_params(parcel.formatted_address),
-                    _dump(_value_estimate(parcel, _neighbors(houses, parcel, rng), rng)),
-                ),
             ]
         )
+        # Drawn for every detailed parcel so the later ones keep their original bodies; the
+        # estimate candidates' bodies are replaced below.
+        old_estimate = _value_estimate(parcel, _neighbors(houses, parcel, rng), rng)
+        if index not in ESTIMATE_PARCELS:
+            files.update([value_estimate_record(parcel, old_estimate)])
+    for index in ESTIMATE_PARCELS:
+        parcel = by_index[index]
+        estimate = new_build_value_estimate(
+            parcel,
+            _same_zip_sample(houses, parcel, rng3, NEW_BUILD_COMPARABLES),
+            rng3,
+            NEW_BUILD_PSF_BY_ZIP[parcel.zip_code],
+        )
+        files.update([value_estimate_record(parcel, estimate)])
     return files
 
 
@@ -690,6 +806,7 @@ def write_snapshot(out: Path) -> None:
     parcels = make_parcels(rng, buy_box)
     extras = _extra_accounts(rng, buy_box)
     rng2 = random.Random(SEED + 2)  # all new randomness; the original stream is untouched
+    rng3 = random.Random(SEED + 3)  # the new-construction estimate comps, and nothing else
 
     cad_dir = out / "cad" / MARKET
     for kind, certified in (("certified", True), ("current", False)):
@@ -723,7 +840,7 @@ def write_snapshot(out: Path) -> None:
     for stale in [*rentcast_dir.glob("*.json"), *overlay_dir.glob("*.json")]:
         stale.unlink()
     listings = make_listings(parcels, rng)
-    for name, content in rentcast_files(parcels, listings, rng).items():
+    for name, content in rentcast_files(parcels, listings, rng, rng3).items():
         (rentcast_dir / name).write_bytes(content)
     for name, content in day2_listing_files(parcels, listings, rng2).items():
         (overlay_dir / name).write_bytes(content)

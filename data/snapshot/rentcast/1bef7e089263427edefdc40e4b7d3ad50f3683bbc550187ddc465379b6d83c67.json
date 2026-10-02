@@ -144,7 +144,7 @@
   },
   "endpoint": "/avm/value",
   "params": {
-    "address": "3692 Ostravelle Dr, Dallas, TX 75220",
+    "address": "3692 OSTRAVELLE DR, DALLAS, TX 75220",
     "compCount": "15"
   },
   "path": "/avm/value",

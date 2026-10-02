@@ -144,7 +144,7 @@
   },
   "endpoint": "/avm/value",
   "params": {
-    "address": "1406 Marlowmere St, Dallas, TX 75214",
+    "address": "1406 MARLOWMERE ST, DALLAS, TX 75214",
     "compCount": "15"
   },
   "path": "/avm/value",
