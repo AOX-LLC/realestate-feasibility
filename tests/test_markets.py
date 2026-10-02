@@ -138,3 +138,19 @@ def test_market_id_must_match_the_file_name(tmp_path: Path) -> None:
 def test_unknown_market_raises_pack_error() -> None:
     with pytest.raises(PackError):
         get_pack("nope")
+
+
+def test_sum_on_a_text_field_is_rejected() -> None:
+    data = dallas_dict()
+    data["sources"]["parcels"]["fields"]["zoning"]["aggregate"] = "sum"
+
+    with pytest.raises(ValidationError, match="'sum' needs transform"):
+        MarketPack.model_validate(data)
+
+
+def test_malformed_archive_pattern_is_a_validation_error() -> None:
+    data = dallas_dict()
+    data["sources"]["parcels"]["archive_pattern"] = "^DCAD(?P<year>\\d{4}"
+
+    with pytest.raises(ValidationError, match="not a valid regex"):
+        MarketPack.model_validate(data)

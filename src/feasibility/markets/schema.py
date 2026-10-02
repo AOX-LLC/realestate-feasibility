@@ -122,7 +122,11 @@ class ParcelSourceSpec(PackModel):
     @field_validator("archive_pattern")
     @classmethod
     def _pattern_has_year(cls, value: str) -> str:
-        if "year" not in re.compile(value).groupindex:
+        try:
+            pattern = re.compile(value)
+        except re.error as error:
+            raise ValueError(f"archive_pattern is not a valid regex: {error}") from None
+        if "year" not in pattern.groupindex:
             raise ValueError("archive_pattern needs a named group 'year'")
         return value
 
@@ -142,6 +146,8 @@ class ParcelSourceSpec(PackModel):
             raise ValueError(f"fields reference undeclared files: {sorted(missing)}")
 
     def _check_no_personal_data(self) -> None:
+        # skip_accounts.column is exempt: its value only decides whether to drop the
+        # account and is never staged or stored.
         names = [self.join_key, *self.files, *(m.member for m in self.files.values())]
         for spec in self.fields.values():
             names += [spec.column, spec.unit_column or "", spec.order_column or ""]
@@ -156,6 +162,8 @@ class ParcelSourceSpec(PackModel):
         for name, spec in self.fields.items():
             if spec.file == self.base_file and spec.aggregate != "first":
                 raise ValueError(f"{name}: the base file has one row per account; use 'first'")
+            if spec.aggregate == "sum" and spec.transform not in ("int", "decimal"):
+                raise ValueError(f"{name}: 'sum' needs transform 'int' or 'decimal'")
             if spec.unit_column and spec.transform != "decimal":
                 raise ValueError(f"{name}: unit conversion needs transform 'decimal'")
             if spec.unit_column and not self.unit_factors:
