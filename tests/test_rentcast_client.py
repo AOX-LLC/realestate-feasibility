@@ -244,6 +244,7 @@ def test_the_api_key_never_leaks(
             raised.append(f"{error!r} {error} {error.__cause__!r} {error.__context__!r}")
 
     assert len(raised) == 5  # every outcome except 200 and 404
+    assert "httpx" not in " ".join(raised)
     assert SENTINEL not in caplog.text
     assert SENTINEL not in " ".join(raised)
     for table in ("api_cache", "api_request_log", "api_budget"):

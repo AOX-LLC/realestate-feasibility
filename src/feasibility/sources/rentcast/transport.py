@@ -65,13 +65,17 @@ class HttpTransport:
         )
 
     def get(self, path: str, params: Mapping[str, str]) -> TransportResponse:
+        failure: type[TransportError] | None = None
         try:
             response = self._client.get(path, params=params)
         except (httpx.ConnectError, httpx.ConnectTimeout):
-            # `from None`: the httpx error chains the request, and the request has the key.
-            raise ConnectFailedError(path) from None
+            failure = ConnectFailedError
         except httpx.HTTPError:
-            raise NoResponseError(path) from None
+            failure = NoResponseError
+        if failure is not None:
+            # Raised outside the except block so neither __cause__ nor __context__ holds
+            # the httpx error, whose request carries the key header.
+            raise failure(path)
         return TransportResponse(response.status_code, _json_or_none(response))
 
     def close(self) -> None:

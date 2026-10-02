@@ -27,7 +27,8 @@ from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
 
-app = typer.Typer(no_args_is_help=True, add_completion=False)
+# Uncaught errors go through logging (and its secret redaction), not Typer's printer.
+app = typer.Typer(no_args_is_help=True, add_completion=False, pretty_exceptions_enable=False)
 market_app = typer.Typer(no_args_is_help=True, help="Market pack commands.")
 app.add_typer(market_app, name="market")
 
