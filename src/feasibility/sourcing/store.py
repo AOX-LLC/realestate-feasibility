@@ -115,6 +115,9 @@ class PreviousRunListing:
     price: Decimal | None
     candidate_id: int | None
     filter_reason: str | None
+    match_status: str | None
+    match_method: str | None
+    match_account_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +152,10 @@ class RunListingWrite:
     candidate_id: int | None
     is_primary: bool
     filter_reason: str | None
+    # The match this run made; all None when the listing failed a listing-level filter.
+    match_status: str | None = None
+    match_method: str | None = None
+    match_account_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +278,9 @@ def run_listings_of(connection: Connection, run_id: int) -> list[PreviousRunList
             run_listing.c.price,
             run_listing.c.candidate_id,
             run_listing.c.filter_reason,
+            run_listing.c.match_status,
+            run_listing.c.match_method,
+            run_listing.c.match_account_id,
         ).where(run_listing.c.run_id == run_id)
     )
     return [PreviousRunListing(**row._mapping) for row in rows]
@@ -348,6 +358,9 @@ def write_run_listings(
                 ),
                 "is_primary": row.is_primary,
                 "filter_reason": row.filter_reason,
+                "match_status": row.match_status,
+                "match_method": row.match_method,
+                "match_account_id": row.match_account_id,
             }
             for row in rows
         ],
