@@ -7,11 +7,15 @@ x-hardening: &hardening
   tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=1700"]
   pids_limit: 256
 
-# The one writable path in the app containers: CAD archives in, verify-rentcast reports out.
-# It is gitignored and bind-mounted only into the services that read or write it.
+# The one writable path in the app containers: verify-rentcast reports go out through
+# migrate. It is gitignored. The worker only reads CAD archives from it, so it is read-only there.
 x-local-dir: &local-dir
   volumes:
     - ./local:/app/local
+
+x-local-dir-read-only: &local-dir-read-only
+  volumes:
+    - ./local:/app/local:ro
 
 x-app: &app
   build:
@@ -83,7 +87,7 @@ services:
     mem_limit: 256m
 
   worker:
-    <<: [*app, *hardening, *local-dir]
+    <<: [*app, *hardening, *local-dir-read-only]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:
