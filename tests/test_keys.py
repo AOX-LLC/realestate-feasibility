@@ -92,10 +92,10 @@ def test_parcel_keys_use_the_same_normalization_as_listings() -> None:
     assert key is not None
     assert key.half == "1/2"
     assert full_key(key) == "4120|1/2|BRINDLECOMBE ST"
-    assert (
-        parcel_street_key(" 5521 ", None, "S WEXCOMBE AVE")
-        == (parse_listing_street("5521 South Wexcombe Avenue", None) or ((),))[0]
-    )
+    parcel_key = parcel_street_key(" 5521 ", None, "S WEXCOMBE AVE")
+    listing_parsed = parse_listing_street("5521 South Wexcombe Avenue", None)
+    assert listing_parsed is not None
+    assert parcel_key == listing_parsed[0]
 
 
 @pytest.mark.parametrize(
