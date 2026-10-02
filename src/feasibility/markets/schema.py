@@ -284,4 +284,10 @@ class MarketPack(PackModel):
             raise ValueError("lot_full_sqft must exceed buy_box.lot_size_min_sqft")
         if scoring.price_land_full >= scoring.price_land_zero:
             raise ValueError("price_land_full must be below price_land_zero")
+        priority = self.sourcing.source_priority
+        if len(set(priority)) != len(priority):
+            raise ValueError("source_priority must not repeat a source")
+        unknown = set(priority) - {spec.adapter for spec in self.sources.listings}
+        if unknown:
+            raise ValueError(f"source_priority names unconfigured sources: {sorted(unknown)}")
         return self

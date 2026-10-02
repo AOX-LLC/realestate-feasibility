@@ -197,3 +197,19 @@ def test_unknown_key_inside_sourcing_is_rejected() -> None:
 
     with pytest.raises(ValidationError):
         MarketPack.model_validate(data)
+
+
+def test_source_priority_cannot_repeat_a_source() -> None:
+    data = dallas_dict()
+    data["sourcing"]["source_priority"] = ["mls", "mls"]
+
+    with pytest.raises(ValidationError, match="repeat"):
+        MarketPack.model_validate(data)
+
+
+def test_source_priority_cannot_name_an_unconfigured_source() -> None:
+    data = dallas_dict()
+    data["sourcing"]["source_priority"] = ["mls", "zillow"]
+
+    with pytest.raises(ValidationError, match="unconfigured"):
+        MarketPack.model_validate(data)
