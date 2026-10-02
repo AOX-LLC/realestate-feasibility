@@ -28,6 +28,8 @@ Every value in `[cost_assumptions]` of `src/feasibility/markets/packs/dallas.tom
 
 `docs/proforma-reference.xlsx` is an independent check on the pro-forma formulas, built from the pro-forma formulas alone (not from any engine code) and recalculated so its cached values are present. The formulas, not the spreadsheet's numbers, are the authority; the worked figures in `tests/test_proforma_reference.py` were hand-computed from them. The engine that implements the formulas ships in a later change.
 
+To rebuild: from an empty scratch directory run `uv run python <repo>/scripts/build_proforma_reference.py` (it writes `proforma-reference.xlsx` and `rows.json` into the current directory, with the assumptions written as plain values), then recalculate as below and copy the result over `docs/proforma-reference.xlsx`. `scripts/build_proforma_reference.py` is the generator the independent builder wrote; apart from the tax-rate input it has only been reformatted and lint-fixed (renames, bound loop variables, split long strings), and it produces a cell-for-cell identical workbook.
+
 Recalculation runs in a throwaway container; nothing is installed on the host. Image, resolved on 2026-10-02:
 
 ```
