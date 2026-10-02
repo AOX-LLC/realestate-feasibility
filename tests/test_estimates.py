@@ -579,3 +579,26 @@ def test_a_failure_saving_the_counts_does_not_replace_the_failure_in_flight(
 
     with pytest.raises(SchemaDriftError):
         spend.spend()
+
+
+def test_a_period_boundary_crossed_mid_loop_defers_the_rest(spend: Spend) -> None:
+    """The clock reads Oct 31 when the headroom is read and Nov 1 (UTC) from the third call."""
+    last_day = date(2026, 10, 31)
+    spend.now = datetime(2026, 10, 31, 23, 59, tzinfo=UTC)
+
+    def cross_the_boundary() -> None:
+        spend.now = datetime(2026, 11, 1, 0, 1, tzinfo=UTC)
+
+    spend.transport.before_call[2] = cross_the_boundary
+    counts = spend_estimates(
+        spend.engine,
+        spend.client(),
+        POLICY,
+        run_id=spend.run_id,
+        as_of=last_day,
+        billing_anchor_day=1,
+        secrets=[],
+    )
+
+    assert spend.transport.addresses == spend.one_lines()[:2]
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_called=2, estimates_deferred=3)

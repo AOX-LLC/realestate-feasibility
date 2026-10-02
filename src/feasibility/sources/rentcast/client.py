@@ -195,8 +195,12 @@ class RentCastClient:
         """True when a request can be billed; False when the snapshot answers."""
         return self._live
 
+    def billing_period(self) -> date:
+        """The start of the billing period a request made now is reserved in."""
+        return budget.period_start(self._clock().date(), self._anchor_day)
+
     def budget_usage(self) -> budget.BudgetUsage:
-        period = budget.period_start(self._clock().date(), self._anchor_day)
+        period = self.billing_period()
         with self._engine.connect() as connection:
             return budget.usage(connection, PROVIDER, period, self._monthly_budget)
 

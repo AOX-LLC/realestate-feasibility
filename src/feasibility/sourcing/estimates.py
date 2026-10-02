@@ -198,8 +198,9 @@ def _spend(
         limits,
     )
     tally = _Tally(reused=len(plan.reuse), deferred=len(plan.defer))
+    run_period = budget.period_start(as_of, billing_anchor_day) if client.live else None
     try:
-        _call_all(engine, client, plan.call, tally, run_id, as_of, secrets)
+        _call_all(engine, client, plan.call, tally, run_id, as_of, run_period, secrets)
     except Exception:
         # The failure in flight must reach the caller as it is: a bookkeeping error here
         # would replace it, and a job retry of an unclassified error spends again.
@@ -242,10 +243,16 @@ def _call_all(
     tally: _Tally,
     run_id: int,
     as_of: date,
+    run_period: date | None,
     secrets: Sequence[str],
 ) -> None:
     for position, target in enumerate(calls):
         waiting = len(calls) - position - 1
+        if run_period is not None and client.billing_period() != run_period:
+            # The clock crossed a period boundary since the headroom was read: a call now would
+            # be reserved in a period whose cap and reserve were never consulted.
+            tally.deferred += waiting + 1
+            return
         try:
             fetched = client.value_estimate(target.address.one_line)
             if fetched.stale:
