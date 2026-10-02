@@ -1,6 +1,9 @@
 import csv
+import hashlib
 import importlib.util
 import json
+import random
+import statistics
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -12,9 +15,14 @@ from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import Engine, text
 
 from feasibility.config import DataMode, Settings
+from feasibility.domain.address import Address
+from feasibility.markets.loader import get_pack
 from feasibility.snapshot.cad_layout import DO_NOT_IMPORT
 from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.snapshot.load import LiveModeSeedError, seed
+from feasibility.sources.rentcast import models
+from feasibility.sources.rentcast.adapter import to_value_estimate
+from feasibility.sources.rentcast.client import value_estimate_params
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
 from feasibility.sources.rentcast.transport import request_key
 from feasibility.sourcing.errors import NoSnapshotForDateError
@@ -79,7 +87,7 @@ def test_every_recorded_response_matches_its_model_and_its_file_name() -> None:
         assert record["status"] == 200
 
 
-def test_snapshot_holds_the_listings_and_five_detailed_listings() -> None:
+def test_snapshot_holds_the_listings_and_the_detailed_records() -> None:
     by_endpoint: dict[str, list[Any]] = {}
     for _, record in _rentcast_records(base_only=True):
         by_endpoint.setdefault(record["endpoint"], []).append(record["body"])
@@ -89,11 +97,20 @@ def test_snapshot_holds_the_listings_and_five_detailed_listings() -> None:
         "/listings/sale": 1,
         "/listings/sale/{id}": 5,
         "/properties": 5,
-        "/avm/value": 5,
+        "/avm/value": 9,
     }
     for estimate in by_endpoint["/avm/value"]:
-        non_sale = [c for c in estimate["comparables"] if c.get("listingType") != "Standard"]
-        assert len(non_sale) >= 2
+        non_sale = [
+            c
+            for c in estimate["comparables"]
+            if c.get("listingType") not in ("Standard", "New Construction")
+        ]
+        assert len(non_sale) == 2
+
+
+def test_the_base_directory_has_twenty_files_and_the_overlay_one() -> None:
+    assert len(_rentcast_records(base_only=True)) == 20
+    assert len(list(OVERLAY.glob("*.json"))) == 1
 
 
 def test_no_personal_fields_in_any_recorded_response() -> None:
@@ -379,3 +396,79 @@ def test_an_overlay_name_cannot_escape_the_snapshot_directory(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="overlay name"):
         snapshot_days(_settings_with_days(tmp_path, bad), "dallas")
+
+
+# The estimate candidates by account, in the order the generator draws their comps.
+ESTIMATE_ACCOUNTS = ("051", "004", "052", "002", "006", "015")
+# Estimates whose bodies the re-keying must not change (no pro-forma reads them): the
+# SHA-256 of the body as committed before the re-keying, keyed by account.
+UNTOUCHED_BODY_SHA256 = {
+    "001": "0448ccd716cd4b99654b5a7fb3c1341db65079fa7a94b2ccd4356aa001150e3f",
+    "021": "c2b92eb3c8ab7286a6c15d4b1a07c3e36ffc0e09ffb7f3aa7aac6d6906a669c1",
+    "041": "59df3fbaf2a0e1d8f030416a552a46026e843824e146b5c0e6c044e34a8befd1",
+}
+
+
+def _estimates() -> list[tuple[Path, dict[str, Any]]]:
+    return [
+        (path, record)
+        for path, record in _rentcast_records(base_only=True)
+        if record["endpoint"] == "/avm/value"
+    ]
+
+
+def _normalized_one_line(formatted_address: str) -> str:
+    street, _, rest = (part.strip() for part in formatted_address.split(",", 2))
+    state, zip_code = rest.split()
+    return Address.normalized(street, city="Dallas", state=state, zip_code=zip_code).one_line
+
+
+def _estimate_of(account: str) -> dict[str, Any]:
+    generator = _generator()
+    parcel_index = int(account) - 1
+    parcels = generator.make_parcels(random.Random(generator.SEED), get_pack("dallas").buy_box.zips)
+    parcel = parcels[parcel_index]
+    wanted = Address.normalized(
+        parcel.line1, city="Dallas", state="TX", zip_code=parcel.zip_code
+    ).one_line
+    (record,) = [r for _, r in _estimates() if r["params"]["address"] == wanted]
+    return record
+
+
+def test_every_estimate_is_keyed_on_the_normalised_address_of_its_subject() -> None:
+    assert len(_estimates()) == 9
+    for path, record in _estimates():
+        subject = record["body"]["subjectProperty"]["formattedAddress"]
+        params = value_estimate_params(_normalized_one_line(subject))
+        assert record["params"] == params
+        assert path.stem == request_key("/avm/value", params)
+
+
+def test_the_three_untouched_estimates_keep_their_bodies_byte_for_byte() -> None:
+    for account, expected in UNTOUCHED_BODY_SHA256.items():
+        body = _estimate_of(account)["body"]
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        assert digest == expected, account
+
+
+@pytest.mark.parametrize("account", ESTIMATE_ACCOUNTS)
+def test_an_estimate_candidate_has_five_new_construction_sale_comps(account: str) -> None:
+    generator = _generator()
+    body = _estimate_of(account)["body"]
+    zip_code = body["subjectProperty"]["zipCode"]
+    low, high = generator.NEW_BUILD_PSF_BY_ZIP[zip_code]
+    estimate = to_value_estimate(
+        models.ValueEstimate.model_validate(body),
+        Address(street="X", zip5=zip_code),
+    )
+
+    assert estimate.dropped_comparables == 2
+    assert len(estimate.comparables) == 5
+    psf = []
+    for comp in estimate.comparables:
+        assert comp.living_area_sqft is not None
+        assert 2600 <= comp.living_area_sqft <= 3800
+        assert comp.year_built is not None and 2019 <= comp.year_built <= 2025
+        psf.append(comp.price / comp.living_area_sqft)
+    assert all(low <= value <= high for value in psf), psf
+    assert low <= statistics.median(psf) <= high

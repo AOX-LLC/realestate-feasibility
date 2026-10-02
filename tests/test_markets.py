@@ -161,6 +161,13 @@ def test_dallas_sourcing_section_loads() -> None:
 
     assert sourcing.source_priority == ["mls", "rentcast"]
     assert sourcing.scoring.land_ratio_weight == 35
+    assert sourcing.estimates.model_dump() == {
+        "top_n": 5,
+        "monthly_cap": 20,
+        "ttl_days": 7,
+        "sync_reserve_per_day": 1,
+        "max_age_days": 30,
+    }
 
 
 SOURCING_BREAKS = [
@@ -170,6 +177,43 @@ SOURCING_BREAKS = [
     ("scoring", "lot_full_sqft", "6000", "lot_full_sqft"),
     ("scoring", "price_land_full", "1.75", "price_land_full"),
 ]
+
+
+ESTIMATE_BREAKS = [
+    ("top_n", 0, "greater than or equal to 1"),
+    ("top_n", 51, "less than or equal to 50"),
+    ("top_n", 25, "monthly_cap must be at least top_n"),  # the cap is 20
+    ("monthly_cap", 4, "monthly_cap must be at least top_n"),  # top_n is 5
+    ("ttl_days", 0, "greater than or equal to 1"),
+    ("ttl_days", 31, "max_age_days must be at least ttl_days"),  # max_age_days is 30
+    ("max_age_days", 6, "max_age_days must be at least ttl_days"),  # ttl_days is 7
+    ("sync_reserve_per_day", -1, "greater than or equal to 0"),
+]
+
+
+@pytest.mark.parametrize(("key", "value", "message"), ESTIMATE_BREAKS)
+def test_estimate_limits_reject_one_wrong_field(key: str, value: int, message: str) -> None:
+    data = dallas_dict()
+    data["sourcing"]["estimates"][key] = value
+
+    with pytest.raises(ValidationError, match=message):
+        MarketPack.model_validate(data)
+
+
+def test_the_estimates_section_is_required() -> None:
+    data = dallas_dict()
+    del data["sourcing"]["estimates"]
+
+    with pytest.raises(ValidationError, match="estimates"):
+        MarketPack.model_validate(data)
+
+
+def test_unknown_key_inside_estimates_is_rejected() -> None:
+    data = dallas_dict()
+    data["sourcing"]["estimates"]["surprise"] = 1
+
+    with pytest.raises(ValidationError):
+        MarketPack.model_validate(data)
 
 
 @pytest.mark.parametrize(("section", "key", "value", "message"), SOURCING_BREAKS)

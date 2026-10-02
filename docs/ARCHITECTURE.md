@@ -89,7 +89,7 @@ No empty modules exist. These are the planned locations.
 
 ## Schema
 
-Alembic revisions `0001_initial_schema` and `0002_sourcing` (the sourcing tables are described under [Sourcing](#sourcing)).
+Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`) and `0004_candidate_estimate` (the sourcing tables are described under [Sourcing](#sourcing)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ The client never retries. Retries happen at the job level, with backoff.
 | `[sources.parcels]` | adapter `cad_csv`, source name, encoding, delimiter, archive-name regex with a `year` group, join key, base file, file kinds with `carries_values`, member files, `fields` map (canonical field to file, column, transform, aggregate, unit column), `unit_factors`, optional `skip_accounts` |
 | `[[sources.listings]]` | `rentcast` (city, state, status, `days_old`, `limit`) and `mls` (`enabled = false`) |
 | `[buy_box]` | zips, max price, minimum lot size, maximum year built, minimum land-to-total ratio, property types. Applied by `sourcing/filters.py`. |
-| `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. |
+| `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. `[sourcing.estimates]` is the value-estimate spend policy: `top_n` candidates priced, `monthly_cap` billed calls a period, `ttl_days` of reuse, `sync_reserve_per_day` calls held back for the daily sync and `max_age_days` of use (`monthly_cap >= top_n`, `max_age_days >= ttl_days`). |
 | `[cost_assumptions]` | `status` (`placeholder` or `reviewed`) and optional decimal inputs for the pro-forma. The Dallas values are placeholders. |
 
 `feasibility market validate` checks every pack, and a parametrized test runs over `packs/*.toml`, so a new county is a new file.
@@ -263,21 +263,22 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write.
 
-**Schema (`0002_sourcing`).**
+**Schema (`0002_sourcing` to `0004_candidate_estimate`).**
 
 | Table | Purpose |
 | --- | --- |
 | `sourcing_run` | One row per (market, `as_of`): `status` (`running`, `completed`, `failed`), `sync_status` (`fresh`, `stale`, `skipped`, `pending`), `counts` jsonb, `error`, timestamps |
 | `listing_match` | The latest match attempt per listing: `status` (`matched`, `ambiguous`, `unmatched`), `method`, representative `account_id`, `gis_parcel_id`, `account_count`, `street_key`. Rewritten each run |
 | `candidate` | One row per property across runs and sources, unique on (market, `property_key`). History is kept: nothing cascades into it |
-| `run_listing` | The daily diff: one row per listing the run saw or lost, with `change_kind`, `price`, `prev_price`, the candidate, `is_primary` and the listing-level `filter_reason` |
+| `run_listing` | The daily diff: one row per listing the run saw or lost, with `change_kind`, `price`, `prev_price`, the candidate, `is_primary`, the listing-level `filter_reason` and the match this run made (`match_status`, `match_method`, `match_account_id`; all NULL when the run did not match the listing, and on runs written before migration 0003, which the API serves as `match: null`). A listing the feed lost carries the previous run's match |
 | `run_candidate` | One row per candidate per run: `status` (`ranked`, `filtered`, `unscored`), `filter_reasons`, `unscored_reason`, `score`, `rank`, `breakdown` jsonb. Check constraints keep a ranked row complete and an unscored row explained |
+| `candidate_estimate` | A value estimate bought for a candidate: one row per (candidate, `fetched_on`), `outcome` (`ok`, `no_estimate`), the one-line `address` sent, `price`, `price_low`, `price_high`, the kept sale comps as jsonb (`comps`, with `comp_count` and `dropped_comp_count`) and the `run_id` that fetched it. Not run-scoped, so a re-run keeps it and costs no new call; deleting a run leaves it. A check keeps `ok` and a price together |
 
 **The diff.** `S_R` is the market's active listings last seen on the run date; `S_P` is the listings the latest earlier completed run with a fresh sync still had in its feed (a stale or skipped run records nothing about absence, so diffing against it would call every listing it missed relisted).
 
 - In both, price differs: `price_changed` (up or down); otherwise `unchanged`.
 - Only in `S_R`: `relisted` when the listing was first seen before today (the same id returning after a gap) or its property already was a candidate on an earlier run date (a new id for a known property); otherwise `new`. With no previous run everything is `new`.
-- Only in `S_P`: `gone` or `aged_out`. The RentCast feed is a window (`days_old`), not the inventory: a listing older than the window stops appearing though it is probably still for sale. So absence is `gone` only when the listing's status is not Active, it has no listed date, or it was young enough to still be in the window; otherwise it is `aged_out` and nothing is known about a sale.
+- Only in `S_P`: `gone` or `aged_out`. The RentCast feed is a window (`days_old`), not the inventory: a listing older than the window stops appearing though it is probably still for sale. So absence is `gone` only when the listing's status is not Active or it was young enough to still be in the window; otherwise (including a listing with no listed date) it is `aged_out` and nothing is known about a sale.
 - When the sync was `stale` (served from an expired cache) or `skipped` (budget spent), absence proves nothing: nothing is recorded as gone and the count goes to `unknown_absent`.
 - Listings in the feed with another status than Active that were not in the previous run are ignored and counted in `inactive_ignored`.
 
@@ -360,9 +361,9 @@ Pre-commit runs gitleaks and ruff.
 - **A candidate's key upgrades only once**, from `addr:` to `acct:` or `gis:`. If a property later matches a different account, it becomes a second candidate.
 - **No retention for the new tables.** `run_listing`, `run_candidate` and `candidate` grow by a day's rows per run and are never pruned. A retention rule is undecided.
 - **`load_parcel_index` loads every parcel of the requested zips into memory.** Estimated at about 73 MB per 70,000 parcels, close to the worker's 256 MB limit; check before adding zips near 100,000 accounts. Narrowing by street number is not done.
-- **An old run shows today's match.** `listing_match` holds only the latest attempt and `candidate.account_id` changes when an unmatched candidate is upgraded, so the candidate API serves a past run's rows with the current match status, method and account. Storing the match per run needs a column on `run_listing`.
-- **A listing with no listed date is `gone` when absent.** Whether it should be `aged_out` is undecided.
 - **A new source's listing can make a continuously listed property `relisted`.** A listing from a source not seen before, for a property that had a candidate on an earlier day, is classified as relisted by the property rule even though another source's listing was in the previous feed.
+- **The synthetic AVM comps for the six estimate candidates are not market data.** They are drawn from per-zip $/sqft ranges chosen so the demo's pro-formas spread out (`NEW_BUILD_PSF_BY_ZIP` in the generator), and say nothing about real Dallas prices.
+- **`/properties` fixtures are keyed on the title-case address** and would miss in mock mode; nothing calls that endpoint, so they are left alone. The `/avm/value` fixtures are keyed on the normalised one-line address the client sends.
 - **Value-estimate spend is not built.** Phase 3 spends RentCast estimates on top-ranked candidates (see the budget math above); nothing in phase 2 calls an estimate endpoint.
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.

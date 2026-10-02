@@ -474,6 +474,18 @@ def _rank(
     }
 
 
+def _match_columns(result: MatchResult | None) -> dict[str, str | None]:
+    """The run_listing match columns: this run's match, all None when it did not match."""
+    if result is None:
+        return {"match_status": None, "match_method": None, "match_account_id": None}
+    matched = aggregate(result) if result.status == "matched" else None
+    return {
+        "match_status": result.status,
+        "match_method": result.method,
+        "match_account_id": matched.account_id if matched else None,
+    }
+
+
 def _run_listing_rows(
     resolved: Sequence[ResolvedListing],
     primaries: Mapping[str, ResolvedListing],
@@ -495,6 +507,7 @@ def _run_listing_rows(
                 candidate_id=None,
                 is_primary=item.row.id in primary_ids,
                 filter_reason=item.filter_reason,
+                **_match_columns(item.match),
             )
         )
     in_feed = {item.row.id for item in resolved}
@@ -512,6 +525,9 @@ def _run_listing_rows(
                 candidate_id=before.candidate_id,
                 is_primary=False,
                 filter_reason=before.filter_reason,
+                match_status=before.match_status,
+                match_method=before.match_method,
+                match_account_id=before.match_account_id,
             )
         )
     return rows

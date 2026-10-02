@@ -100,7 +100,9 @@ def test_a_listing_first_seen_today_is_new() -> None:
         (_absent(1, listed=date(2026, 9, 29)), "aged_out"),
         # Status says it is off the market, whatever its age.
         (_absent(1, status="Inactive", listed=date(2026, 9, 1)), "gone"),
-        (_absent(1, listed=None), "gone"),
+        # A missing date is not evidence; a status flip is.
+        (_absent(1, listed=None), "aged_out"),
+        (_absent(1, status="Inactive", listed=None), "gone"),
     ],
 )
 def test_a_listing_the_feed_lost_is_gone_or_aged_out(absent: AbsentListing, kind: str) -> None:

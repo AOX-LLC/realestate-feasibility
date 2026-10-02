@@ -99,7 +99,7 @@ def test_health_reports_ok_in_mock_mode(client: TestClient) -> None:
     body = response.json()
     assert set(body) == HEALTH_KEYS
     assert body["status"] == "ok"
-    assert body["schema_version"] == "0002"
+    assert body["schema_version"] == "0004"
     assert body["commit_source"] == "process_start"
     assert body["mode"] == "mock"
     assert body["rentcast_key_configured"] is False
@@ -372,6 +372,13 @@ def test_markets_list_and_detail(client: TestClient) -> None:
     sourcing = detail.json()["sourcing"]
     assert sourcing["source_priority"] == ["mls", "rentcast"]
     assert sourcing["scoring"]["land_ratio_weight"] == "35"
+    assert sourcing["estimates"] == {
+        "top_n": 5,
+        "monthly_cap": 20,
+        "ttl_days": 7,
+        "sync_reserve_per_day": 1,
+        "max_age_days": 30,
+    }
 
 
 def test_unknown_market_is_404_and_malformed_is_422(client: TestClient) -> None:

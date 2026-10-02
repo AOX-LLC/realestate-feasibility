@@ -564,3 +564,49 @@ def test_the_build_refuses_when_a_later_run_started_after_this_one_did(seeded: E
 
     with pytest.raises(RunOutOfOrderError), seeded.begin() as connection:
         run_module._build_run(connection, get_pack("dallas"), started, DAY_ONE, "fresh")
+
+
+def _run_listing_matches(engine: Engine, run_id: int) -> dict[str, tuple[str | None, ...]]:
+    query = (
+        select(
+            listing.c.address_line,
+            run_listing.c.change_kind,
+            run_listing.c.match_status,
+            run_listing.c.match_method,
+            run_listing.c.match_account_id,
+        )
+        .join(listing, listing.c.id == run_listing.c.listing_id)
+        .where(run_listing.c.run_id == run_id)
+    )
+    with engine.connect() as connection:
+        return {r.address_line: tuple(r)[1:] for r in connection.execute(query)}
+
+
+def test_a_run_stores_the_match_it_made_on_each_listing(seeded: Engine) -> None:
+    result = _run(seeded, DAY_ONE)
+
+    rows = _run_listing_matches(seeded, result.run_id)
+
+    assert rows["1893 THISTLEWANE DR"] == ("new", "matched", "exact", "99000000000000004")
+    assert rows["8773 ORRINMOOR TRL"] == ("new", "matched", "exact", "99000000000000051")
+    # A listing that failed a listing-level filter was not matched by the run.
+    assert rows["1053 VINTRELOW ST"] == ("new", None, None, None)
+    statuses = [row[1] for row in rows.values()]
+    assert statuses.count("matched") == result.counts.matched
+    assert statuses.count(None) == len(rows) - result.counts.matched - result.counts.unmatched
+
+
+def test_day_two_stores_each_match_method_and_the_gone_row_keeps_the_earlier_match(
+    seeded: Engine,
+) -> None:
+    _run(seeded, DAY_ONE)
+    result = _run(seeded, DAY_TWO)
+
+    rows = _run_listing_matches(seeded, result.run_id)
+
+    assert rows["3300 ORRINMOOR LN"] == ("new", "matched", "gis_group", "99000000000000068")
+    assert rows["554 OSTRAVELLE AVE"] == ("new", "matched", "stem", "99000000000000015")
+    assert rows["2200 KESTRELWYN DR"] == ("new", "ambiguous", None, None)
+    assert rows["9100 BRINDLECOMBE ST"] == ("new", "unmatched", None, None)
+    # Lost from the feed, so not re-matched: the previous run's match is carried over.
+    assert rows["7059 OSTRAVELLE TRL"] == ("gone", "matched", "exact", "99000000000000005")
