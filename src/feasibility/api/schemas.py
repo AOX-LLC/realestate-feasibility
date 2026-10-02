@@ -3,8 +3,12 @@ Money is a decimal string so no precision is lost in JSON."""
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from feasibility.sourcing.counts import RunCounts
+from feasibility.sourcing.scoring import ScoreBreakdown
 
 
 class ResponseModel(BaseModel):
@@ -132,6 +136,56 @@ class BudgetOut(ResponseModel):
     limit: int
     used: int
     remaining: int
+
+
+class RunOut(ResponseModel):
+    id: int
+    market: str
+    as_of: date
+    status: str
+    sync_status: str
+    counts: RunCounts
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class CandidateAddressOut(ResponseModel):
+    street: str
+    zip5: str | None
+
+
+class MatchOut(ResponseModel):
+    status: str
+    method: str | None
+
+
+class RunCandidateOut(ResponseModel):
+    candidate_id: int
+    rank: int | None
+    score: Decimal | None
+    price: Decimal | None
+    address: CandidateAddressOut
+    change_kind: str
+    status: Literal["ranked", "filtered", "unscored"]
+    filter_reasons: list[str]
+    unscored_reason: str | None
+    match: MatchOut | None
+    account_id: str | None
+
+
+class CandidateListingOut(ResponseModel):
+    listing_id: int
+    source: str
+    price: Decimal | None
+    prev_price: Decimal | None
+    change_kind: str
+    is_primary: bool
+
+
+class CandidateDetailOut(RunCandidateOut):
+    # Null unless the candidate is ranked.
+    breakdown: ScoreBreakdown | None
+    listings: list[CandidateListingOut]
 
 
 class Page[T](ResponseModel):

@@ -12,7 +12,7 @@ from sqlalchemy import Engine
 from starlette.middleware.base import RequestResponseEndpoint
 
 from feasibility.api.identity import read_identity
-from feasibility.api.routes import budget, health, jobs, listings, markets, parcels
+from feasibility.api.routes import budget, health, jobs, listings, markets, parcels, sourcing
 from feasibility.config import Settings
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ def create_app(settings: Settings, engine: Engine) -> FastAPI:
     app = FastAPI(
         title="Real estate feasibility",
         version=identity.version,
-        summary="Read-only API over parcels, listings, jobs and the provider budget.",
+        summary="Read-only API over parcels, listings, sourcing, jobs and the provider budget.",
     )
     app.state.settings = settings
     app.state.engine = engine
@@ -41,7 +41,7 @@ def create_app(settings: Settings, engine: Engine) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(Exception, _unexpected_error)
 
-    for module in (health, markets, parcels, listings, jobs, budget):
+    for module in (health, markets, parcels, listings, jobs, budget, sourcing):
         app.include_router(module.router)
     return app
 
