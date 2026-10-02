@@ -27,7 +27,7 @@ class FeedListing:
 
 @dataclass(frozen=True, slots=True)
 class PreviousListing:
-    """A listing the previous completed run saw and still had in its feed."""
+    """A listing the previous fresh run saw and still had in its feed."""
 
     listing_id: int
     price: Decimal | None

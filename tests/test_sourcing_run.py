@@ -500,3 +500,18 @@ def test_any_other_sync_error_fails_the_run_and_propagates(seeded: Engine) -> No
         ).one()
     assert run.status == "failed"
     assert "RentCastError" in run.error
+
+
+def test_the_day_after_a_skipped_sync_is_diffed_against_the_last_fresh_run(seeded: Engine) -> None:
+    """A skipped run records nothing about absence; the next run must not call every listing
+    it missed relisted."""
+    _run(seeded, DAY_ONE)
+    error = BudgetExhaustedError(date(2026, 10, 2), 50)
+    skipped = _run_with(seeded, StubClient(seeded, error=error))
+    assert skipped.sync_status == "skipped"
+
+    result = _run(seeded, date(2026, 10, 2))
+
+    assert result.sync_status == "fresh"
+    assert (result.counts.unchanged, result.counts.price_changed) == (17, 1)
+    assert (result.counts.relisted, result.counts.new, result.counts.gone) == (1, 8, 2)

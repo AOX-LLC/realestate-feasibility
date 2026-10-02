@@ -407,7 +407,7 @@ class PreviousRun:
 
 
 def _previous_run(connection: Connection, market: str, as_of: date) -> PreviousRun:
-    run_id = store.previous_completed_run(connection, market, as_of)
+    run_id = store.previous_fresh_run(connection, market, as_of)
     if run_id is None:
         return PreviousRun(None, {})
     rows = {row.listing_id: row for row in store.run_listings_of(connection, run_id)}

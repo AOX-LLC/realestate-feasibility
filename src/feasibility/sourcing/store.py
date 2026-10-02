@@ -180,13 +180,16 @@ def latest_completed_as_of(connection: Connection, market: str) -> date | None:
     return latest
 
 
-def previous_completed_run(connection: Connection, market: str, before: date) -> int | None:
-    """The id of the latest completed run with an as_of strictly before `before`."""
+def previous_fresh_run(connection: Connection, market: str, before: date) -> int | None:
+    """The id of the latest completed run with a fresh sync and an as_of strictly before
+    `before`. A stale or skipped run recorded nothing about absence, so a diff against it
+    would call every listing it missed relisted."""
     return connection.execute(
         select(sourcing_run.c.id)
         .where(
             sourcing_run.c.market == market,
             sourcing_run.c.status == "completed",
+            sourcing_run.c.sync_status == "fresh",
             sourcing_run.c.as_of < before,
         )
         .order_by(sourcing_run.c.as_of.desc())
