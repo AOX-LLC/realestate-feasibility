@@ -153,7 +153,7 @@ def source_run(
         # and a job queued for "today" keeps the date it was queued for.
         run_date, _ = resolve_run_date(settings, get_pack(market_id), requested)
         if enqueue_only:
-            _enqueue_sourcing(market_id, requested)
+            _enqueue_sourcing(market_id, run_date)
             return
         result = run_sourcing(get_engine(), settings, market_id, run_date)
     except (SourcingError, PackError, ValueError) as error:
@@ -171,9 +171,9 @@ def source_run(
         typer.echo(f"{line.rank} {line.score} {line.price} {line.address}")
 
 
-def _enqueue_sourcing(market: str, as_of: date | None) -> None:
+def _enqueue_sourcing(market: str, as_of: date) -> None:
     payload = SourcingRunPayload(market=market, as_of=as_of)
-    dedupe_key = f"sourcing.run:{market}:{as_of or 'today'}"
+    dedupe_key = f"sourcing.run:{market}:{as_of}"
     with get_engine().begin() as connection:
         job_id = enqueue_job(
             connection,

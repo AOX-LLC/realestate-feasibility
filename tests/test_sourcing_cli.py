@@ -166,3 +166,11 @@ def test_bad_input_exits_two_with_a_message(seeded: Engine, args: list[str]) -> 
     result = _invoke("run", *args)
     assert result.exit_code == 2
     assert "sourcing refused" in result.output
+
+
+def test_enqueue_keeps_the_date_it_resolved(seeded: Engine) -> None:
+    _invoke("run", "--as-of", "2026-10-02", "--enqueue")
+    with seeded.connect() as connection:
+        row = connection.execute(select(job.c.payload, job.c.dedupe_key)).one()
+    assert row.payload == {"market": "dallas", "as_of": "2026-10-02"}
+    assert row.dedupe_key == "sourcing.run:dallas:2026-10-02"
