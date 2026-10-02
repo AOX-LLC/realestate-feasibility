@@ -36,7 +36,7 @@ config.py            Settings: DATABASE_URL, DATA_MODE, RENTCAST_API_KEY (Secret
 db.py                engine helpers, upgrade_to_head, current_schema_version
 logging.py           log setup and SecretRedactingFilter
 tables.py            table definitions
-listings.py          upsert of listing batches
+listings.py          upsert of listing batches; sync_listings (fetch and store every enabled source)
 domain/              canonical models every adapter maps into: Address, Listing (with nullable
                      remarks), PropertyRecord, ValueEstimate, SaleComp
 sources/
@@ -56,11 +56,22 @@ jobs/
   handlers.py        job kind -> (payload model, handler)
 snapshot/
   cad_layout.py     DCAD column layout and CSV formatting
+  days.py            the snapshot's days: which dates mock mode can source
   load.py            load the committed snapshot into the database (the seed)
+sourcing/
+  keys.py            address keys: street number, half, canonical name, stem, unit, property key
+  matching.py        listing-to-parcel matching (pure) and the parcel index
+  filters.py         the buy box: listing-level and parcel-level filters (pure)
+  scoring.py         the teardown score and its breakdown (pure)
+  diff.py            the daily diff classification (pure)
+  counts.py          RunCounts
+  store.py           every SQL statement of a run
+  run.py             orchestration: date, sync, diff, match, filter, score, rank, write
+  errors.py          SourcingError and its subclasses
 api/                 app factory, identity, schemas, and routers: health, markets, parcels,
-                     listings, jobs, budget
+                     listings, jobs, budget, sourcing
 cli.py               the feasibility command
-migrations/          Alembic environment and versions/0001_initial_schema.py
+migrations/          Alembic environment and versions/ (0001 initial schema, 0002 sourcing)
 ```
 
 Outside the package: `scripts/generate_snapshot.py`, `scripts/check_rentcast_docs.py`, `data/snapshot/`, `tests/`.
@@ -71,7 +82,6 @@ No empty modules exist. These are the planned locations.
 
 | Phase | Module | Purpose |
 | --- | --- | --- |
-| 2 | `sourcing/` | Buy-box filtering, listing-to-parcel matching, ranking |
 | 3 | `proforma/` | Pro-forma engine |
 | 4 | `llm/` | Signal extraction and risk narratives |
 | 5 | `delivery/` | Brief rendering and delivery |
@@ -79,14 +89,14 @@ No empty modules exist. These are the planned locations.
 
 ## Schema
 
-Alembic revision `0001_initial_schema`.
+Alembic revisions `0001_initial_schema` and `0002_sourcing` (the sourcing tables are described under [Sourcing](#sourcing)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
 | `source_file` | One row per imported CAD file set | `market`, `source`, `kind` (`certified` or `current`), `roll_year`, `file_date`, `sha256`, `carries_values`, `status` (`loading`, `loaded`, `failed`), row counts (read, loaded, skipped) and `skip_reasons`. Unique on (market, source, kind, roll_year, file_date). |
 | `parcel_version` | The parcel as of each file | Primary key (market, account_id, source_file_id). Situs fields, `zip5`, land, improvement and total value (`numeric(14,2)`, NULL when the file has no values), `year_built`, `living_area_sqft`, `lot_size_sqft`, `use_code`, `zoning`. |
 | `parcel` | Current parcel state | Primary key (market, account_id). Same columns plus `attrs_file_date` and `values_file_date`. Attributes are upserted when the incoming file date is at least `attrs_file_date`. Values come only from files that carry values, and only when at least as new as `values_file_date`. A values-free load never blanks certified values. |
-| `listing` | Listings from any source | Unique on (source, external_id). Market, normalized address, `zip5`, price, status, property type, lot size, living area, year built, listed date, nullable `remarks`, `first_seen_at`, `last_seen_at`, nullable `account_id` (matching is phase 2), `raw` jsonb (scrubbed). |
+| `listing` | Listings from any source | Unique on (source, external_id). Market, normalized address, `zip5`, price, status, property type, lot size, living area, year built, listed date, nullable `remarks`, `first_seen_at`, `last_seen_at`, nullable `unit`, nullable `account_id` (set when the listing matches a parcel), `raw` jsonb (scrubbed). |
 | `api_cache` | Provider response cache | Primary key (provider, request_key), where the key is the sha256 of the canonical endpoint and params. `params` holds query params only. `body` is the scrubbed response. `fetched_at`, `expires_at`. |
 | `api_budget` | Monthly counter | Primary key (provider, period_start). `request_limit`, `used` (check: not negative). |
 | `api_request_log` | One row per attempt | Provider, endpoint, request key, period start, outcome (`ok`, `not_found`, `http_error`, `network_error`, `schema_error`, `refused_budget`, `cache_hit`, `stale_served`), status code, `billed`, `at`. |
@@ -94,7 +104,7 @@ Alembic revision `0001_initial_schema`.
 
 No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged.
 
-Later phases add their own tables in their own migrations: candidates and scores (2), pro-formas (3), signals and risk narratives (4), briefs and deliveries (5).
+Later phases add their own tables in their own migrations: pro-formas (3), signals and risk narratives (4), briefs and deliveries (5).
 
 ## Job queue
 
@@ -200,7 +210,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Budget period.** It starts on `RENTCAST_BILLING_ANCHOR_DAY` (1 to 28). The limit defaults to 50. The hard stop keeps the counted requests under the plan's allowance. That holds only if the refund rule below matches how RentCast actually bills; see Known gaps.
 
-**Budget math.** About 30 listing syncs a month leave about 20 value estimates. Later phases must spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for.
+**Budget math.** About 30 listing syncs a month leave about 20 value estimates. Later phases must spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for. One sourcing run makes exactly one call (the listing sync) in live mode, and none when the response is still cached.
 
 **Scrubbing.** `listingAgent`, `listingOffice` and `owner` are removed at any depth before validation, caching, storage in `listing.raw`, or logging. The models do not declare them. A test asserts that a raw fixture carrying them leaves no trace in the cache.
 
@@ -227,7 +237,7 @@ The client never retries. Retries happen at the job level, with backoff.
 ## Keeping the synthetic snapshot in step with the schema
 
 - `sources/rentcast/models.py` is the one source of truth for RentCast response shapes. It is written from RentCast's published OpenAPI definition. Models allow extra fields so unknown live fields survive, and require only the fields the application keys on.
-- `scripts/generate_snapshot.py` uses a fixed seed and builds the JSON by instantiating those models, so hand-edited JSON cannot drift silently. It writes 60 synthetic parcels in DCAD layout (quoting, padding, CRLF), the values-free current set, and the recorded responses.
+- `scripts/generate_snapshot.py` uses a fixed seed and builds the JSON by instantiating those models, so hand-edited JSON cannot drift silently. It writes 70 synthetic parcels in DCAD layout (quoting, padding, CRLF), the values-free current set, and the recorded responses for the two snapshot days.
 - CI checks that every snapshot file validates against the models and that regenerating reproduces the committed files byte for byte. A model change without a regenerated snapshot fails the build.
 - `scripts/check_rentcast_docs.py` fetches the published OpenAPI definition and diffs field names against the models. It needs the network but no key and spends no budget. It is run by hand.
 - `feasibility verify-rentcast` makes at most 4 live calls, with a ceiling of 10 enforced in code. It validates the responses and writes a local, gitignored report of field names and types only to `local/rentcast-verify-<timestamp>.json`. It spends from the same budget.
@@ -241,10 +251,56 @@ The client never retries. Retries happen at the job level, with backoff.
 | `[market]` | id, name, state, county, IANA timezone |
 | `[sources.parcels]` | adapter `cad_csv`, source name, encoding, delimiter, archive-name regex with a `year` group, join key, base file, file kinds with `carries_values`, member files, `fields` map (canonical field to file, column, transform, aggregate, unit column), `unit_factors`, optional `skip_accounts` |
 | `[[sources.listings]]` | `rentcast` (city, state, status, `days_old`, `limit`) and `mls` (`enabled = false`) |
-| `[buy_box]` | zips, max price, minimum lot size, maximum year built, minimum land-to-total ratio, property types. Validated now, applied in phase 2. |
+| `[buy_box]` | zips, max price, minimum lot size, maximum year built, minimum land-to-total ratio, property types. Applied by `sourcing/filters.py`. |
+| `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. |
 | `[cost_assumptions]` | `status` (`placeholder` or `reviewed`) and optional decimal inputs for the pro-forma. The Dallas values are placeholders. |
 
 `feasibility market validate` checks every pack, and a parametrized test runs over `packs/*.toml`, so a new county is a new file.
+
+## Sourcing
+
+`sourcing/run.py` turns the stored listings and parcels into a ranked, diffed candidate list for one day. One run is keyed by (market, `as_of`), is idempotent (running the same date again rewrites that run's rows only), and goes forward in time (an earlier date than the latest completed run is refused). All of a run's writes happen in one transaction, behind an advisory lock per market.
+
+**Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write.
+
+**Schema (`0002_sourcing`).**
+
+| Table | Purpose |
+| --- | --- |
+| `sourcing_run` | One row per (market, `as_of`): `status` (`running`, `completed`, `failed`), `sync_status` (`fresh`, `stale`, `skipped`, `pending`), `counts` jsonb, `error`, timestamps |
+| `listing_match` | The latest match attempt per listing: `status` (`matched`, `ambiguous`, `unmatched`), `method`, representative `account_id`, `gis_parcel_id`, `account_count`, `street_key`. Rewritten each run |
+| `candidate` | One row per property across runs and sources, unique on (market, `property_key`). History is kept: nothing cascades into it |
+| `run_listing` | The daily diff: one row per listing the run saw or lost, with `change_kind`, `price`, `prev_price`, the candidate, `is_primary` and the listing-level `filter_reason` |
+| `run_candidate` | One row per candidate per run: `status` (`ranked`, `filtered`, `unscored`), `filter_reasons`, `unscored_reason`, `score`, `rank`, `breakdown` jsonb. Check constraints keep a ranked row complete and an unscored row explained |
+
+**The diff.** `S_R` is the market's active listings last seen on the run date; `S_P` is the listings the latest earlier completed run still had in its feed.
+
+- In both, price differs: `price_changed` (up or down); otherwise `unchanged`.
+- Only in `S_R`: `relisted` when the listing was first seen before today (the same id returning after a gap) or its property already was a candidate on an earlier run date (a new id for a known property); otherwise `new`. With no previous run everything is `new`.
+- Only in `S_P`: `gone` or `aged_out`. The RentCast feed is a window (`days_old`), not the inventory: a listing older than the window stops appearing though it is probably still for sale. So absence is `gone` only when the listing's status is not Active, it has no listed date, or it was young enough to still be in the window; otherwise it is `aged_out` and nothing is known about a sale.
+- When the sync was `stale` (served from an expired cache) or `skipped` (budget spent), absence proves nothing: nothing is recorded as gone and the count goes to `unknown_absent`.
+- Listings in the feed with another status than Active that were not in the previous run are ignored and counted in `inactive_ignored`.
+
+**Matching.** A listing's street is normalized into a key (number, half number, name with a canonical suffix) and a stem (the name without its suffix). Rules, first that applies wins: no zip or no street number is `unmatched`; parcels with the same key in the zip are judged by unit and then by whether several accounts share one GIS parcel (`gis_group`, values summed, a two-account lot); otherwise parcels with the same stem (`stem`), unique or ambiguous. Nothing is guessed: no hit is `unmatched`, several unrelated hits are `ambiguous`. Both are kept, counted, never scored, and re-matched on every run, so a later parcel import can fix them. The match rate is matched over everything attempted, stored as a 4-decimal string.
+
+**Candidates.** A property is identified by `acct:<account>`, `gis:<gis id>` for a shared lot, or `addr:<zip>:<street key>[:<unit>]` while unmatched. Listings of one property from several sources are one candidate; the primary listing is the source ranked first in the pack's `source_priority`, then the lowest listing id. An unmatched candidate that later matches is upgraded in place (its key changes, its history stays).
+
+**Filters.** Listing-level (before matching, first failing reason, recorded in `run_listing.filter_reason`): `zip`, `property_type`, `price`. Parcel-level (after a match, every failing reason): `lot_size`, `year_built`, `land_to_total`. The lot size and year fall back to the listing's when the parcel has none; a missing year passes only for a Land listing. A matched parcel without certified values is `unscored` with reason `values_missing`, not filtered.
+
+**Score.** Four components that add up to 100, each rounded to 0.01 (the score is the sum of the rounded points, so the breakdown always adds up). The numbers are the Dallas pack's.
+
+| Component | Weight | Input | Full credit at | No credit at |
+| --- | --- | --- | --- | --- |
+| `land_ratio` | 35 | land value / total value | 0.85 | the buy box floor (0.55) |
+| `age` | 20 | year built (a vacant lot earns `vacant_age_credit`) | 1940 or earlier | the buy box cut-off year (1965) |
+| `lot` | 20 | lot size, sqft | 12,000 | the buy box floor (6,000) |
+| `price_vs_land` | 25 | price / adjusted land value | 1.00 or less | 1.75 or more |
+
+Ranks run 1..n over the ranked candidates: higher score, then lower price, then lower candidate id. `run_candidate.breakdown` stores the full explanation (match, values used, the four components, which inputs fell back to the listing, what was missing); its keys are read by later phases.
+
+**Stale values.** County values are as of January 1 of the roll year. The land value in the price component is drifted forward by simple growth: `adjusted = land * (1 + drift_pct / 100 * years)`, with `years` the time since that January 1, capped at `max_drift_years`. The land ratio and age components use the raw values (a uniform market move cancels in a ratio). The breakdown records the age, the factor and the adjusted value, and flags `values_stale` past `stale_values_years`; staleness never excludes a candidate.
+
+**API.** `api/routes/sourcing.py` serves runs and their candidates read-only (see the README). The router imports nothing that can write or spend, and a test asserts it.
 
 ## Where agent-core attaches (phase 4)
 
@@ -298,5 +354,12 @@ Pre-commit runs gitleaks and ruff.
 - **AVM comps** are filtered by `listingType` because the published schema has no sale/rent flag. The list of sale types is taken from the documentation.
 - **No update schedule and no downloader for DCAD.** The operator downloads files by hand. DCAD publishes no redistribution license that we found, so its files are never committed.
 - **A listing with no directional never matches a parcel that has one.** `5521 WEXCOMBE AVE` against parcels `5521 N WEXCOMBE AVE` and `5521 S WEXCOMBE AVE` is `unmatched`: the stem keeps the directional (`N WEXCOMBE`), so neither the exact nor the stem lookup finds anything. It is left unmatched, not guessed, and a test asserts it.
+- **Price changes and delistings are only visible inside the feed window.** The free tier's feed is `days_old` days wide; a listing that ages out of it can no longer show a price change or a delisting, and is recorded as `aged_out`.
+- **RentCast's `daysOld` semantics and result ordering are unverified**, so is whether a delisting reaches the feed as a status flip. The diff's `gone` rule depends on them.
+- **Stem matches can be wrong on streets that differ only by suffix** (`OSTRAVELLE AVE` and `OSTRAVELLE DR`). A stem match requires exactly one hit in the zip, which limits the damage; the match method is stored so a stem match can be audited.
+- **A candidate's key upgrades only once**, from `addr:` to `acct:` or `gis:`. If a property later matches a different account, it becomes a second candidate.
+- **No retention for the new tables.** `run_listing`, `run_candidate` and `candidate` grow by a day's rows per run and are never pruned. A retention rule is undecided.
+- **`load_parcel_index` loads every parcel of the requested zips into memory.** Estimated at about 73 MB per 70,000 parcels, close to the worker's 256 MB limit; check before adding zips near 100,000 accounts. Narrowing by street number is not done.
+- **Value-estimate spend is not built.** Phase 3 spends RentCast estimates on top-ranked candidates (see the budget math above); nothing in phase 2 calls an estimate endpoint.
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.

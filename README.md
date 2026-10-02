@@ -6,12 +6,12 @@ The thesis: **LLM for judgment, code for math.** The model reads listing text an
 
 ## Status
 
-Phase 1 (foundation) is what exists today.
+Phases 1 (foundation) and 2 (sourcing and scoring) exist today.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Schema, job queue, source adapters (county appraisal CSV, RentCast, MLS stub), mock and live modes, synthetic snapshot, market packs, read-only API, Docker Compose | Built |
-| 2 | Sourcing and scoring: apply the buy box, match listings to parcels, rank candidates | Not started |
+| 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma engine | Not started |
 | 4 | LLM layer: listing-text signals and risk narratives | Not started |
 | 5 | Delivery: the morning brief, scheduling | Not started |
@@ -52,13 +52,13 @@ The stack has four services: `db` (Postgres 16), `migrate` (one-shot: runs the m
 | 4502 | Postgres |
 | 4503 | Reserved for n8n (later phase) |
 
-The API is read-only. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`.
+The API is read-only. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`, and the sourcing views below.
 
 ## The data
 
 Everything committed to this repository is synthetic.
 
-- `data/snapshot/` holds 60 synthetic parcels in the Dallas Central Appraisal District (DCAD) CSV layout (quoted fields, padded values, CRLF line endings), a values-free "current ownership" set, and recorded RentCast-shaped responses.
+- `data/snapshot/` holds 70 synthetic parcels in the Dallas Central Appraisal District (DCAD) CSV layout (quoted fields, padded values, CRLF line endings), a values-free "current ownership" set, and recorded RentCast-shaped responses for two days (`days.json` lists them).
 - `scripts/generate_snapshot.py` produces all of it from a fixed seed. The RentCast responses are built by instantiating the response models, so they cannot drift from the schema the code validates against.
 - Account numbers start with `99`. Street names are invented. Zip codes are real Dallas zips. No record names a person.
 
@@ -100,6 +100,31 @@ The refund rules follow RentCast's documented rule that error responses are not 
 Budget math: about 30 listing syncs a month leave about 20 value estimates. Later phases spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed.
 
 Live mode has not been exercised against the real API yet; it was built from RentCast's published OpenAPI definition. `feasibility verify-rentcast` (at most 4 calls) checks it. It needs `DATA_MODE=live` and a key, and writes `local/rentcast-verify-<timestamp>.json` with field names and types only.
+
+## Sourcing: the daily candidate list
+
+A sourcing run takes one day's listing feed and turns it into a ranked list: it syncs listings, compares them with the previous run (new, relisted, price changed, unchanged, gone, aged out), applies the buy box, matches listings to county parcels, scores each match and ranks the result. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sourcing).
+
+In mock mode the snapshot holds two days, `2026-10-01` and `2026-10-02`, and the date must be given:
+
+```bash
+docker compose run --rm migrate feasibility source run --as-of 2026-10-01
+docker compose run --rm migrate feasibility source run --as-of 2026-10-02
+docker compose run --rm migrate feasibility source show --status unscored
+```
+
+- `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than the latest completed run is refused (exit code 2); running the same date again rewrites that run only.
+- `feasibility source show [--run-id N] [--status ranked|filtered|unscored] [--limit 20]` prints a stored run.
+- A run costs one RentCast call in live mode (zero when the response is cached) and none in mock mode.
+
+Read-only API:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /sourcing/runs` | Runs, newest first, with their counts |
+| `GET /sourcing/runs/{run_id}` | One run |
+| `GET /sourcing/runs/{run_id}/candidates?status=ranked\|filtered\|unscored` | A run's candidates (ranked by rank; the others by candidate id) |
+| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}` | One candidate with its score breakdown and the listings the run saw for it |
 
 ## Importing real DCAD data
 
