@@ -16,6 +16,9 @@ DEFAULT_TEST_DATABASE_URL = (
 def migrated_engine() -> Iterator[Engine]:
     """A database migrated from empty to head once per test session."""
     engine = create_db_engine(os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
+    # The session drops the public schema; refuse anything not named as a test database.
+    if "test" not in (engine.url.database or ""):
+        pytest.exit(f"TEST_DATABASE_URL must name a test database, got {engine.url.database!r}")
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
