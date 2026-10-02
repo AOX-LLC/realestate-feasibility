@@ -32,8 +32,8 @@ class RunCounts(BaseModel):
     matched: int = 0
     ambiguous: int = 0
     unmatched: int = 0
-    # matched / (matched + ambiguous + unmatched) as a 4-decimal string; None when nothing
-    # was matched this run.
+    # matched / (matched + ambiguous + unmatched) as a 4-decimal string; None when no listing
+    # reached matching this run (so 0 of 5 matched is "0.0000", not None).
     match_rate: str | None = None
     candidates: int = 0
     ranked: int = 0
