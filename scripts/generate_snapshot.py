@@ -600,7 +600,7 @@ RELISTED_INDEX = 11  # account 012 returns under a new id at RELISTED_TO
 RELISTED_TO = 399000.0
 RELIST_ID_SUFFIX = "-r2"
 
-# n, address line as written, zip, price, lot sqft, year built.
+# Address line as written, zip, price, lot sqft, year built (numbered from 1 in order).
 NEW_DAY_2_LISTINGS = (
     ("9496 Kestrelwyn Ave", "75230", 345000, 13035, 1945),
     ("1348 Fenwyck Ave", "75206", 355000, 10250, 1958),
@@ -708,8 +708,8 @@ def write_snapshot(out: Path) -> None:
 
     days = {
         "days": [
-            {"as_of": "2026-10-01", "overlay": None},
-            {"as_of": "2026-10-02", "overlay": "day-2"},
+            {"as_of": AS_OF.date().isoformat(), "overlay": None},
+            {"as_of": DAY_2.date().isoformat(), "overlay": OVERLAY_DIR},
         ],
         "market": MARKET,
     }
