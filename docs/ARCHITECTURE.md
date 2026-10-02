@@ -89,7 +89,7 @@ No empty modules exist. These are the planned locations.
 
 ## Schema
 
-Alembic revisions `0001_initial_schema` and `0002_sourcing` (the sourcing tables are described under [Sourcing](#sourcing)).
+Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`) and `0004_candidate_estimate` (the sourcing tables are described under [Sourcing](#sourcing)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
@@ -263,7 +263,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write.
 
-**Schema (`0002_sourcing`).**
+**Schema (`0002_sourcing` to `0004_candidate_estimate`).**
 
 | Table | Purpose |
 | --- | --- |
@@ -272,6 +272,7 @@ The client never retries. Retries happen at the job level, with backoff.
 | `candidate` | One row per property across runs and sources, unique on (market, `property_key`). History is kept: nothing cascades into it |
 | `run_listing` | The daily diff: one row per listing the run saw or lost, with `change_kind`, `price`, `prev_price`, the candidate, `is_primary`, the listing-level `filter_reason` and the match this run made (`match_status`, `match_method`, `match_account_id`; all NULL when the run did not match the listing, and on runs written before migration 0003, which the API serves as `match: null`). A listing the feed lost carries the previous run's match |
 | `run_candidate` | One row per candidate per run: `status` (`ranked`, `filtered`, `unscored`), `filter_reasons`, `unscored_reason`, `score`, `rank`, `breakdown` jsonb. Check constraints keep a ranked row complete and an unscored row explained |
+| `candidate_estimate` | A value estimate bought for a candidate: one row per (candidate, `fetched_on`), `outcome` (`ok`, `no_estimate`), the one-line `address` sent, `price`, `price_low`, `price_high`, the kept sale comps as jsonb (`comps`, with `comp_count` and `dropped_comp_count`) and the `run_id` that fetched it. Not run-scoped, so a re-run keeps it and costs no new call; deleting a run leaves it. A check keeps `ok` and a price together |
 
 **The diff.** `S_R` is the market's active listings last seen on the run date; `S_P` is the listings the latest earlier completed run with a fresh sync still had in its feed (a stale or skipped run records nothing about absence, so diffing against it would call every listing it missed relisted).
 

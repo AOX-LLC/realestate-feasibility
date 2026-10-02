@@ -278,6 +278,30 @@ run_candidate = Table(
     UniqueConstraint("run_id", "rank"),
 )
 
+ESTIMATE_OUTCOMES = ("ok", "no_estimate")
+
+# Not run-scoped: an estimate belongs to a candidate and a date, so a re-run keeps it and
+# costs no new call. `comps` holds the sale comps kept from the response (the pro-forma's
+# input), so a result can be reproduced without buying the estimate again.
+candidate_estimate = Table(
+    "candidate_estimate",
+    metadata,
+    Column("candidate_id", BigInteger, ForeignKey("candidate.id"), nullable=False),
+    Column("fetched_on", Date, nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("address", Text, nullable=False),
+    Column("price", MONEY),
+    Column("price_low", MONEY),
+    Column("price_high", MONEY),
+    Column("comp_count", SmallInteger, nullable=False, server_default="0"),
+    Column("dropped_comp_count", SmallInteger, nullable=False, server_default="0"),
+    Column("comps", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="SET NULL")),
+    PrimaryKeyConstraint("candidate_id", "fetched_on"),
+    CheckConstraint(_in_list("outcome", ESTIMATE_OUTCOMES), name="outcome"),
+    CheckConstraint("(outcome = 'ok') = (price IS NOT NULL)", name="ok_has_price"),
+)
+
 api_cache = Table(
     "api_cache",
     metadata,

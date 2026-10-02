@@ -23,7 +23,7 @@ PERSONAL_DATA_COLUMN = re.compile(r"owner|mail|phone|email|agent|office|taxpayer
 
 def test_migrations_reach_head(migrated_engine: Engine) -> None:
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0003"
+        assert current_schema_version(connection) == "0004"
 
 
 def test_table_definitions_match_the_migrations(migrated_engine: Engine) -> None:
@@ -50,13 +50,19 @@ def test_downgrade_to_0001_and_back_to_head(migrated_engine: Engine) -> None:
     with migrated_engine.connect() as connection:
         assert current_schema_version(connection) == "0001"
         tables = set(inspect(connection).get_table_names())
-        assert {"sourcing_run", "listing_match", "candidate", "run_listing"}.isdisjoint(tables)
+        assert {
+            "sourcing_run",
+            "listing_match",
+            "candidate",
+            "run_listing",
+            "candidate_estimate",
+        }.isdisjoint(tables)
         assert "unit" not in {c["name"] for c in inspect(connection).get_columns("listing")}
 
     upgrade_to_head(migrated_engine)
 
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0003"
+        assert current_schema_version(connection) == "0004"
         assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 
