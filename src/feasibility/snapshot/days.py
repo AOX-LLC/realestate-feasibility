@@ -30,6 +30,11 @@ def snapshot_days(settings: Settings, market: str) -> list[SnapshotDay]:
     days = [
         SnapshotDay(date.fromisoformat(day["as_of"]), day["overlay"]) for day in recorded["days"]
     ]
+    for day in days:
+        if day.overlay is not None and not OVERLAY_NAME.match(day.overlay):
+            raise ValueError(
+                f"overlay name {day.overlay!r} must be lowercase letters, digits, hyphens"
+            )
     return sorted(days, key=lambda day: day.as_of)
 
 
