@@ -5,14 +5,14 @@
     "bedrooms": 2.0,
     "city": "Dallas",
     "county": "Dallas County",
-    "createdDate": "2026-09-21T00:00:00Z",
-    "daysOnMarket": 10,
+    "createdDate": "2026-09-30T00:00:00Z",
+    "daysOnMarket": 1,
     "formattedAddress": "5284 Ostravelle Ln, Dallas, TX 75206",
     "history": {
-      "2026-09-21": {
-        "daysOnMarket": 10,
+      "2026-09-30": {
+        "daysOnMarket": 1,
         "event": "Sale Listing",
-        "listedDate": "2026-09-21T00:00:00Z",
+        "listedDate": "2026-09-30T00:00:00Z",
         "listingType": "Standard",
         "price": 512000.0
       }
@@ -21,9 +21,9 @@
       "fee": 0.0
     },
     "id": "5284-Ostravelle-Ln,-Dallas,-TX-75206",
-    "lastSeenDate": "2026-09-21T08:00:00Z",
+    "lastSeenDate": "2026-09-30T08:00:00Z",
     "latitude": 32.717931,
-    "listedDate": "2026-09-21T00:00:00Z",
+    "listedDate": "2026-09-30T00:00:00Z",
     "listingType": "Standard",
     "longitude": -96.851968,
     "lotSize": 13382.0,

@@ -3,14 +3,14 @@
     "addressLine1": "8773 Orrinmoor Trl",
     "city": "Dallas",
     "county": "Dallas County",
-    "createdDate": "2026-09-28T00:00:00Z",
-    "daysOnMarket": 3,
+    "createdDate": "2026-10-01T00:00:00Z",
+    "daysOnMarket": 0,
     "formattedAddress": "8773 Orrinmoor Trl, Dallas, TX 75209",
     "history": {
-      "2026-09-28": {
-        "daysOnMarket": 3,
+      "2026-10-01": {
+        "daysOnMarket": 0,
         "event": "Sale Listing",
-        "listedDate": "2026-09-28T00:00:00Z",
+        "listedDate": "2026-10-01T00:00:00Z",
         "listingType": "Standard",
         "price": 378000.0
       }
@@ -19,9 +19,9 @@
       "fee": 0.0
     },
     "id": "8773-Orrinmoor-Trl,-Dallas,-TX-75209",
-    "lastSeenDate": "2026-09-28T10:00:00Z",
+    "lastSeenDate": "2026-10-01T10:00:00Z",
     "latitude": 32.824296,
-    "listedDate": "2026-09-28T00:00:00Z",
+    "listedDate": "2026-10-01T00:00:00Z",
     "listingType": "Standard",
     "longitude": -96.85207,
     "lotSize": 10134.0,
