@@ -176,7 +176,7 @@ def test_the_at_max_column_repeats_the_keys_with_an_atmax_prefix(formulas: Any) 
             assert sheet.cell(row, AT_MAX_VALUE_COLUMN).value.startswith("=")
 
 
-# --- the formula section's expected values (F.7), to the cent ------------------------------
+# --- hand-computed expected values, to the cent ------------------------------
 
 MONEY: dict[str, tuple[str, str, str]] = {
     "sizing.uncapped": ("3168.00", "5016.33", "2480.00"),
