@@ -180,7 +180,7 @@ Design notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Adding a county
 
-Add `src/feasibility/markets/packs/<id>.toml` and run `feasibility market validate`. A pack maps the county's files and columns, unit factors and aggregation rules, and sets the listing sources, buy box and cost assumptions. No code changes.
+Add `src/feasibility/markets/packs/<id>.toml` and run `feasibility market validate`. A pack maps the county's files and columns, unit factors and aggregation rules, and sets the listing sources, buy box and cost assumptions. No code changes. Every cost value in the Dallas pack is illustrative (a labelled default, not a quote or a builder's actuals) until it is reviewed.
 
 ## License
 

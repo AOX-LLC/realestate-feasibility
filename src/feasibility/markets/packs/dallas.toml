@@ -126,12 +126,76 @@ monthly_cap = 20
 ttl_days = 7
 sync_reserve_per_day = 1
 
-# Placeholders until the pro-forma phase sets reviewed values.
+# Every value below is an illustrative default, not a quote or a builder's actuals. Sources and
+# the date they were read are listed in docs/proforma-assumptions.md.
 [cost_assumptions]
-status = "placeholder"
-hard_cost_per_sqft = "185"
-soft_cost_pct = "12"
-financing_rate_pct = "9.5"
-points_pct = "1.5"
-hold_months = "12"
-selling_cost_pct = "6"
+status = "illustrative"
+sources_read_on = 2026-10-02
+
+[cost_assumptions.acquisition]
+closing_pct = "1.0"                # buyer-side title, survey, recording, as % of price
+
+[cost_assumptions.demolition]
+flat = "2500"
+per_sqft = "8"
+fallback_sqft = "1500"
+
+[cost_assumptions.construction]
+hard_cost_per_sqft = "190"
+contingency_pct = "5"
+soft_cost_pct = "12"               # of hard cost
+build_share_pct = "70"             # share of the hold spent building; the rest is marketing
+
+[cost_assumptions.financing]
+loan_to_cost_pct = "80"
+rate_pct = "10.0"
+points_pct = "2.0"
+draw_count = 5
+draw_fee = "200"
+
+[cost_assumptions.holding]
+hold_months = "9"
+property_tax_rate_pct = "2.226710"
+insurance_pct_of_hard_cost_per_year = "1.5"
+
+[cost_assumptions.selling]
+commission_pct = "5.0"
+closing_pct = "1.0"
+
+[cost_assumptions.target]
+margin_pct = "15"                  # of ARV
+
+[cost_assumptions.arv]
+min_comps = 3
+min_comp_sqft = "600"
+new_build_premium_pct = "0"
+estimate_max_age_days = 30         # latest estimate older than this -> no ARV
+
+[cost_assumptions.sizing]
+min_home_sqft = "1500"
+max_home_sqft = "3500"
+
+[cost_assumptions.sizing.default]  # used for an unknown zoning; flagged
+coverage_pct = "40"
+stories = 2
+living_share_pct = "50"
+
+[cost_assumptions.sizing.rules."R-7.5(A)"]
+coverage_pct = "45"
+stories = 2
+living_share_pct = "55"
+
+[cost_assumptions.sizing.rules."R-5(A)"]
+coverage_pct = "45"
+stories = 2
+living_share_pct = "55"
+
+[cost_assumptions.sizing.rules."R-10(A)"]
+coverage_pct = "45"
+stories = 2
+living_share_pct = "55"
+
+[cost_assumptions.sensitivity]
+arv_delta_pct = ["-10", "-5", "0", "5", "10"]
+hard_cost_delta_pct = ["-10", "0", "10", "20"]
+hold_months = ["6", "9", "12"]
