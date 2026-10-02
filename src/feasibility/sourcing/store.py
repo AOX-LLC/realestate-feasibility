@@ -1,14 +1,23 @@
-"""All the sourcing SQL that is not a plain read. Matches first; the run's own tables are
-added with the run itself."""
+"""All the SQL of a sourcing run: matches, runs, candidates and the run's own rows."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import Connection, bindparam, func, update
+from sqlalchemy import Connection, bindparam, delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from feasibility.sourcing.matching import MatchResult, aggregate
-from feasibility.tables import listing, listing_match
+from feasibility.tables import (
+    candidate,
+    listing,
+    listing_match,
+    run_candidate,
+    run_listing,
+    sourcing_run,
+)
 
 
 @dataclass(frozen=True)
@@ -59,5 +68,309 @@ def write_matches(connection: Connection, rows: Sequence[ListingMatch]) -> None:
         [
             {"b_listing_id": record["listing_id"], "b_account_id": record["account_id"]}
             for record in records
+        ],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ListingRow:
+    """The listing columns a run reads."""
+
+    id: int
+    source: str
+    address_line: str
+    unit: str | None
+    zip5: str | None
+    price: Decimal | None
+    status: str | None
+    property_type: str | None
+    lot_size_sqft: Decimal | None
+    year_built: int | None
+    listed_date: date | None
+    first_seen_at: datetime
+
+
+LISTING_COLUMNS = (
+    listing.c.id,
+    listing.c.source,
+    listing.c.address_line,
+    listing.c.unit,
+    listing.c.zip5,
+    listing.c.price,
+    listing.c.status,
+    listing.c.property_type,
+    listing.c.lot_size_sqft,
+    listing.c.year_built,
+    listing.c.listed_date,
+    listing.c.first_seen_at,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PreviousRunListing:
+    """A run_listing row of an earlier run."""
+
+    listing_id: int
+    change_kind: str
+    price: Decimal | None
+    candidate_id: int | None
+    filter_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateRef:
+    id: int
+    property_key: str
+    first_as_of: date
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateWrite:
+    """A property to get or create. `replaces_key` names an unmatched candidate (an `addr:`
+    key) that this property now matches: its row is upgraded in place, keeping its history."""
+
+    property_key: str
+    account_id: str | None
+    gis_parcel_id: str | None
+    zip5: str | None
+    street_key: str
+    replaces_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunListingWrite:
+    listing_id: int
+    change_kind: str
+    price: Decimal | None
+    prev_price: Decimal | None
+    # The candidate is named by property key (resolved after the candidates are written) or,
+    # for a listing the feed lost, by the id its previous run row carried.
+    property_key: str | None
+    candidate_id: int | None
+    is_primary: bool
+    filter_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunCandidateWrite:
+    candidate_id: int
+    primary_listing_id: int
+    change_kind: str
+    status: str
+    filter_reasons: list[str]
+    unscored_reason: str | None
+    score: Decimal | None
+    rank: int | None
+    breakdown: dict[str, Any] | None
+
+
+def lock_market_runs(connection: Connection, market: str) -> None:
+    """Serialize runs for one market until the transaction ends."""
+    connection.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:name))"), {"name": f"sourcing_run:{market}"}
+    )
+
+
+def latest_completed_as_of(connection: Connection, market: str) -> date | None:
+    latest: date | None = connection.execute(
+        select(func.max(sourcing_run.c.as_of)).where(
+            sourcing_run.c.market == market, sourcing_run.c.status == "completed"
+        )
+    ).scalar_one()
+    return latest
+
+
+def previous_completed_run(connection: Connection, market: str, before: date) -> int | None:
+    """The id of the latest completed run with an as_of strictly before `before`."""
+    return connection.execute(
+        select(sourcing_run.c.id)
+        .where(
+            sourcing_run.c.market == market,
+            sourcing_run.c.status == "completed",
+            sourcing_run.c.as_of < before,
+        )
+        .order_by(sourcing_run.c.as_of.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def start_run(connection: Connection, market: str, as_of: date) -> int:
+    """Create the run row, or reset the existing one for a re-run of the same date."""
+    statement = insert(sourcing_run).values(
+        market=market, as_of=as_of, status="running", sync_status="pending"
+    )
+    run_id: int = connection.execute(
+        statement.on_conflict_do_update(
+            index_elements=[sourcing_run.c.market, sourcing_run.c.as_of],
+            set_={
+                "status": "running",
+                "sync_status": "pending",
+                "counts": text("'{}'::jsonb"),
+                "error": None,
+                "started_at": func.now(),
+                "finished_at": None,
+            },
+        ).returning(sourcing_run.c.id)
+    ).scalar_one()
+    return run_id
+
+
+def set_sync_status(connection: Connection, run_id: int, sync_status: str) -> None:
+    connection.execute(
+        update(sourcing_run).where(sourcing_run.c.id == run_id).values(sync_status=sync_status)
+    )
+
+
+def fail_run(connection: Connection, run_id: int, error: str) -> None:
+    connection.execute(
+        update(sourcing_run)
+        .where(sourcing_run.c.id == run_id)
+        .values(status="failed", error=error, finished_at=func.now())
+    )
+
+
+def complete_run(connection: Connection, run_id: int, counts: dict[str, Any]) -> None:
+    connection.execute(
+        update(sourcing_run)
+        .where(sourcing_run.c.id == run_id)
+        .values(status="completed", counts=counts, error=None, finished_at=func.now())
+    )
+
+
+def listings_seen_between(
+    connection: Connection, market: str, start: datetime, end: datetime
+) -> list[ListingRow]:
+    """Every listing of the market last seen in [start, end), whatever its status."""
+    rows = connection.execute(
+        select(*LISTING_COLUMNS)
+        .where(
+            listing.c.market == market,
+            listing.c.last_seen_at >= start,
+            listing.c.last_seen_at < end,
+        )
+        .order_by(listing.c.id)
+    )
+    return [ListingRow(**row._mapping) for row in rows]
+
+
+def listings_by_id(connection: Connection, listing_ids: Sequence[int]) -> dict[int, ListingRow]:
+    if not listing_ids:
+        return {}
+    rows = connection.execute(select(*LISTING_COLUMNS).where(listing.c.id.in_(list(listing_ids))))
+    return {row.id: ListingRow(**row._mapping) for row in rows}
+
+
+def run_listings_of(connection: Connection, run_id: int) -> list[PreviousRunListing]:
+    rows = connection.execute(
+        select(
+            run_listing.c.listing_id,
+            run_listing.c.change_kind,
+            run_listing.c.price,
+            run_listing.c.candidate_id,
+            run_listing.c.filter_reason,
+        ).where(run_listing.c.run_id == run_id)
+    )
+    return [PreviousRunListing(**row._mapping) for row in rows]
+
+
+def candidates_by_key(
+    connection: Connection, market: str, property_keys: Collection[str]
+) -> dict[str, CandidateRef]:
+    if not property_keys:
+        return {}
+    rows = connection.execute(
+        select(candidate.c.id, candidate.c.property_key, candidate.c.first_as_of).where(
+            candidate.c.market == market, candidate.c.property_key.in_(list(property_keys))
+        )
+    )
+    return {row.property_key: CandidateRef(**row._mapping) for row in rows}
+
+
+def upsert_candidates(
+    connection: Connection, market: str, as_of: date, writes: Sequence[CandidateWrite]
+) -> dict[str, CandidateRef]:
+    """Get or create each property's candidate; returns them by property key.
+
+    first_as_of is set on creation only, so a candidate made earlier in this run (or on an
+    earlier run date) keeps it.
+    """
+    for write in writes:
+        values = {
+            "account_id": write.account_id,
+            "gis_parcel_id": write.gis_parcel_id,
+            "zip5": write.zip5,
+            "street_key": write.street_key,
+        }
+        if write.replaces_key is not None:
+            connection.execute(
+                update(candidate)
+                .where(candidate.c.market == market, candidate.c.property_key == write.replaces_key)
+                .values(property_key=write.property_key, **values)
+            )
+            continue
+        connection.execute(
+            insert(candidate)
+            .values(market=market, property_key=write.property_key, first_as_of=as_of, **values)
+            .on_conflict_do_nothing(index_elements=[candidate.c.market, candidate.c.property_key])
+        )
+    return candidates_by_key(connection, market, [write.property_key for write in writes])
+
+
+def clear_run_rows(connection: Connection, run_id: int) -> None:
+    connection.execute(delete(run_candidate).where(run_candidate.c.run_id == run_id))
+    connection.execute(delete(run_listing).where(run_listing.c.run_id == run_id))
+
+
+def write_run_listings(
+    connection: Connection,
+    run_id: int,
+    rows: Sequence[RunListingWrite],
+    candidates: Mapping[str, CandidateRef],
+) -> None:
+    if not rows:
+        return
+    connection.execute(
+        insert(run_listing),
+        [
+            {
+                "run_id": run_id,
+                "listing_id": row.listing_id,
+                "change_kind": row.change_kind,
+                "price": row.price,
+                "prev_price": row.prev_price,
+                "candidate_id": (
+                    candidates[row.property_key].id
+                    if row.property_key is not None
+                    else row.candidate_id
+                ),
+                "is_primary": row.is_primary,
+                "filter_reason": row.filter_reason,
+            }
+            for row in rows
+        ],
+    )
+
+
+def write_run_candidates(
+    connection: Connection, run_id: int, rows: Sequence[RunCandidateWrite]
+) -> None:
+    if not rows:
+        return
+    connection.execute(
+        insert(run_candidate),
+        [
+            {
+                "run_id": run_id,
+                "candidate_id": row.candidate_id,
+                "primary_listing_id": row.primary_listing_id,
+                "change_kind": row.change_kind,
+                "status": row.status,
+                "filter_reasons": row.filter_reasons,
+                "unscored_reason": row.unscored_reason,
+                "score": row.score,
+                "rank": row.rank,
+                "breakdown": row.breakdown,
+            }
+            for row in rows
         ],
     )
