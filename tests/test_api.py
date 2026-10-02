@@ -379,6 +379,7 @@ def test_markets_list_and_detail(client: TestClient) -> None:
         "sync_reserve_per_day": 1,
         "max_age_days": 30,
     }
+    assert detail.json()["cost_assumptions_status"] == "illustrative"
 
 
 def test_unknown_market_is_404_and_malformed_is_422(client: TestClient) -> None:

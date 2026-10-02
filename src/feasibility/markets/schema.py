@@ -5,6 +5,7 @@ typo cannot silently fall back to a default.
 """
 
 import re
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 from zoneinfo import available_timezones
@@ -270,16 +271,127 @@ class Sourcing(PackModel):
     estimates: Estimates
 
 
-class CostAssumptions(PackModel):
-    """Inputs to the pro-forma. Placeholders until the pro-forma engine sets real ones."""
+Percent = Annotated[Decimal, Field(ge=0, le=100)]
+Money = Annotated[Decimal, Field(ge=0)]
+Sqft = Annotated[Decimal, Field(gt=0)]
 
-    status: Literal["placeholder", "reviewed"]
-    hard_cost_per_sqft: Decimal | None = None
-    soft_cost_pct: Decimal | None = None
-    financing_rate_pct: Decimal | None = None
-    points_pct: Decimal | None = None
-    hold_months: Decimal | None = None
-    selling_cost_pct: Decimal | None = None
+
+class Acquisition(PackModel):
+    closing_pct: Percent  # buyer-side title, survey, recording, as % of price
+
+
+class Demolition(PackModel):
+    flat: Money
+    per_sqft: Money
+    fallback_sqft: Sqft  # used when the existing house's size is unknown
+
+
+class Construction(PackModel):
+    hard_cost_per_sqft: Annotated[Decimal, Field(gt=0)]
+    contingency_pct: Percent  # of hard cost
+    soft_cost_pct: Percent  # of hard cost
+    build_share_pct: Annotated[Decimal, Field(gt=0, le=100)]  # share of the hold spent building
+
+
+class Financing(PackModel):
+    loan_to_cost_pct: Percent
+    rate_pct: Annotated[Decimal, Field(ge=0, le=40)]
+    points_pct: Percent
+    draw_count: Annotated[int, Field(ge=0)]
+    draw_fee: Money
+
+
+class Holding(PackModel):
+    hold_months: Annotated[Decimal, Field(gt=0)]
+    property_tax_rate_pct: Annotated[Decimal, Field(ge=0, le=10)]
+    insurance_pct_of_hard_cost_per_year: Percent
+
+
+class Selling(PackModel):
+    commission_pct: Percent
+    closing_pct: Percent
+
+
+class Target(PackModel):
+    margin_pct: Percent  # of ARV
+
+
+class ArvRules(PackModel):
+    min_comps: Annotated[int, Field(ge=1)]
+    min_comp_sqft: Sqft
+    new_build_premium_pct: Percent
+    # The latest estimate older than this gives the candidate no ARV.
+    estimate_max_age_days: Annotated[int, Field(ge=1)]
+
+
+class ZoningRule(PackModel):
+    coverage_pct: Annotated[Decimal, Field(gt=0, le=100)]
+    stories: Annotated[int, Field(ge=1, le=10)]
+    living_share_pct: Annotated[Decimal, Field(gt=0, le=100)]
+
+
+class Sizing(PackModel):
+    min_home_sqft: Sqft
+    max_home_sqft: Sqft
+    default: ZoningRule  # an unknown zoning uses this rule and is flagged
+    rules: dict[str, ZoningRule]
+
+    @field_validator("rules")
+    @classmethod
+    def _zoning_keys_are_unique_once_normalised(
+        cls, rules: dict[str, ZoningRule]
+    ) -> dict[str, ZoningRule]:
+        normalised = [normalise_zoning(key) for key in rules]
+        if len(set(normalised)) != len(normalised):
+            raise ValueError("zoning rules repeat a zoning after upper-casing and removing spaces")
+        return rules
+
+    @model_validator(mode="after")
+    def _check_home_size_range(self) -> "Sizing":
+        if self.min_home_sqft > self.max_home_sqft:
+            raise ValueError("min_home_sqft must not exceed max_home_sqft")
+        return self
+
+
+class Sensitivity(PackModel):
+    arv_delta_pct: list[Decimal] = Field(min_length=1)
+    hard_cost_delta_pct: list[Decimal] = Field(min_length=1)
+    hold_months: list[Decimal] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_grid_has_a_base_case(self) -> "Sensitivity":
+        if Decimal(0) not in self.arv_delta_pct:
+            raise ValueError("arv_delta_pct must contain 0")
+        if Decimal(0) not in self.hard_cost_delta_pct:
+            raise ValueError("hard_cost_delta_pct must contain 0")
+        return self
+
+
+def normalise_zoning(zoning: str) -> str:
+    return "".join(zoning.split()).upper()
+
+
+class CostAssumptions(PackModel):
+    """Inputs to the pro-forma. Every Dallas value is illustrative, not a quote or actuals."""
+
+    status: Literal["illustrative", "reviewed"]
+    sources_read_on: date
+    acquisition: Acquisition
+    demolition: Demolition
+    construction: Construction
+    financing: Financing
+    holding: Holding
+    selling: Selling
+    target: Target
+    arv: ArvRules
+    sizing: Sizing
+    sensitivity: Sensitivity
+
+    @model_validator(mode="after")
+    def _check_grid_centre_is_the_base_case(self) -> "CostAssumptions":
+        if self.holding.hold_months not in self.sensitivity.hold_months:
+            raise ValueError("sensitivity.hold_months must contain holding.hold_months")
+        return self
 
 
 class MarketPack(PackModel):
@@ -314,4 +426,6 @@ class MarketPack(PackModel):
         unknown = set(priority) - {spec.adapter for spec in self.sources.listings}
         if unknown:
             raise ValueError(f"source_priority names unconfigured sources: {sorted(unknown)}")
+        if self.cost_assumptions.arv.estimate_max_age_days < self.sourcing.estimates.ttl_days:
+            raise ValueError("estimate_max_age_days must be at least sourcing.estimates.ttl_days")
         return self

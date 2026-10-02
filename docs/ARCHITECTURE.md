@@ -253,7 +253,7 @@ The client never retries. Retries happen at the job level, with backoff.
 | `[[sources.listings]]` | `rentcast` (city, state, status, `days_old`, `limit`) and `mls` (`enabled = false`) |
 | `[buy_box]` | zips, max price, minimum lot size, maximum year built, minimum land-to-total ratio, property types. Applied by `sourcing/filters.py`. |
 | `[sourcing]` | `source_priority` (which listing source speaks for a property, best first) and `[sourcing.scoring]`: the four weights (they sum to 100), where each component earns full credit, the vacant-lot age credit, and the value-drift settings. Validated against the buy box. `[sourcing.estimates]` is the value-estimate spend policy: `top_n` candidates priced, `monthly_cap` billed calls a period, `ttl_days` of reuse, `sync_reserve_per_day` calls held back for the daily sync and `max_age_days` of use (`monthly_cap >= top_n`, `max_age_days >= ttl_days`). |
-| `[cost_assumptions]` | `status` (`placeholder` or `reviewed`) and optional decimal inputs for the pro-forma. The Dallas values are placeholders. |
+| `[cost_assumptions]` | `status` (`illustrative` or `reviewed`), `sources_read_on`, and the pro-forma inputs by group: `acquisition`, `demolition`, `construction`, `financing`, `holding`, `selling`, `target`, `arv`, `sizing` (home-size clamp, per-zoning coverage rules and a required `default` rule) and `sensitivity` (the grid, which must contain the base case). Every Dallas cost value is illustrative: a labelled default, not a quote or a builder's actuals. Sources are in `docs/proforma-assumptions.md`. |
 
 `feasibility market validate` checks every pack, and a parametrized test runs over `packs/*.toml`, so a new county is a new file.
 

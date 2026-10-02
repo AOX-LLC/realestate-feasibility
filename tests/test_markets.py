@@ -3,6 +3,7 @@
 import copy
 import re
 import tomllib
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -256,4 +257,79 @@ def test_source_priority_cannot_name_an_unconfigured_source() -> None:
     data["sourcing"]["source_priority"] = ["mls", "zillow"]
 
     with pytest.raises(ValidationError, match="unconfigured"):
+        MarketPack.model_validate(data)
+
+
+def test_dallas_cost_assumptions_are_illustrative_and_complete() -> None:
+    costs = get_pack("dallas").cost_assumptions
+
+    assert costs.status == "illustrative"
+    assert str(costs.sources_read_on) == "2026-10-02"
+    assert costs.construction.hard_cost_per_sqft == 190
+    assert costs.financing.draw_count == 5
+    assert costs.holding.property_tax_rate_pct == Decimal("2.226885")
+    assert costs.sizing.default.coverage_pct == 40
+    assert set(costs.sizing.rules) == {"R-7.5(A)", "R-5(A)", "R-10(A)"}
+    assert costs.sensitivity.hold_months == [6, 9, 12]
+
+
+COST_BREAKS: list[tuple[list[str], object, str]] = [
+    (["acquisition", "closing_pct"], "101", "less than or equal to 100"),
+    (["acquisition", "closing_pct"], "-1", "greater than or equal to 0"),
+    (["financing", "rate_pct"], "41", "less than or equal to 40"),
+    (["holding", "property_tax_rate_pct"], "10.5", "less than or equal to 10"),
+    (["construction", "build_share_pct"], "0", "greater than 0"),
+    (["construction", "build_share_pct"], "101", "less than or equal to 100"),
+    (["sizing", "min_home_sqft"], "4000", "min_home_sqft must not exceed"),
+    (["sensitivity", "arv_delta_pct"], ["-10", "10"], "arv_delta_pct must contain 0"),
+    (["sensitivity", "hard_cost_delta_pct"], ["10"], "hard_cost_delta_pct must contain 0"),
+    (["sensitivity", "hold_months"], ["6", "12"], "must contain holding.hold_months"),
+    (["status"], "placeholder", "illustrative"),
+]
+
+
+@pytest.mark.parametrize(("path", "value", "message"), COST_BREAKS)
+def test_cost_assumptions_reject_one_wrong_field(
+    path: list[str], value: object, message: str
+) -> None:
+    data = dallas_dict()
+    section = data["cost_assumptions"]
+    for key in path[:-1]:
+        section = section[key]
+    section[path[-1]] = value
+
+    with pytest.raises(ValidationError, match=message):
+        MarketPack.model_validate(data)
+
+
+def test_zoning_rules_cannot_repeat_after_normalising() -> None:
+    data = dallas_dict()
+    rules = data["cost_assumptions"]["sizing"]["rules"]
+    rules["r-7.5(a)"] = rules["R-7.5(A)"]
+
+    with pytest.raises(ValidationError, match="repeat a zoning"):
+        MarketPack.model_validate(data)
+
+
+def test_the_default_zoning_rule_is_required() -> None:
+    data = dallas_dict()
+    del data["cost_assumptions"]["sizing"]["default"]
+
+    with pytest.raises(ValidationError, match="default"):
+        MarketPack.model_validate(data)
+
+
+def test_estimate_max_age_must_cover_the_estimate_reuse_window() -> None:
+    data = dallas_dict()
+    data["cost_assumptions"]["arv"]["estimate_max_age_days"] = 6  # ttl_days is 7
+
+    with pytest.raises(ValidationError, match="estimate_max_age_days must be at least"):
+        MarketPack.model_validate(data)
+
+
+def test_unknown_key_inside_cost_assumptions_is_rejected() -> None:
+    data = dallas_dict()
+    data["cost_assumptions"]["financing"]["surprise"] = 1
+
+    with pytest.raises(ValidationError):
         MarketPack.model_validate(data)
