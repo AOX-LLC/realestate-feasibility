@@ -65,7 +65,6 @@ class EstimatesOut(ResponseModel):
     monthly_cap: int
     ttl_days: int
     sync_reserve_per_day: int
-    max_age_days: int
 
 
 class SourcingOut(ResponseModel):

@@ -377,7 +377,6 @@ def test_markets_list_and_detail(client: TestClient) -> None:
         "monthly_cap": 20,
         "ttl_days": 7,
         "sync_reserve_per_day": 1,
-        "max_age_days": 30,
     }
 
 
