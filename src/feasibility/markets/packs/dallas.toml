@@ -1,0 +1,109 @@
+# Market pack for Dallas County, TX.
+#
+# DCAD bulk files are downloaded by the operator from
+# dallascad.org/dataproducts.aspx into the gitignored local/ directory and are
+# never committed. CSV header spellings are authoritative; the layout
+# spreadsheet has typos, so column names here follow the files themselves.
+
+[market]
+id = "dallas"
+name = "Dallas County, TX"
+state = "TX"
+county = "Dallas"
+timezone = "America/Chicago"
+
+[sources.parcels]
+adapter = "cad_csv"
+source = "dcad"
+# Files are documented as ASCII; latin-1 decodes any byte, so one stray byte
+# cannot fail an 800k-row import.
+encoding = "latin-1"
+delimiter = ","
+archive_pattern = '^DCAD(?P<year>\d{4})_CURRENT\.ZIP$'
+join_key = "ACCOUNT_NUM"
+base_file = "ACCOUNT_INFO"
+
+# "Certified Data Files with Supplemental Changes" carries values;
+# "Most Current Ownership" lists every property (including value-in-dispute
+# ones) but its values are all .00.
+[sources.parcels.kinds]
+certified = { carries_values = true }
+current = { carries_values = false }
+
+[sources.parcels.files]
+ACCOUNT_INFO = { member = "ACCOUNT_INFO.CSV" }
+ACCOUNT_APPRL_YEAR = { member = "ACCOUNT_APPRL_YEAR.CSV" }
+LAND = { member = "LAND.CSV" }
+RES_DETAIL = { member = "RES_DETAIL.CSV" }
+
+[sources.parcels.fields]
+gis_parcel_id = { file = "ACCOUNT_INFO", column = "GIS_PARCEL_ID" }
+street_number = { file = "ACCOUNT_INFO", column = "STREET_NUM" }
+street_half = { file = "ACCOUNT_INFO", column = "STREET_HALF_NUM" }
+street_name = { file = "ACCOUNT_INFO", column = "FULL_STREET_NAME" }
+unit = { file = "ACCOUNT_INFO", column = "UNIT_ID" }
+city = { file = "ACCOUNT_INFO", column = "PROPERTY_CITY" }
+# 9 digits in the file
+zip5 = { file = "ACCOUNT_INFO", column = "PROPERTY_ZIPCODE", transform = "zip5" }
+land_value = { file = "ACCOUNT_APPRL_YEAR", column = "LAND_VAL", transform = "decimal" }
+improvement_value = { file = "ACCOUNT_APPRL_YEAR", column = "IMPR_VAL", transform = "decimal" }
+total_value = { file = "ACCOUNT_APPRL_YEAR", column = "TOT_VAL", transform = "decimal" }
+use_code = { file = "ACCOUNT_APPRL_YEAR", column = "SPTD_CODE" }
+# Several rows per account.
+living_area_sqft = { file = "RES_DETAIL", column = "TOT_LIVING_AREA_SF", transform = "int", aggregate = "sum" }
+# Year of the largest building.
+year_built = { file = "RES_DETAIL", column = "YR_BUILT", transform = "int", aggregate = "from_max_of:TOT_LIVING_AREA_SF" }
+# Several land sections per account.
+lot_size_sqft = { file = "LAND", column = "AREA_SIZE", transform = "decimal", aggregate = "sum", unit_column = "AREA_UOM_DESC" }
+# Zoning of the first section.
+zoning = { file = "LAND", column = "ZONING", aggregate = "from_min_of:SECTION_NUM" }
+
+# An unknown unit makes the account's lot size NULL and is counted in the
+# import report.
+[sources.parcels.unit_factors]
+"SQUARE FEET" = 1
+"ACRES" = 43560
+
+# EXCLUDE_OWNER appears to flag a confidential owner (unverified against the
+# layout doc). Any value other than blank/N/0/F/FALSE skips the whole account,
+# counted in the import report. The flag's value is never stored.
+[sources.parcels.skip_accounts]
+file = "ACCOUNT_INFO"
+column = "EXCLUDE_OWNER"
+
+# One call a day. Zip and buy-box filtering happen locally because filtering by
+# zip on the API side costs one call per zip. days_old = 2 overlaps one day so a
+# late run misses nothing.
+[[sources.listings]]
+adapter = "rentcast"
+enabled = true
+city = "Dallas"
+state = "TX"
+status = "Active"
+days_old = 2
+limit = 500
+
+# A client's RESO feed plugs in here; see sources/mls/stub.py.
+[[sources.listings]]
+adapter = "mls"
+enabled = false
+
+# Validated now, applied by the sourcing step. Decimals are strings so they
+# parse exactly.
+[buy_box]
+zips = ["75214", "75206", "75209", "75218", "75220", "75223", "75228", "75230"]
+price_max = "650000"
+lot_size_min_sqft = "6000"
+year_built_max = 1965
+land_to_total_min = "0.55"
+property_types = ["Single Family", "Land"]
+
+# Placeholders until the pro-forma phase sets reviewed values.
+[cost_assumptions]
+status = "placeholder"
+hard_cost_per_sqft = "185"
+soft_cost_pct = "12"
+financing_rate_pct = "9.5"
+points_pct = "1.5"
+hold_months = "12"
+selling_cost_pct = "6"

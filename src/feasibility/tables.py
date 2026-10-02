@@ -1,0 +1,243 @@
+"""SQLAlchemy Core table definitions. Alembic migrations are the source of truth for the
+database; tests/test_schema.py asserts that this module and the migrations agree.
+
+No table has an owner, mailing-address or agent-contact column, so personal data
+from the sources has nowhere to land.
+"""
+
+from typing import Any
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    MetaData,
+    Numeric,
+    PrimaryKeyConstraint,
+    SmallInteger,
+    Table,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+
+metadata = MetaData(
+    naming_convention={
+        "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+        "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+        "ck": "ck_%(table_name)s_%(constraint_name)s",
+        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+        "pk": "pk_%(table_name)s",
+    }
+)
+
+MONEY = Numeric(14, 2)
+
+
+def _timestamp(name: str, *, nullable: bool = False) -> Column[Any]:
+    if nullable:
+        return Column(name, DateTime(timezone=True), nullable=True)
+    return Column(name, DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+def _parcel_attribute_columns() -> list[Column[Any]]:
+    """Columns shared by parcel_version and parcel, in canonical field order."""
+    return [
+        Column("gis_parcel_id", Text),
+        Column("street_number", Text),
+        Column("street_half", Text),
+        Column("street_name", Text),
+        Column("unit", Text),
+        Column("city", Text),
+        Column("zip5", Text),
+        Column("land_value", MONEY),
+        Column("improvement_value", MONEY),
+        Column("total_value", MONEY),
+        Column("year_built", SmallInteger),
+        Column("living_area_sqft", Integer),
+        Column("lot_size_sqft", Numeric(14, 2)),
+        Column("use_code", Text),
+        Column("zoning", Text),
+    ]
+
+
+source_file = Table(
+    "source_file",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("market", Text, nullable=False),
+    Column("source", Text, nullable=False),
+    Column("kind", Text, nullable=False),
+    Column("roll_year", SmallInteger, nullable=False),
+    Column("file_date", Date, nullable=False),
+    Column("sha256", Text, nullable=False),
+    Column("carries_values", Boolean, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("rows_read", Integer, nullable=False, server_default="0"),
+    Column("rows_loaded", Integer, nullable=False, server_default="0"),
+    Column("rows_skipped", Integer, nullable=False, server_default="0"),
+    Column("skip_reasons", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("error", Text),
+    _timestamp("created_at"),
+    _timestamp("completed_at", nullable=True),
+    UniqueConstraint("market", "source", "kind", "roll_year", "file_date"),
+    CheckConstraint("kind IN ('certified', 'current')", name="kind"),
+    CheckConstraint("status IN ('loading', 'loaded', 'failed')", name="status"),
+)
+
+parcel_version = Table(
+    "parcel_version",
+    metadata,
+    Column("market", Text, nullable=False),
+    Column("account_id", Text, nullable=False),
+    Column(
+        "source_file_id",
+        BigInteger,
+        ForeignKey("source_file.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    *_parcel_attribute_columns(),
+    PrimaryKeyConstraint("market", "account_id", "source_file_id"),
+    Index(None, "source_file_id"),
+)
+
+parcel = Table(
+    "parcel",
+    metadata,
+    Column("market", Text, nullable=False),
+    Column("account_id", Text, nullable=False),
+    *_parcel_attribute_columns(),
+    Column("attrs_file_date", Date, nullable=False),
+    Column("values_file_date", Date),
+    _timestamp("updated_at"),
+    PrimaryKeyConstraint("market", "account_id"),
+    Index(None, "market", "zip5"),
+)
+
+listing = Table(
+    "listing",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("source", Text, nullable=False),
+    Column("external_id", Text, nullable=False),
+    Column("market", Text, nullable=False),
+    Column("address_line", Text, nullable=False),
+    Column("city", Text),
+    Column("state", Text),
+    Column("zip5", Text),
+    Column("price", MONEY),
+    Column("status", Text),
+    Column("property_type", Text),
+    Column("lot_size_sqft", Numeric(14, 2)),
+    Column("living_area_sqft", Integer),
+    Column("year_built", SmallInteger),
+    Column("listed_date", Date),
+    Column("remarks", Text),
+    _timestamp("first_seen_at"),
+    _timestamp("last_seen_at"),
+    Column("account_id", Text),
+    Column("raw", JSONB, nullable=False),
+    UniqueConstraint("source", "external_id"),
+    Index(None, "market", "first_seen_at"),
+)
+
+api_cache = Table(
+    "api_cache",
+    metadata,
+    Column("provider", Text, nullable=False),
+    Column("request_key", Text, nullable=False),
+    Column("endpoint", Text, nullable=False),
+    Column("params", JSONB, nullable=False),
+    Column("body", JSONB, nullable=False),
+    _timestamp("fetched_at"),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint("provider", "request_key"),
+)
+
+api_budget = Table(
+    "api_budget",
+    metadata,
+    Column("provider", Text, nullable=False),
+    Column("period_start", Date, nullable=False),
+    Column("request_limit", Integer, nullable=False),
+    Column("used", Integer, nullable=False, server_default="0"),
+    PrimaryKeyConstraint("provider", "period_start"),
+    CheckConstraint("used >= 0", name="used_not_negative"),
+)
+
+REQUEST_OUTCOMES = (
+    "ok",
+    "not_found",
+    "http_error",
+    "network_error",
+    "schema_error",
+    "refused_budget",
+    "cache_hit",
+    "stale_served",
+)
+
+api_request_log = Table(
+    "api_request_log",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("provider", Text, nullable=False),
+    Column("endpoint", Text, nullable=False),
+    Column("request_key", Text, nullable=False),
+    Column("period_start", Date),
+    Column("outcome", Text, nullable=False),
+    Column("status_code", SmallInteger),
+    Column("billed", Boolean, nullable=False),
+    _timestamp("at"),
+    CheckConstraint(
+        "outcome IN (" + ", ".join(f"'{outcome}'" for outcome in REQUEST_OUTCOMES) + ")",
+        name="outcome",
+    ),
+    Index(None, "provider", "at"),
+)
+
+JOB_STATUSES = ("queued", "running", "done", "failed", "dead")
+
+job = Table(
+    "job",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("status", Text, nullable=False, server_default="queued"),
+    Column("priority", SmallInteger, nullable=False, server_default="100"),
+    Column("run_after", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("max_attempts", Integer, nullable=False, server_default="5"),
+    Column("locked_by", Text),
+    Column("locked_until", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("dedupe_key", Text),
+    _timestamp("created_at"),
+    _timestamp("updated_at"),
+    _timestamp("finished_at", nullable=True),
+    CheckConstraint(
+        "status IN (" + ", ".join(f"'{status}'" for status in JOB_STATUSES) + ")",
+        name="status",
+    ),
+    Index(
+        "ix_job_claimable",
+        "priority",
+        "id",
+        postgresql_where=text("status = 'queued'"),
+    ),
+    Index(
+        "uq_job_dedupe_key_active",
+        "dedupe_key",
+        unique=True,
+        postgresql_where=text("status IN ('queued', 'running')"),
+    ),
+)

@@ -1,0 +1,44 @@
+{
+  "body": {
+    "addressLine1": "5284 Ostravelle Ln",
+    "bathrooms": 1.0,
+    "bedrooms": 2.0,
+    "city": "Dallas",
+    "county": "Dallas County",
+    "createdDate": "2026-09-21T00:00:00Z",
+    "daysOnMarket": 10,
+    "formattedAddress": "5284 Ostravelle Ln, Dallas, TX 75206",
+    "history": {
+      "2026-09-21": {
+        "daysOnMarket": 10,
+        "event": "Sale Listing",
+        "listedDate": "2026-09-21T00:00:00Z",
+        "listingType": "Standard",
+        "price": 512000.0
+      }
+    },
+    "hoa": {
+      "fee": 0.0
+    },
+    "id": "5284-Ostravelle-Ln,-Dallas,-TX-75206",
+    "lastSeenDate": "2026-09-21T08:00:00Z",
+    "latitude": 32.717931,
+    "listedDate": "2026-09-21T00:00:00Z",
+    "listingType": "Standard",
+    "longitude": -96.851968,
+    "lotSize": 13382.0,
+    "mlsName": "SYNTHETIC",
+    "mlsNumber": "SYN000002",
+    "price": 512000.0,
+    "propertyType": "Single Family",
+    "squareFootage": 863,
+    "state": "TX",
+    "status": "Active",
+    "yearBuilt": 1941,
+    "zipCode": "75206"
+  },
+  "endpoint": "/listings/sale/{id}",
+  "params": {},
+  "path": "/listings/sale/5284-Ostravelle-Ln%2C-Dallas%2C-TX-75206",
+  "status": 200
+}

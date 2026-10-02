@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.worktrees
+local
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.env
+.env.*
+*.zip
+*.ZIP
+tests
+scripts
+docs

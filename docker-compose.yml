@@ -1,0 +1,76 @@
+name: realestate-feasibility
+
+x-app: &app
+  build:
+    context: .
+    args:
+      GIT_COMMIT: ${GIT_COMMIT:-}
+      GIT_BRANCH: ${GIT_BRANCH:-}
+  image: realestate-feasibility:dev
+  environment:
+    DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/feasibility
+    DATA_MODE: ${DATA_MODE:-mock}
+    RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
+    RENTCAST_MONTHLY_BUDGET: ${RENTCAST_MONTHLY_BUDGET:-50}
+    RENTCAST_BILLING_ANCHOR_DAY: ${RENTCAST_BILLING_ANCHOR_DAY:-1}
+    MARKET: ${MARKET:-dallas}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: feasibility
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-feasibility-local-dev}
+      POSTGRES_DB: feasibility
+    ports:
+      - "127.0.0.1:4502:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feasibility -d feasibility"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "feasibility migrate && feasibility seed"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 384m
+
+  api:
+    <<: *app
+    ports:
+      - "127.0.0.1:4501:4501"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4501/health', timeout=3).status == 200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    mem_limit: 256m
+
+  worker:
+    <<: *app
+    command: ["feasibility", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 256m
+
+volumes:
+  pgdata:
