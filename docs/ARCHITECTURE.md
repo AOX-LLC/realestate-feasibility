@@ -92,7 +92,7 @@ Alembic revision `0001_initial_schema`.
 | `api_request_log` | One row per attempt | Provider, endpoint, request key, period start, outcome (`ok`, `not_found`, `http_error`, `network_error`, `schema_error`, `refused_budget`, `cache_hit`, `stale_served`), status code, `billed`, `at`. |
 | `job` | The queue | `kind`, `payload` jsonb, `status` (`queued`, `running`, `done`, `failed`, `dead`), `priority`, `run_after`, `attempts`, `max_attempts`, `locked_by`, `locked_until`, `last_error`, `dedupe_key` (partial unique index while queued or running), timestamps. |
 
-No owner, mailing-address or agent-contact column exists anywhere, so the schema cannot hold them.
+No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged.
 
 Later phases add their own tables in their own migrations: candidates and scores (2), pro-formas (3), signals and risk narratives (4), briefs and deliveries (5).
 

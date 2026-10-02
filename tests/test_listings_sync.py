@@ -69,7 +69,7 @@ def test_listing_maps_to_the_domain_without_personal_fields() -> None:
     assert listing.address.one_line == "100 SYNTHETIC ELM ST, DALLAS, TX 75214"
     assert listing.price == Decimal("450000")
     assert listing.remarks is None
-    assert listing.raw["someNewField"] == "kept"
+    assert "someNewField" not in listing.raw
     assert "listingAgent" not in listing.raw
 
 

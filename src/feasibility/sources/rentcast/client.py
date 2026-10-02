@@ -47,6 +47,11 @@ SALE_LISTINGS = TypeAdapter(list[SaleListing])
 SALE_LISTING = TypeAdapter(SaleListing)
 PROPERTY_RECORDS = TypeAdapter(list[PropertyRecord])
 VALUE_ESTIMATE = TypeAdapter(ValueEstimate)
+DECLARED_FIELDS = frozenset(
+    field.alias or name
+    for model in (SaleListing, PropertyRecord, ValueEstimate)
+    for name, field in model.model_fields.items()
+)
 
 
 def sale_listings_params(query: ListingQuery) -> dict[str, str]:
@@ -293,15 +298,16 @@ class RentCastClient:
             return self._stale_or_raise(connection, request, adapter, error)
 
         if response.status_code == 200:
-            body = scrub(response.body)
-            data = self._validate(connection, request, period, body, adapter)
+            data = self._validate(connection, request, period, scrub(response.body), adapter)
             cache.store(
                 connection,
                 PROVIDER,
                 request.key,
                 endpoint=request.endpoint,
                 params=request.params,
-                body=body,
+                # Only declared fields: whatever the response carried beyond the models
+                # is never stored.
+                body=adapter.dump_python(data, mode="json", by_alias=True, exclude_unset=True),
                 ttl=request.ttl,
             )
             self._log(connection, request, period, "ok", 200, billed=True)
@@ -327,6 +333,7 @@ class RentCastClient:
         body: Any,
         adapter: TypeAdapter[T],
     ) -> T:
+        _log_undeclared_fields(request.endpoint, body)
         try:
             return adapter.validate_python(body)
         except ValidationError as error:
@@ -377,6 +384,15 @@ class RentCastClient:
                 "billed": billed,
             },
         )
+
+
+def _log_undeclared_fields(endpoint: str, body: Any) -> None:
+    """Name (never show) top-level response fields the models do not declare."""
+    records = body if isinstance(body, list) else [body]
+    seen = {key for record in records if isinstance(record, dict) for key in record}
+    undeclared = sorted(seen - DECLARED_FIELDS)
+    if undeclared:
+        log.warning("RentCast %s returned undeclared fields, dropped: %s", endpoint, undeclared)
 
 
 def _error_code(body: Any) -> str | None:

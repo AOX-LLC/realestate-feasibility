@@ -11,11 +11,13 @@ against these models.
 
 The published schema marks no response field as required. The fields this application
 keys on are required here (id and formattedAddress; price on a value estimate), so a
-response without them fails as shape drift instead of loading as junk. Unknown fields
-are kept (extra="allow") so a new live field survives into the stored raw record.
+response without them fails as shape drift instead of loading as junk.
 
-Personal fields (listingAgent, listingOffice, owner) are deliberately not declared:
-scrub.py removes them before anything is validated, cached or stored.
+Storage is an allowlist: only declared fields are ever cached or stored. Unknown fields
+are dropped at validation (extra="ignore") and their names, never their values, are
+logged as drift so a new field can be reviewed before it is declared. Personal fields
+(listingAgent, listingOffice, owner) and owner-adjacent ones (legalDescription,
+ownerOccupied) are deliberately not declared, and scrub.py removes them first anyway.
 """
 
 from datetime import datetime
@@ -25,7 +27,7 @@ from pydantic.alias_generators import to_camel
 
 
 class RentCastModel(BaseModel):
-    model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", alias_generator=to_camel, populate_by_name=True)
 
 
 class Hoa(RentCastModel):
@@ -125,7 +127,6 @@ class PropertyRecord(AddressedRecord):
     """An item of GET /properties, and the body of GET /properties/{id}."""
 
     assessor_id: str | None = Field(default=None, alias="assessorID")
-    legal_description: str | None = None
     subdivision: str | None = None
     zoning: str | None = None
     last_sale_date: datetime | None = None
@@ -135,7 +136,6 @@ class PropertyRecord(AddressedRecord):
     tax_assessments: dict[str, TaxAssessment] | None = None
     property_taxes: dict[str, PropertyTax] | None = None
     history: dict[str, PropertyHistoryEvent] | None = None
-    owner_occupied: bool | None = None
 
 
 class SubjectProperty(AddressedRecord):

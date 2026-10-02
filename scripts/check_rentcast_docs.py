@@ -16,9 +16,9 @@ import httpx
 from pydantic import BaseModel
 
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
+from feasibility.sources.rentcast.scrub import INTENTIONALLY_UNDECLARED
 
 SPEC_URL = "https://developers.rentcast.io/openapi/rentcast-api.json"
-PERSONAL_FIELDS = frozenset({"listingAgent", "listingOffice", "owner"})
 ENDPOINTS: tuple[tuple[str, type[BaseModel], bool], ...] = (
     ("/listings/sale", SaleListing, True),
     ("/listings/sale/{id}", SaleListing, False),
@@ -57,7 +57,7 @@ def walk_schema(spec: dict[str, Any], schema: dict[str, Any], prefix: str = "") 
         return {path} | walk_schema(spec, next(iter(properties.values())), path)
     if properties:
         for name, child in properties.items():
-            if name in PERSONAL_FIELDS:
+            if name in INTENTIONALLY_UNDECLARED:
                 continue
             path = f"{prefix}.{name}" if prefix else name
             paths.add(path)
@@ -81,7 +81,7 @@ def walk_model(model: type[BaseModel], prefix: str = "") -> set[str]:
     paths: set[str] = set()
     for name, info in model.model_fields.items():
         field_name = info.alias or name
-        if field_name in PERSONAL_FIELDS:
+        if field_name in INTENTIONALLY_UNDECLARED:
             continue
         path = f"{prefix}.{field_name}" if prefix else field_name
         paths.add(path)

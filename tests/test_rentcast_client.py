@@ -292,3 +292,19 @@ def test_mock_mode_reads_the_snapshot_and_never_spends(engine: Engine, tmp_path:
     assert client.value_estimate("not in the snapshot").data is None
     assert _rows(engine, "api_budget") == []
     assert _rows(engine, "api_cache") == []
+
+
+@respx.mock(base_url=BASE_URL)
+def test_only_declared_fields_are_cached_and_undeclared_names_are_logged(
+    respx_mock: respx.MockRouter, engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    builder = {"name": "Builder Person", "phone": "5550199"}
+    respx_mock.get("/listings/sale").respond(200, json=[{**LISTING, "builderContact": builder}])
+
+    _client(engine).sale_listings(QUERY)
+
+    cached = json.dumps([row["body"] for row in _rows(engine, "api_cache")])
+    assert "Builder Person" not in cached
+    assert "builderContact" not in cached
+    assert "builderContact" in caplog.text
+    assert "Builder Person" not in caplog.text

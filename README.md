@@ -68,8 +68,8 @@ Real DCAD files and real RentCast responses are fetched by whoever runs the soft
 
 - The CAD importer can only read columns the market pack maps. A pack cannot map owner, contact, legal-description or taxpayer columns; validation rejects it.
 - Accounts flagged `EXCLUDE_OWNER` are skipped whole, and an account flagged after an earlier load has its stored rows deleted in the same import.
-- RentCast agent, office and owner objects are removed before anything is validated, cached or stored.
-- No table has a column that could hold them.
+- RentCast agent, office and owner objects are removed before anything is validated. Only fields the response models declare are cached or stored; the names of any other fields are logged as drift, never their values.
+- No table has a dedicated column for owner or contact data. The JSON columns (`listing.raw`, `api_cache.body`) hold only declared fields.
 
 **Listing text.** `domain.Listing` has a nullable `remarks` field. RentCast listings carry no description text, so in live RentCast mode the LLM layer gets signals from structured fields only. Phase 4 adds a small synthetic RESO-shaped listing set with `PublicRemarks` for mock mode. A client's own MLS feed (the RESO stub in `src/feasibility/sources/mls/stub.py`) is where real remarks would come from.
 
