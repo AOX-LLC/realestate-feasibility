@@ -245,3 +245,17 @@ def test_from_settings_rejects_a_snapshot_day_in_live_mode(engine: Engine, tmp_p
         RentCastClient.from_settings(
             engine, _settings(tmp_path, DataMode.LIVE), snapshot_day="day-2"
         )
+
+
+def test_replaying_an_earlier_day_does_not_roll_a_listing_back(engine: Engine) -> None:
+    first = datetime(2026, 10, 1, 6, 0, tzinfo=ZoneInfo("America/Chicago"))
+    second = first + timedelta(days=1)
+
+    with engine.begin() as connection:
+        upsert_listings(connection, "dallas", _batch(450000), first)
+        upsert_listings(connection, "dallas", _batch(430000), second)
+        upsert_listings(connection, "dallas", _batch(450000), first)
+
+    row = _stored(engine)
+    assert row.last_seen_at == second
+    assert row.price == Decimal("430000")

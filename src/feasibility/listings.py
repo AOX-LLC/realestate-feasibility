@@ -28,6 +28,7 @@ UPSERT_LISTING = text(
         remarks = EXCLUDED.remarks, raw = EXCLUDED.raw,
         last_seen_at = CASE WHEN :fresh THEN COALESCE(:observed_at, now())
                             ELSE listing.last_seen_at END
+    WHERE listing.last_seen_at <= COALESCE(:observed_at, now())
     """
 )
 
@@ -41,7 +42,9 @@ def upsert_listings(
     """Insert or refresh every listing in one batched statement.
 
     `observed_at` is the moment the feed was seen; it defaults to now() and is given only
-    when replaying a recorded day (mock mode). first_seen_at is set once, on insert.
+    when replaying a recorded day (mock mode). A listing last seen later than `observed_at`
+    is left alone, so replaying an earlier day never rolls it back. first_seen_at is set
+    once, on insert.
     last_seen_at moves on every fresh batch. A stale batch updates fields but not
     last_seen_at: nobody saw those listings today."""
     if not batch.listings:

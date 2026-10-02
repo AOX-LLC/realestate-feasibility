@@ -345,3 +345,18 @@ def test_seed_loads_the_address_cases(engine: Engine) -> None:
     assert fields("99000000000000070")[4] != fields("99000000000000071")[4]
     assert fields("99000000000000070")[:3] == fields("99000000000000071")[:3]
     assert _parcel(engine, "99000000000000071").land_value == Decimal(200000)
+
+
+def test_reseeding_after_a_later_day_keeps_the_later_day(engine: Engine) -> None:
+    seed(engine, Settings())
+    later = "2026-10-02 06:00-05"
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE listing SET price = 1, last_seen_at = :t"), {"t": later})
+
+    seed(engine, Settings())
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT DISTINCT price, last_seen_at FROM listing")).all()
+    assert [(row.price, row.last_seen_at.isoformat()) for row in rows] == [
+        (Decimal(1), "2026-10-02T11:00:00+00:00")
+    ]
