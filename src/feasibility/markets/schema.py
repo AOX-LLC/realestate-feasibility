@@ -241,9 +241,33 @@ class Scoring(PackModel):
     stale_values_years: Annotated[Decimal, Field(gt=0, le=5)]
 
 
+class Estimates(PackModel):
+    """Value-estimate spend: which candidates get a paid estimate and how it is rationed."""
+
+    # Only the top-ranked candidates are priced.
+    top_n: Annotated[int, Field(ge=1, le=50)]
+    # Most billed estimate calls in one billing period.
+    monthly_cap: Annotated[int, Field(ge=1)]
+    # An estimate this young is reused instead of bought again.
+    ttl_days: Annotated[int, Field(ge=1)]
+    # Calls held back for each remaining day's listing sync, which outranks estimates.
+    sync_reserve_per_day: Annotated[int, Field(ge=0)]
+    # An estimate older than this is no longer used.
+    max_age_days: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _check_limits(self) -> "Estimates":
+        if self.monthly_cap < self.top_n:
+            raise ValueError("monthly_cap must be at least top_n")
+        if self.max_age_days < self.ttl_days:
+            raise ValueError("max_age_days must be at least ttl_days")
+        return self
+
+
 class Sourcing(PackModel):
     source_priority: list[str] = Field(min_length=1)  # highest first; names match listing.source
     scoring: Scoring
+    estimates: Estimates
 
 
 class CostAssumptions(PackModel):
