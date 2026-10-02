@@ -120,6 +120,8 @@ def run_sourcing(
     except Exception as error:
         message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
         with engine.begin() as connection:
+            # A failed run must not serve the previous attempt's rows.
+            store.clear_run_rows(connection, run_id)
             store.fail_run(connection, run_id, message)
         raise
     return SourcingResult(run_id, run_date, sync_status, counts)

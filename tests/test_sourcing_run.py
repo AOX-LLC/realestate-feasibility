@@ -515,3 +515,23 @@ def test_the_day_after_a_skipped_sync_is_diffed_against_the_last_fresh_run(seede
     assert result.sync_status == "fresh"
     assert (result.counts.unchanged, result.counts.price_changed) == (17, 1)
     assert (result.counts.relisted, result.counts.new, result.counts.gone) == (1, 8, 2)
+
+
+def test_a_failed_rerun_leaves_no_candidates_behind(seeded: Engine) -> None:
+    _run(seeded, DAY_ONE)
+    _run(seeded, DAY_TWO)
+    error = RentCastError("/listings/sale", 500, "server_error")
+    with pytest.raises(RentCastError):
+        _run_with(seeded, StubClient(seeded, error=error))
+
+    with seeded.connect() as connection:
+        run_id = connection.execute(
+            select(sourcing_run.c.id).where(sourcing_run.c.as_of == DAY_TWO)
+        ).scalar_one()
+        rows = connection.execute(
+            select(func.count()).select_from(run_candidate).where(run_candidate.c.run_id == run_id)
+        ).scalar_one()
+        listings = connection.execute(
+            select(func.count()).select_from(run_listing).where(run_listing.c.run_id == run_id)
+        ).scalar_one()
+    assert (rows, listings) == (0, 0)
