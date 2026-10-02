@@ -21,6 +21,7 @@ from feasibility.jobs.worker import Worker
 from feasibility.logging import configure_logging
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
+from feasibility.snapshot.load import LiveModeSeedError
 from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
@@ -136,7 +137,12 @@ def verify_rentcast() -> None:
 @app.command()
 def seed() -> None:
     """Load the committed synthetic snapshot (idempotent; no network)."""
-    report = seed_snapshot(get_engine(), get_settings())
+    try:
+        report = seed_snapshot(get_engine(), get_settings())
+    except LiveModeSeedError as error:
+        # Exit cleanly so `migrate && seed` still brings a live stack up.
+        typer.echo(f"seed skipped: {error}")
+        return
     for kind, imported in (("certified", report.certified), ("current", report.current)):
         if imported is None:
             typer.echo(f"{kind}: not in the snapshot")

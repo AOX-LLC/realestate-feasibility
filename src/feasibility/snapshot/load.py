@@ -37,7 +37,15 @@ class SeedReport:
     listings: int
 
 
+class LiveModeSeedError(RuntimeError):
+    """Synthetic rows must never mix with real ones."""
+
+
 def seed(engine: Engine, settings: Settings) -> SeedReport:
+    if settings.is_live:
+        # Seeded listings look exactly like RentCast rows, and the synthetic CAD file key
+        # would collide with a real import, so a live database never gets them.
+        raise LiveModeSeedError("seed loads synthetic data and refuses to run in live mode")
     pack = get_pack(settings.market)
     cad_dir = settings.snapshot_dir / "cad" / settings.market
     manifest = json.loads((cad_dir / "manifest.json").read_text(encoding="utf-8"))

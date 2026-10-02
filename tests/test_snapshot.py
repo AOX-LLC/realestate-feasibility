@@ -8,12 +8,12 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import Engine, text
 
-from feasibility.config import Settings
+from feasibility.config import DataMode, Settings
 from feasibility.snapshot.cad_layout import DO_NOT_IMPORT
-from feasibility.snapshot.load import seed
+from feasibility.snapshot.load import LiveModeSeedError, seed
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
 from feasibility.sources.rentcast.transport import request_key
 
@@ -222,3 +222,14 @@ def test_every_set_carries_the_four_files(kind: str) -> None:
     names = sorted(path.name for path in (CAD / kind).glob("*.CSV"))
 
     assert names == ["ACCOUNT_APPRL_YEAR.CSV", "ACCOUNT_INFO.CSV", "LAND.CSV", "RES_DETAIL.CSV"]
+
+
+def test_seed_refuses_a_live_database(engine: Engine) -> None:
+    live = Settings(  # type: ignore[call-arg]
+        _env_file=None, data_mode=DataMode.LIVE, rentcast_api_key=SecretStr("k")
+    )
+
+    with pytest.raises(LiveModeSeedError):
+        seed(engine, live)
+
+    assert _counts(engine) == {"parcel": 0, "parcel_version": 0, "source_file": 0, "listing": 0}
