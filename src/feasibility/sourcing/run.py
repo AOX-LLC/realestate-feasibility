@@ -383,26 +383,41 @@ def _build_run(
     store.write_run_candidates(
         connection,
         run_id,
-        [
-            _run_candidate_row(
-                candidates[key],
-                primaries[key],
-                evaluations[key],
-                ranks.get(key),
-                _candidate_change_kind(
-                    groups[key],
-                    primaries[key],
-                    kinds,
-                    previous_ids,
-                    candidates[key].first_as_of == as_of,
-                ),
-            )
-            for key in groups
-        ],
+        _run_candidate_rows(
+            groups, primaries, evaluations, ranks, candidates, kinds, previous_ids, as_of
+        ),
     )
     counts = _count(seen, resolved, classification, previous_ids, evaluations)
     store.complete_run(connection, run_id, counts.model_dump(mode="json"))
     return counts
+
+
+def _run_candidate_rows(
+    groups: Mapping[str, Sequence[ResolvedListing]],
+    primaries: Mapping[str, ResolvedListing],
+    evaluations: Mapping[str, Evaluation],
+    ranks: Mapping[str, int],
+    candidates: Mapping[str, store.CandidateRef],
+    kinds: Mapping[int, str],
+    previous_ids: Collection[int],
+    as_of: date,
+) -> list[store.RunCandidateWrite]:
+    return [
+        _run_candidate_row(
+            candidates[key],
+            primaries[key],
+            evaluations[key],
+            ranks.get(key),
+            _candidate_change_kind(
+                group,
+                primaries[key],
+                kinds,
+                previous_ids,
+                candidates[key].first_as_of == as_of,
+            ),
+        )
+        for key, group in groups.items()
+    ]
 
 
 @dataclass(frozen=True, slots=True)
