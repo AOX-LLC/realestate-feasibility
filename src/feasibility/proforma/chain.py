@@ -67,11 +67,12 @@ def _financing(costs: Costs, hold_months: Decimal, assumptions: CostAssumptions)
     financeable = price + demolition + build + costs.soft_costs
     loan = round_money(financeable * terms.loan_to_cost_pct / PERCENT)
 
-    rate_factor = terms.loan_to_cost_pct * terms.rate_pct / INTEREST_DIVISOR
-    interest_front = round_money(
-        (price + demolition + costs.soft_costs) * rate_factor * hold_months
+    interest_rate = terms.loan_to_cost_pct * terms.rate_pct
+    front_balance = price + demolition + costs.soft_costs
+    interest_front = round_money(front_balance * interest_rate * hold_months / INTEREST_DIVISOR)
+    interest_progressive = round_money(
+        build * interest_rate * (construction / 2 + sale) / INTEREST_DIVISOR
     )
-    interest_progressive = round_money(build * rate_factor * (construction / 2 + sale))
     interest = interest_front + interest_progressive
     points = round_money(loan * terms.points_pct / PERCENT)
     draw_fees = terms.draw_count * terms.draw_fee
