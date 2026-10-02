@@ -24,6 +24,8 @@ from feasibility.sources.rentcast.client import (
     RentCastClient,
     SchemaDriftError,
 )
+from feasibility.sourcing.errors import SourcingError
+from feasibility.sourcing.run import run_sourcing
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     NotConfiguredError,
     SchemaDriftError,
     BudgetExhaustedError,
+    SourcingError,
 )
 
 
@@ -128,9 +131,22 @@ def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None
         client.close()
 
 
+class SourcingRunPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    market: str
+    # None means today in the market's time zone (live mode); mock mode needs a date.
+    as_of: date | None = None
+
+
+def run_sourcing_job(payload: SourcingRunPayload, context: JobContext) -> None:
+    run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
+
+
 def build_registry() -> dict[str, JobKind]:
     """Every job kind this application runs."""
     return {
         "cad.import": JobKind(CadImportPayload, run_cad_import),
         "listings.sync": JobKind(ListingsSyncPayload, run_listings_sync),
+        "sourcing.run": JobKind(SourcingRunPayload, run_sourcing_job),
     }

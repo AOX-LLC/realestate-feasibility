@@ -374,3 +374,64 @@ def write_run_candidates(
             for row in rows
         ],
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSummary:
+    """One line of a run's candidate list, for the command line."""
+
+    rank: int | None
+    score: Decimal | None
+    price: Decimal | None
+    change_kind: str
+    detail: str
+    address: str
+
+
+def latest_run_id(connection: Connection, market: str) -> int | None:
+    run_id: int | None = connection.execute(
+        select(sourcing_run.c.id)
+        .where(sourcing_run.c.market == market, sourcing_run.c.status == "completed")
+        .order_by(sourcing_run.c.as_of.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return run_id
+
+
+def candidate_summaries(
+    connection: Connection, run_id: int, status: str, limit: int
+) -> list[CandidateSummary]:
+    """A run's candidates of one status: ranked ones by rank, the others by candidate id."""
+    order = run_candidate.c.rank if status == "ranked" else run_candidate.c.candidate_id
+    rows = connection.execute(
+        select(
+            run_candidate.c.rank,
+            run_candidate.c.score,
+            run_listing.c.price,
+            run_candidate.c.change_kind,
+            run_candidate.c.filter_reasons,
+            run_candidate.c.unscored_reason,
+            listing.c.address_line,
+        )
+        .select_from(
+            run_candidate.join(listing, listing.c.id == run_candidate.c.primary_listing_id).join(
+                run_listing,
+                (run_listing.c.run_id == run_candidate.c.run_id)
+                & (run_listing.c.listing_id == run_candidate.c.primary_listing_id),
+            )
+        )
+        .where(run_candidate.c.run_id == run_id, run_candidate.c.status == status)
+        .order_by(order)
+        .limit(limit)
+    )
+    return [
+        CandidateSummary(
+            rank=row.rank,
+            score=row.score,
+            price=row.price,
+            change_kind=row.change_kind,
+            detail=row.unscored_reason or ",".join(row.filter_reasons),
+            address=row.address_line,
+        )
+        for row in rows
+    ]
