@@ -5,6 +5,7 @@ recompute anything: they pin its layout, keep its assumptions equal to the Dalla
 hold its recalculated values to figures computed by hand from the pro-forma formulas.
 """
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,9 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from feasibility.markets.loader import get_pack
+from feasibility.proforma.engine import build_proforma
+from feasibility.proforma.model import Comp, EstimateInput, ProformaInputs, ProformaResult
+from feasibility.proforma.money import round_money
 
 WORKBOOK = Path(__file__).resolve().parents[1] / "docs" / "proforma-reference.xlsx"
 SHEETS = ["Summary", "Assumptions", "S1", "S2", "S3", "Sensitivity"]
@@ -341,3 +345,252 @@ def test_the_sensitivity_formulas_are_live(formulas: Any) -> None:
     rows = formulas["Sensitivity"].iter_rows(min_row=2, max_row=61, min_col=4, max_col=9)
     for row in rows:
         assert all(isinstance(cell.value, str) and cell.value.startswith("=") for cell in row)
+
+
+# --- the engine against the workbook ---------------------------------------------------------
+#
+# The scenario inputs are read from the workbook's own input rows, so they are never typed twice.
+# Every key row on a scenario sheet must be compared; a key the engine cannot yet be compared on
+# fails the test rather than being skipped.
+
+AS_OF = date(2026, 10, 2)
+ENGINE_CENT = Decimal("0.005")  # figures that are rounded to cents compare to the cent
+UNROUNDED = Decimal("0.000001")  # figures the formulas leave unrounded compare to 1e-6
+AT_MAX_PREFIX = "atmax."
+
+
+def comparison_inputs(values: Any, name: str) -> ProformaInputs:
+    sheet = values[name]
+    rows = key_rows(sheet)
+
+    def cell(key: str) -> Any:
+        return sheet.cell(rows[key], VALUE_COLUMN).value
+
+    def decimal_or_none(key: str) -> Decimal | None:
+        value = cell(key)
+        return None if value is None else number(value)
+
+    comps = []
+    index = 1
+    while f"in.comp.{index}.price" in rows:
+        comps.append(
+            Comp(
+                address=f"{index} Comp St",
+                price=number(cell(f"in.comp.{index}.price")),
+                living_area_sqft=int(cell(f"in.comp.{index}.area")),
+                distance_miles=None,
+                year_built=None,
+            )
+        )
+        index += 1
+    zoning = cell("in.zoning")
+    return ProformaInputs(
+        price=number(cell("in.price")),
+        lot_sqft=number(cell("in.lot_sqft")),
+        lot_source="parcel",
+        zoning=zoning,
+        zoning_values_seen=(zoning,),
+        is_vacant=bool(cell("in.is_vacant")),
+        is_gis_group=False,
+        existing_living_sqft=decimal_or_none("in.existing_sqft"),
+        as_of=AS_OF,
+        estimate=EstimateInput(
+            fetched_on=AS_OF, outcome="ok", price=Decimal(1), comps=tuple(comps)
+        ),
+    )
+
+
+def run_engine(case: ProformaInputs) -> ProformaResult:
+    pack = get_pack("dallas")
+    return build_proforma(
+        case, pack.cost_assumptions, estimate_ttl_days=pack.sourcing.estimates.ttl_days
+    )
+
+
+Kind = str  # "money" | "ratio" | "exact"
+
+
+def engine_lines(result: ProformaResult) -> dict[str, tuple[Kind, Any]]:
+    """The engine's value for each workbook key (without the at-max prefix)."""
+    sizing, arv, costs = result.sizing, result.arv, result.costs
+    financing, holding, selling, totals = (
+        result.financing,
+        result.holding,
+        result.selling,
+        result.totals,
+    )
+    assert sizing and arv and costs and financing and holding and selling and totals
+    return {
+        "sizing.rule_coverage_pct": ("exact", sizing.coverage_pct),
+        "sizing.rule_stories": ("exact", sizing.stories),
+        "sizing.rule_living_share_pct": ("exact", sizing.living_share_pct),
+        "sizing.footprint": ("exact", sizing.footprint_sqft),
+        "sizing.gross": ("exact", sizing.gross_sqft),
+        "sizing.uncapped": ("exact", sizing.uncapped_sqft),
+        "sizing.buildable_sqft": ("exact", sizing.buildable_sqft),
+        "arv.comp_count_used": ("exact", arv.comp_count_used),
+        "arv.median_psf": ("exact", arv.median_psf),
+        "arv.arv": ("money", arv.arv),
+        "cost.acq_closing": ("money", costs.acquisition_closing),
+        "cost.demolition": ("money", costs.demolition),
+        "cost.hard": ("money", costs.hard_cost),
+        "cost.contingency": ("money", costs.contingency),
+        "cost.soft": ("money", costs.soft_costs),
+        "fin.months_construction": ("exact", financing.months.construction),
+        "fin.months_sale": ("exact", financing.months.sale),
+        "fin.financeable": ("money", financing.financeable_cost),
+        "fin.loan": ("money", financing.loan_amount),
+        "fin.interest_front": ("money", financing.interest_front),
+        "fin.interest_progressive": ("money", financing.interest_progressive),
+        "fin.interest": ("money", financing.interest),
+        "fin.points": ("money", financing.points),
+        "fin.draw_fees": ("money", financing.draw_fees),
+        "fin.total": ("money", financing.total),
+        "hold.tax": ("money", holding.property_tax),
+        "hold.insurance": ("money", holding.insurance),
+        "hold.total": ("money", holding.total),
+        "sell.commission": ("money", selling.commission),
+        "sell.closing": ("money", selling.closing),
+        "sell.total": ("money", selling.total),
+        "tot.total_cost": ("money", totals.total_cost),
+        "tot.profit": ("money", totals.profit),
+        "tot.margin": ("ratio", totals.margin),
+        "tot.cash_invested": ("money", totals.cash_invested),
+        "tot.roi": ("ratio", totals.roi),
+        "tot.annualized": ("ratio", totals.annualized_return),
+    }
+
+
+def max_offer_lines(result: ProformaResult) -> dict[str, tuple[Kind, Any]]:
+    offer, arv = result.max_offer, result.arv
+    assert offer and arv and arv.arv is not None
+    return {
+        "max.fixed_part": ("exact", offer.fixed_part),
+        "max.price_coeff": ("exact", offer.price_coefficient),
+        "max.numerator": ("exact", arv.arv * (1 - offer.target_margin) - offer.fixed_part),
+        "max.target_profit": ("money", round_money(arv.arv * offer.target_margin)),
+    }
+
+
+def assert_matches(key: str, kind: Kind, engine: Any, sheet_value: Any) -> None:
+    where = f"{key}: engine {engine!r} vs workbook {sheet_value!r}"
+    if sheet_value is None:
+        assert engine is None, where
+        return
+    assert engine is not None, where
+    wanted = number(sheet_value)
+    tolerance = {"money": ENGINE_CENT, "ratio": EXACT_RATIO, "exact": UNROUNDED}[kind]
+    assert abs(Decimal(engine) - wanted) <= tolerance, where
+
+
+@pytest.fixture(scope="module")
+def engine_results(values: Any) -> dict[str, ProformaResult]:
+    return {name: run_engine(comparison_inputs(values, name)) for name in SCENARIOS}
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_every_key_row_of_a_scenario_matches_the_engine(
+    values: Any, engine_results: dict[str, ProformaResult], name: str
+) -> None:
+    sheet = values[name]
+    rows = key_rows(sheet)
+    result = engine_results[name]
+    assert result.status == "computed"
+    known = {**engine_lines(result), **max_offer_lines(result)}
+    compared: set[str] = set()
+
+    for key, row in rows.items():
+        if key.startswith("in."):
+            continue
+        if key in ("max.max_offer", "max.headroom", "max.profit_at_max"):
+            continue  # compared below, where the workbook's "none" is mapped to no offer
+        assert key in known, f"{name}: no engine value is compared to {key}"
+        assert_matches(f"{name} {key}", known[key][0], known[key][1], sheet.cell(row, 2).value)
+        compared.add(key)
+
+    assert len(compared) > 40
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_the_maximum_offer_agrees_and_none_means_no_offer(
+    values: Any, engine_results: dict[str, ProformaResult], name: str
+) -> None:
+    offer = engine_results[name].max_offer
+    assert offer is not None
+    workbook_offer = scenario_value(values, name, "max.max_offer")
+    workbook_headroom = scenario_value(values, name, "max.headroom")
+
+    if workbook_offer == "none":
+        assert offer.max_offer is None
+        assert offer.headroom_vs_offer is None
+        assert "no_viable_offer" in engine_results[name].flags
+        assert workbook_headroom in (None, "")
+    else:
+        assert offer.max_offer is not None and offer.headroom_vs_offer is not None
+        assert abs(offer.max_offer - number(workbook_offer)) <= ENGINE_CENT
+        assert abs(offer.headroom_vs_offer - number(workbook_headroom)) <= ENGINE_CENT
+        assert "no_viable_offer" not in engine_results[name].flags
+
+
+@pytest.mark.parametrize("name", ["S1", "S2"])
+def test_the_engine_at_the_workbook_maximum_offer_matches_the_at_max_column(
+    values: Any, engine_results: dict[str, ProformaResult], name: str
+) -> None:
+    sheet = values[name]
+    at_max_rows = key_rows(sheet, AT_MAX_KEY_COLUMN)
+    offer = scenario_value(values, name, "max.max_offer")
+    case = comparison_inputs(values, name).model_copy(update={"price": number(offer)})
+    at_max = engine_lines(run_engine(case))
+
+    assert len(at_max_rows) > 20
+    for key, row in at_max_rows.items():
+        bare = key.removeprefix(AT_MAX_PREFIX)
+        assert bare in at_max, f"{name}: no engine value is compared to {key}"
+        kind, engine = at_max[bare]
+        assert_matches(f"{name} {key}", kind, engine, sheet.cell(row, AT_MAX_VALUE_COLUMN).value)
+
+    # The engine's own maximum offer is the workbook's, so it reaches the same profit.
+    own = engine_results[name].max_offer
+    assert own is not None and own.max_offer == number(offer)
+
+
+def test_the_sensitivity_grid_matches_the_workbook_cell_by_cell(
+    values: Any, engine_results: dict[str, ProformaResult]
+) -> None:
+    table = engine_results["S1"].sensitivity
+    assert table is not None
+    rows = list(values["Sensitivity"].iter_rows(min_row=2, max_row=61, max_col=9, values_only=True))
+    assert len(table.cells) == len(rows) == 60
+
+    for cell, row in zip(table.cells, rows, strict=True):
+        where = (cell.arv_delta_pct, cell.hard_cost_delta_pct, cell.hold_months)
+        assert where == tuple(number(value) for value in row[:3])
+        for field, kind, value in [
+            ("arv", "money", row[3]),
+            ("hard_cost", "money", row[4]),
+            ("total_cost", "money", row[5]),
+            ("profit", "money", row[6]),
+            ("margin", "ratio", row[7]),
+            ("roi", "ratio", row[8]),
+        ]:
+            assert_matches(f"{where} {field}", kind, getattr(cell, field), value)
+
+
+def test_the_centre_of_the_grid_is_the_base_result(
+    engine_results: dict[str, ProformaResult],
+) -> None:
+    result = engine_results["S1"]
+    assert result.sensitivity and result.totals and result.arv
+    centre = next(
+        c
+        for c in result.sensitivity.cells
+        if (c.arv_delta_pct, c.hard_cost_delta_pct) == (0, 0) and c.hold_months == 9
+    )
+
+    assert (centre.arv, centre.total_cost, centre.profit, centre.margin, centre.roi) == (
+        result.arv.arv,
+        result.totals.total_cost,
+        result.totals.profit,
+        result.totals.margin,
+        result.totals.roi,
+    )
