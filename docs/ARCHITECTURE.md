@@ -198,7 +198,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Default TTLs** (settings, overridable): sale listings and listing by id 20 hours, property records 30 days, value estimates and comps 7 days.
 
-**Budget period.** It starts on `RENTCAST_BILLING_ANCHOR_DAY` (1 to 28). The limit defaults to 50. The hard stop means free-tier overage never happens, whether or not RentCast would block it.
+**Budget period.** It starts on `RENTCAST_BILLING_ANCHOR_DAY` (1 to 28). The limit defaults to 50. The hard stop keeps the counted requests under the plan's allowance. That holds only if the refund rule below matches how RentCast actually bills; see Known gaps.
 
 **Budget math.** About 30 listing syncs a month leave about 20 value estimates. Later phases must spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for.
 
@@ -285,7 +285,11 @@ Pre-commit runs gitleaks and ruff.
 - **The published schema marks no field as required.** The models require only the fields the application keys on (`id` and `formattedAddress`; `price` on a value estimate), so drift in other fields is caught only as a type mismatch.
 - **`EXCLUDE_OWNER` semantics are inferred.** It appears to flag a confidential owner. This is not confirmed from DCAD's layout document, so the importer skips the whole account for any value other than blank, `N`, `0`, `F` or `FALSE`.
 - **No real DCAD archive has been imported yet.** Column names and file locations follow DCAD's published files as researched, and the importer is tested against synthetic files in the same format. Where `SPTD_CODE` lives (the pack reads it from `ACCOUNT_APPRL_YEAR`) is unverified. CSV headers, not DCAD's layout spreadsheet (which has typos), are authoritative.
-- **Free-tier overage is unknown.** Whether RentCast blocks or charges requests past 50 a month is not documented. The hard stop makes it moot.
+- **Free-tier overage is unknown.** Whether RentCast blocks or charges requests past 50 a month is not documented.
+- **The refund rule is an unverified billing assumption.** The client refunds every non-200 response, including 404 ("no records matched") and 429, because RentCast's documentation says requests that return an error are not billed. Whether a 404 ("no records matched") and a 429 count as errors for billing is unconfirmed. If they are billed, the counter under-counts. Confirm with `verify-rentcast` and RentCast's usage dashboard before relying on the hard stop; until then, a conservative operator can set `RENTCAST_MONTHLY_BUDGET` below the plan's allowance.
+- **Run one worker.** Leases are 30 minutes with no renewal. With two or more workers, a job running longer than its lease (a full county import on a slow disk) can be claimed and run twice. Compose runs one worker.
+- **The billing period is computed in UTC.** RentCast's reset time zone is unknown, so requests within hours of the boundary may count against the neighbouring period.
+- **`/health` reports `commit: null` under compose unless `GIT_COMMIT` and `GIT_BRANCH` are exported before the build.** Null is deliberate: the image cannot know its revision otherwise.
 - **Listing text.** RentCast listings have no description field. Phase 4 needs either a synthetic RESO-shaped set with `PublicRemarks` or a client's MLS feed.
 - **AVM comps** are filtered by `listingType` because the published schema has no sale/rent flag. The list of sale types is taken from the documentation.
 - **No update schedule and no downloader for DCAD.** The operator downloads files by hand. DCAD publishes no redistribution license that we found, so its files are never committed.

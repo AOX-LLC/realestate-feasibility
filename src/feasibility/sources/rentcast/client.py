@@ -314,7 +314,8 @@ class RentCastClient:
             connection.commit()
             return Fetched(data)
 
-        # RentCast does not bill requests that return an error.
+        # RentCast documents that error responses are not billed. Unverified for 404 and
+        # 429; see docs/ARCHITECTURE.md, Known gaps.
         budget.refund(connection, PROVIDER, period)
         if response.status_code == 404:
             self._log(connection, request, period, "not_found", 404, billed=False)

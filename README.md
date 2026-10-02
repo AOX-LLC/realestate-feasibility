@@ -95,6 +95,8 @@ There is one client, one scrub path and one validation path. Only the transport 
 | Read timeout | Kept (outcome unknown) | Stale cache entry if any, else `RentCastError` |
 | Budget exhausted | Refused before the network | Stale cache entry if any, else `BudgetExhaustedError` |
 
+The refund rules follow RentCast's documented rule that error responses are not billed. Whether that covers 404 and 429 is not yet confirmed; see [Known gaps](docs/ARCHITECTURE.md#known-gaps-and-unverified-points).
+
 Budget math: about 30 listing syncs a month leave about 20 value estimates. Later phases spend estimates only on top-ranked candidates. A real deployment needs a paid tier or the client's MLS feed.
 
 Live mode has not been exercised against the real API yet; it was built from RentCast's published OpenAPI definition. `feasibility verify-rentcast` (at most 4 calls) checks it. It needs `DATA_MODE=live` and a key, and writes `local/rentcast-verify-<timestamp>.json` with field names and types only.
