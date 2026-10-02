@@ -174,7 +174,7 @@ def _staged_values(
             continue
         raw = row[positions[column.source_column]].strip()
         try:
-            value = _transform(raw, column.transform)
+            value = _transform(raw, column.transform, column.name)
         except ValueError:
             stats.note(f"{plan.file_key}:{column.name}:invalid")
             value = None
@@ -191,8 +191,16 @@ def _staged_values(
     return values
 
 
-def _transform(raw: str, transform: str) -> StagedValue:
-    """Parse one stripped cell. Raises ValueError for a value the transform cannot read."""
+# Bounds of the columns values land in: numeric(14,2), smallint for year built, else integer.
+DECIMAL_LIMIT = Decimal("1e12")
+INTEGER_LIMITS = {"year_built": 32767}
+DEFAULT_INTEGER_LIMIT = 2**31 - 1
+
+
+def _transform(raw: str, transform: str, name: str) -> StagedValue:
+    """Parse one stripped cell. Raises ValueError for a value the transform cannot read or
+    the target column cannot hold (NaN, Infinity, out of range), so one bad cell nulls a
+    field instead of aborting the import or breaking the API."""
     if not raw:
         return None
     if transform == "zip5":
@@ -201,10 +209,16 @@ def _transform(raw: str, transform: str) -> StagedValue:
         return raw
     try:
         number = Decimal(raw)
-    except InvalidOperation:
+    except (InvalidOperation, ArithmeticError):
         raise ValueError(f"not a number: {raw!r}") from None
+    if not number.is_finite():
+        raise ValueError(f"not a finite number: {raw!r}")
     if transform == "decimal":
+        if abs(number) >= DECIMAL_LIMIT:
+            raise ValueError(f"out of range: {raw!r}")
         return number
     if number != number.to_integral_value():
         raise ValueError(f"not a whole number: {raw!r}")
+    if abs(number) > INTEGER_LIMITS.get(name, DEFAULT_INTEGER_LIMIT):
+        raise ValueError(f"out of range: {raw!r}")
     return int(number)

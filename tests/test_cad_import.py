@@ -295,3 +295,37 @@ def test_account_flagged_after_an_earlier_load_is_removed(engine: Engine, tmp_pa
             text("SELECT count(*) FROM parcel_version WHERE account_id = :a"), {"a": ACCOUNT_A}
         ).scalar_one()
     assert versions == 0
+
+
+@pytest.mark.parametrize(
+    ("column", "raw"),
+    [
+        ("YR_BUILT", "Infinity"),
+        ("YR_BUILT", "sNaN"),
+        ("YR_BUILT", "99999"),
+        ("TOT_LIVING_AREA_SF", "NaN"),
+    ],
+)
+def test_unreadable_numbers_null_the_field_and_are_counted(
+    engine: Engine, tmp_path: Path, column: str, raw: str
+) -> None:
+    files = _files()
+    files["RES_DETAIL"][2][column] = raw
+    archive = tmp_path / "DCAD2026_CURRENT.ZIP"
+    write_archive(str(archive), files, MEMBER_TIME)
+
+    report = _source(engine).import_archive(ImportRequest(archive, "certified"))
+
+    assert report.status == "loaded"
+    assert any(reason.endswith(":invalid") for reason in report.skip_reasons)
+
+
+def test_non_finite_money_never_reaches_a_parcel(engine: Engine, tmp_path: Path) -> None:
+    files = _files()
+    files["ACCOUNT_APPRL_YEAR"][0]["LAND_VAL"] = "NaN"
+    archive = tmp_path / "DCAD2026_CURRENT.ZIP"
+    write_archive(str(archive), files, MEMBER_TIME)
+
+    _source(engine).import_archive(ImportRequest(archive, "certified"))
+
+    assert _parcel(engine, ACCOUNT_A).land_value is None
