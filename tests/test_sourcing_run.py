@@ -18,13 +18,17 @@ from feasibility.sources.rentcast.client import (
     Fetched,
     RentCastClient,
     RentCastError,
+    SchemaDriftError,
 )
-from feasibility.sources.rentcast.models import SaleListing
+from feasibility.sources.rentcast.models import SaleListing, ValueEstimate
 from feasibility.sourcing import run as run_module
 from feasibility.sourcing.errors import LiveDateError, NoSnapshotForDateError, RunOutOfOrderError
 from feasibility.sourcing.run import SourcingResult, run_sourcing
 from feasibility.tables import (
+    api_budget,
+    api_request_log,
     candidate,
+    candidate_estimate,
     listing,
     listing_match,
     parcel,
@@ -433,14 +437,32 @@ def test_an_unmatched_candidate_is_upgraded_in_place_when_its_parcel_arrives(
 
 
 class StubClient:
-    """Stands in for RentCastClient at the one method the sync calls."""
+    """Stands in for RentCastClient at the methods a run calls: the sync's, and the value
+    estimate the spend stage buys. Both answer from the snapshot unless told to fail."""
 
-    def __init__(self, engine: Engine, *, stale: bool = False, error: Exception | None = None):
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        stale: bool = False,
+        error: Exception | None = None,
+        estimate_error: Exception | None = None,
+    ):
         self._real = RentCastClient.from_settings(
             engine, _settings(), use_cache=False, snapshot_day="day-2"
         )
         self._stale = stale
         self._error = error
+        self._estimate_error = estimate_error
+
+    @property
+    def live(self) -> bool:
+        return self._real.live
+
+    def value_estimate(self, address: str) -> Fetched[ValueEstimate | None]:
+        if self._estimate_error is not None:
+            raise self._estimate_error
+        return self._real.value_estimate(address)
 
     def sale_listings(self, query: ListingQuery) -> Fetched[list[SaleListing]]:
         if self._error is not None:
@@ -610,3 +632,113 @@ def test_day_two_stores_each_match_method_and_the_gone_row_keeps_the_earlier_mat
     assert rows["9100 BRINDLECOMBE ST"] == ("new", "unmatched", None, None)
     # Lost from the feed, so not re-matched: the previous run's match is carried over.
     assert rows["7059 OSTRAVELLE TRL"] == ("gone", "matched", "exact", "99000000000000005")
+
+
+# --- the value-estimate spend inside a run ----------------------------------------------
+
+DAY_ONE_PRICED = ["051", "004", "052", "002", "006"]
+DAY_TWO_PRICED = ["051", "004", "052", "002", "015"]
+
+
+def _estimated_accounts(engine: Engine) -> list[str]:
+    with engine.connect() as connection:
+        keys = connection.execute(
+            select(candidate.c.property_key)
+            .join(candidate_estimate, candidate_estimate.c.candidate_id == candidate.c.id)
+            .order_by(candidate.c.property_key)
+        ).scalars()
+        return sorted(_account(key) for key in keys)
+
+
+def _estimate_requests(engine: Engine) -> int:
+    with engine.connect() as connection:
+        return connection.execute(
+            select(func.count())
+            .select_from(api_request_log)
+            .where(api_request_log.c.endpoint == "/avm/value")
+        ).scalar_one()
+
+
+def _budget_rows(engine: Engine) -> int:
+    with engine.connect() as connection:
+        return connection.execute(select(func.count()).select_from(api_budget)).scalar_one()
+
+
+def _stored_run(engine: Engine, run_id: int) -> Any:
+    with engine.connect() as connection:
+        return connection.execute(
+            select(sourcing_run.c.status, sourcing_run.c.error, sourcing_run.c.counts).where(
+                sourcing_run.c.id == run_id
+            )
+        ).one()
+
+
+def test_day_one_prices_the_top_five_and_day_two_only_the_new_entrant(seeded: Engine) -> None:
+    one = _run(seeded, DAY_ONE)
+
+    assert one.counts.estimates_targeted == 5
+    assert (one.counts.estimates_called, one.counts.estimates_reused) == (5, 0)
+    assert _estimated_accounts(seeded) == sorted(DAY_ONE_PRICED)
+    assert _estimate_requests(seeded) == 5
+
+    two = _run(seeded, DAY_TWO)
+
+    # Day 2's top five are 051, 004, 052, 002 and the new 015; the first four are reused.
+    assert (two.counts.estimates_called, two.counts.estimates_reused) == (1, 4)
+    assert _estimated_accounts(seeded) == sorted({*DAY_ONE_PRICED, *DAY_TWO_PRICED})
+    assert _estimate_requests(seeded) == 6
+    stored = _stored_run(seeded, two.run_id)
+    assert stored.counts["estimates_called"] == 1
+    assert stored.error is None
+
+
+def test_mock_mode_never_touches_the_budget_and_ignores_a_tiny_monthly_budget(
+    seeded: Engine,
+) -> None:
+    tiny = Settings(  # type: ignore[call-arg]
+        _env_file=None, data_mode=DataMode.MOCK, rentcast_monthly_budget=0
+    )
+
+    result = run_sourcing(seeded, tiny, "dallas", DAY_ONE)
+
+    assert (result.counts.estimates_called, result.counts.estimates_deferred) == (5, 0)
+    assert _budget_rows(seeded) == 0
+
+
+def test_rerunning_a_date_buys_nothing_again(seeded: Engine) -> None:
+    _run(seeded, DAY_ONE)
+    before = _estimate_requests(seeded)
+
+    again = _run(seeded, DAY_ONE)
+
+    assert (again.counts.estimates_called, again.counts.estimates_reused) == (0, 5)
+    assert _estimate_requests(seeded) == before
+    assert _estimated_accounts(seeded) == sorted(DAY_ONE_PRICED)
+
+
+def test_a_failed_estimate_stage_keeps_the_ranking_records_the_error_and_a_retry_finishes(
+    seeded: Engine,
+) -> None:
+    _run(seeded, DAY_ONE)
+    drift = SchemaDriftError("/avm/value", ["price"])
+    with pytest.raises(SchemaDriftError):
+        _run_with(seeded, StubClient(seeded, estimate_error=drift))
+
+    with seeded.connect() as connection:
+        run_id = connection.execute(
+            select(sourcing_run.c.id).where(sourcing_run.c.as_of == DAY_TWO)
+        ).scalar_one()
+    failed = _stored_run(seeded, run_id)
+    assert failed.status == "completed"
+    assert failed.error.startswith("SchemaDriftError")
+    assert failed.counts["estimates_failed"] == 1
+    assert failed.counts["estimates_reused"] == 4
+    assert len(_ranking(seeded, run_id)) == 17
+
+    retry = _run(seeded, DAY_TWO)
+
+    assert retry.run_id == run_id
+    assert (retry.counts.estimates_called, retry.counts.estimates_reused) == (1, 4)
+    assert _stored_run(seeded, run_id).error is None
+    # Day one's five were never bought again.
+    assert _estimate_requests(seeded) == 6

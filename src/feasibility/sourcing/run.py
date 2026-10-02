@@ -1,5 +1,5 @@
 """One sourcing run: sync the feed, diff it against the previous run, match, filter, score,
-rank and store the result.
+rank and store the result, then price the top candidates.
 
 A run is keyed by (market, as_of) and idempotent: running the same date again rewrites the
 run's own rows and leaves candidates and matches unduplicated. Runs go forward in time only.
@@ -7,7 +7,7 @@ run's own rows and leaves candidates and matches unduplicated. Runs go forward i
 
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
@@ -22,9 +22,10 @@ from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.sources.rentcast.client import BudgetExhaustedError, RentCastClient
-from feasibility.sourcing import diff, store
+from feasibility.sourcing import diff, estimates, store
 from feasibility.sourcing.counts import FilteredByReason, RunCounts
 from feasibility.sourcing.errors import LiveDateError, NoSnapshotForDateError, RunOutOfOrderError
+from feasibility.sourcing.estimates import EstimateCounts
 from feasibility.sourcing.filters import (
     ListingFacts,
     has_usable_values,
@@ -113,8 +114,29 @@ def run_sourcing(
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
     run_id = _start_run(engine, market, run_date)
+    if client is not None:
+        return _source(engine, settings, pack, run_id, run_date, client)
+    # The response cache would answer a later snapshot day with the earlier day's body.
+    own_client = RentCastClient.from_settings(
+        engine, settings, use_cache=settings.is_live, snapshot_day=overlay
+    )
     try:
-        sync_status = _sync(engine, settings, pack, run_id, run_date, overlay, client)
+        return _source(engine, settings, pack, run_id, run_date, own_client)
+    finally:
+        own_client.close()
+
+
+def _source(
+    engine: Engine,
+    settings: Settings,
+    pack: MarketPack,
+    run_id: int,
+    run_date: date,
+    client: RentCastClient,
+) -> SourcingResult:
+    """The run's stages after it has started, in the order of docs/ARCHITECTURE.md."""
+    try:
+        sync_status = _sync(engine, settings, pack, run_id, run_date, client)
         with engine.begin() as connection:
             counts = _build_run(connection, pack, run_id, run_date, sync_status)
     except Exception as error:
@@ -124,7 +146,37 @@ def run_sourcing(
             store.clear_run_rows(connection, run_id)
             store.fail_run(connection, run_id, message)
         raise
-    return SourcingResult(run_id, run_date, sync_status, counts)
+    # The ranking is stored and the run completed: a later stage that fails leaves both in
+    # place, records its error on the run and propagates so the job retries.
+    estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
+    return SourcingResult(
+        run_id, run_date, sync_status, counts.model_copy(update=asdict(estimate_counts))
+    )
+
+
+def _spend_estimates(
+    engine: Engine,
+    settings: Settings,
+    pack: MarketPack,
+    run_id: int,
+    run_date: date,
+    client: RentCastClient,
+) -> EstimateCounts:
+    try:
+        return estimates.spend_estimates(
+            engine,
+            client,
+            pack.sourcing.estimates,
+            run_id=run_id,
+            as_of=run_date,
+            billing_anchor_day=settings.rentcast_billing_anchor_day,
+            secrets=settings.secret_values(),
+        )
+    except Exception as error:
+        message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+        with engine.begin() as connection:
+            store.set_run_error(connection, run_id, message)
+        raise
 
 
 def _refuse_if_out_of_order(connection: Connection, market: str, as_of: date) -> None:
@@ -148,26 +200,18 @@ def _sync(
     pack: MarketPack,
     run_id: int,
     as_of: date,
-    overlay: str | None,
-    client: RentCastClient | None,
+    client: RentCastClient,
 ) -> Literal["fresh", "stale", "skipped"]:
     observed_at = (
         None
         if settings.is_live
         else datetime.combine(as_of, MOCK_SYNC_TIME, tzinfo=ZoneInfo(pack.market.timezone))
     )
-    # The response cache would answer a later snapshot day with the earlier day's body.
-    sync_client = client or RentCastClient.from_settings(
-        engine, settings, use_cache=settings.is_live, snapshot_day=overlay
-    )
     sync_status: Literal["fresh", "stale", "skipped"]
     try:
-        sync_status = sync_listings(engine, pack, sync_client, observed_at)
+        sync_status = sync_listings(engine, pack, client, observed_at)
     except BudgetExhaustedError:
         sync_status = "skipped"
-    finally:
-        if client is None:
-            sync_client.close()
     with engine.begin() as connection:
         store.set_sync_status(connection, run_id, sync_status)
     return sync_status
