@@ -100,6 +100,9 @@ def _accounts(
         ("5521 S WEXCOMBE AVE", "75206", None, ("matched", "exact", 1, ["067"])),
         ("5521 South Wexcombe Avenue", "75206", None, ("matched", "exact", 1, ["067"])),
         ("5521 N WEXCOMBE AVE", "75206", None, ("matched", "exact", 1, ["066"])),
+        # No directional: the stem of "N WEXCOMBE AVE" is "N WEXCOMBE", so nothing matches.
+        # A known gap (ARCHITECTURE.md), kept unmatched rather than guessed.
+        ("5521 WEXCOMBE AVE", "75206", None, ("unmatched", None, 0, [])),
         ("3300 ORRINMOOR LN #102", "75209", None, ("matched", "exact", 1, ["069"])),
         ("3300 ORRINMOOR LN", "75209", "Unit 101", ("matched", "exact", 1, ["068"])),
         ("3300 ORRINMOOR LN #999", "75209", None, ("unmatched", None, 0, [])),
