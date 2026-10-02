@@ -354,12 +354,16 @@ class Sizing(PackModel):
 
 
 class Sensitivity(PackModel):
-    arv_delta_pct: list[Decimal] = Field(min_length=1)
-    hard_cost_delta_pct: list[Decimal] = Field(min_length=1)
-    hold_months: list[Decimal] = Field(min_length=1)
+    arv_delta_pct: list[Annotated[Decimal, Field(gt=-100)]] = Field(min_length=1)
+    hard_cost_delta_pct: list[Annotated[Decimal, Field(gt=-100)]] = Field(min_length=1)
+    hold_months: list[Annotated[Decimal, Field(gt=0)]] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _check_grid_has_a_base_case(self) -> "Sensitivity":
+        for name in ("arv_delta_pct", "hard_cost_delta_pct", "hold_months"):
+            values = getattr(self, name)
+            if len(set(values)) != len(values):
+                raise ValueError(f"{name} must not repeat a value")
         if Decimal(0) not in self.arv_delta_pct:
             raise ValueError("arv_delta_pct must contain 0")
         if Decimal(0) not in self.hard_cost_delta_pct:
@@ -372,7 +376,7 @@ def normalise_zoning(zoning: str) -> str:
 
 
 class CostAssumptions(PackModel):
-    """Inputs to the pro-forma. Every Dallas value is illustrative, not a quote or actuals."""
+    """Inputs to the pro-forma; `status` says whether they are illustrative or reviewed."""
 
     status: Literal["illustrative", "reviewed"]
     sources_read_on: date
@@ -388,7 +392,7 @@ class CostAssumptions(PackModel):
     sensitivity: Sensitivity
 
     @model_validator(mode="after")
-    def _check_grid_centre_is_the_base_case(self) -> "CostAssumptions":
+    def _check_grid_contains_the_base_hold(self) -> "CostAssumptions":
         if self.holding.hold_months not in self.sensitivity.hold_months:
             raise ValueError("sensitivity.hold_months must contain holding.hold_months")
         return self

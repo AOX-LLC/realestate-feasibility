@@ -284,6 +284,11 @@ COST_BREAKS: list[tuple[list[str], object, str]] = [
     (["sensitivity", "arv_delta_pct"], ["-10", "10"], "arv_delta_pct must contain 0"),
     (["sensitivity", "hard_cost_delta_pct"], ["10"], "hard_cost_delta_pct must contain 0"),
     (["sensitivity", "hold_months"], ["6", "12"], "must contain holding.hold_months"),
+    (["sensitivity", "hold_months"], ["0", "9"], "greater than 0"),
+    (["sensitivity", "hold_months"], ["9", "9"], "hold_months must not repeat"),
+    (["sensitivity", "arv_delta_pct"], ["-100", "0"], "greater than -100"),
+    (["sensitivity", "hard_cost_delta_pct"], ["-150", "0"], "greater than -100"),
+    (["sensitivity", "arv_delta_pct"], ["0", "0"], "arv_delta_pct must not repeat"),
     (["status"], "placeholder", "illustrative"),
 ]
 
