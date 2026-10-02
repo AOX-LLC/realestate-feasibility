@@ -110,6 +110,9 @@ class Fetched[T]:
     data: T
     # True when the request failed and an expired cache entry was served instead.
     stale: bool = False
+    # When the answer came from a fresh cache entry rather than a new request: the time that
+    # entry was fetched. None for an answer that was just requested.
+    cached_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -187,8 +190,17 @@ class RentCastClient:
     def close(self) -> None:
         self._transport.close()
 
+    @property
+    def live(self) -> bool:
+        """True when a request can be billed; False when the snapshot answers."""
+        return self._live
+
+    def billing_period(self) -> date:
+        """The start of the billing period a request made now is reserved in."""
+        return budget.period_start(self._clock().date(), self._anchor_day)
+
     def budget_usage(self) -> budget.BudgetUsage:
-        period = budget.period_start(self._clock().date(), self._anchor_day)
+        period = self.billing_period()
         with self._engine.connect() as connection:
             return budget.usage(connection, PROVIDER, period, self._monthly_budget)
 
@@ -259,7 +271,7 @@ class RentCastClient:
         if hit is None:
             return None
         self._log(connection, request, None, "cache_hit", None, billed=False)
-        return Fetched(adapter.validate_python(hit.body))
+        return Fetched(adapter.validate_python(hit.body), cached_at=hit.fetched_at)
 
     def _from_snapshot[T](self, request: _Request, adapter: TypeAdapter[T]) -> Fetched[T | None]:
         response = self._transport.get(request.path, request.params)

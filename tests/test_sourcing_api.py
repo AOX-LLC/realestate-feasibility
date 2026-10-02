@@ -15,6 +15,7 @@ from feasibility.snapshot.load import seed
 from feasibility.sourcing.run import run_sourcing
 from feasibility.tables import (
     candidate,
+    candidate_estimate,
     listing,
     listing_match,
     run_candidate,
@@ -231,7 +232,17 @@ def test_every_route_is_get_only(engine: Engine) -> None:
 
 
 def test_the_router_module_cannot_write_or_spend() -> None:
-    for name in ("RentCastClient", "run_sourcing", "enqueue_job", "enqueue", "sync_listings"):
+    names = (
+        "RentCastClient",
+        "run_sourcing",
+        "enqueue_job",
+        "enqueue",
+        "sync_listings",
+        "spend_estimates",
+        "estimate_store",
+        "save_estimate",
+    )
+    for name in names:
         assert not hasattr(sourcing_routes, name), name
 
 
@@ -421,3 +432,90 @@ def test_a_row_written_before_migration_0003_serves_no_match(engine: Engine) -> 
 
     assert body["match"] is None
     assert body["account_id"] is None
+
+
+# 7. the value estimate on a candidate
+
+
+def _detail(client: TestClient, as_of: str, street: str, engine: Engine) -> dict[str, Any]:
+    run_id = _run_id(client, as_of)
+    candidate_id = _candidate_of(engine, street)
+    return client.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+
+
+def test_a_priced_candidate_serves_its_estimate_without_the_comparables(
+    engine: Engine, ran_both_days: TestClient
+) -> None:
+    body = _detail(ran_both_days, "2026-10-01", "1893 THISTLEWANE DR", engine)
+
+    estimate = body["estimate"]
+    assert estimate["fetched_on"] == "2026-10-01"
+    assert estimate["outcome"] == "ok"
+    assert Decimal(estimate["price"]) > 0
+    assert Decimal(estimate["price_low"]) <= Decimal(estimate["price"])
+    assert Decimal(estimate["price"]) <= Decimal(estimate["price_high"])
+    assert (estimate["comp_count"], estimate["dropped_comp_count"]) == (5, 2)
+    assert set(estimate) == {
+        "fetched_on",
+        "outcome",
+        "price",
+        "price_low",
+        "price_high",
+        "comp_count",
+        "dropped_comp_count",
+    }
+
+
+def _sixth_on_day_one(client: TestClient) -> tuple[int, int]:
+    """(run id, candidate id) of the candidate ranked sixth on day one: outside the top five."""
+    run_id = _run_id(client, "2026-10-01")
+    sixth = client.get(f"/sourcing/runs/{run_id}/candidates").json()["items"][5]
+    assert sixth["rank"] == 6
+    return run_id, sixth["candidate_id"]
+
+
+def test_a_candidate_outside_the_top_five_has_no_estimate(ran_both_days: TestClient) -> None:
+    run_id, candidate_id = _sixth_on_day_one(ran_both_days)
+
+    body = ran_both_days.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+
+    assert body["estimate"] is None
+
+
+def test_an_estimate_bought_later_does_not_rewrite_an_older_run(
+    engine: Engine, ran_both_days: TestClient
+) -> None:
+    candidate_id = _candidate_of(engine, "1893 THISTLEWANE DR")
+    with engine.begin() as connection:
+        connection.execute(
+            candidate_estimate.insert().values(
+                candidate_id=candidate_id,
+                fetched_on=date(2026, 10, 5),
+                outcome="no_estimate",
+                address="1893 THISTLEWANE DR, DALLAS, TX 75218",
+            )
+        )
+
+    for as_of in ("2026-10-01", "2026-10-02"):
+        body = _detail(ran_both_days, as_of, "1893 THISTLEWANE DR", engine)
+        assert body["estimate"]["fetched_on"] == "2026-10-01", as_of
+
+
+def test_a_no_estimate_row_serves_a_null_price(engine: Engine, ran_both_days: TestClient) -> None:
+    run_id, candidate_id = _sixth_on_day_one(ran_both_days)
+    with engine.begin() as connection:
+        connection.execute(
+            candidate_estimate.insert().values(
+                candidate_id=candidate_id,
+                fetched_on=DAY_ONE,
+                outcome="no_estimate",
+                address="1 TEST ST, DALLAS, TX 75201",
+            )
+        )
+
+    body = ran_both_days.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+    estimate = body["estimate"]
+
+    assert estimate["outcome"] == "no_estimate"
+    assert (estimate["price"], estimate["price_low"], estimate["price_high"]) == (None, None, None)
+    assert (estimate["comp_count"], estimate["dropped_comp_count"]) == (0, 0)
