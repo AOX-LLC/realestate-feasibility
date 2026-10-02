@@ -5,14 +5,14 @@
     "bedrooms": 2.0,
     "city": "Dallas",
     "county": "Dallas County",
-    "createdDate": "2026-09-29T00:00:00Z",
-    "daysOnMarket": 2,
+    "createdDate": "2026-09-30T00:00:00Z",
+    "daysOnMarket": 1,
     "formattedAddress": "2737 Thistlewane Trl, Dallas, TX 75214",
     "history": {
-      "2026-09-29": {
-        "daysOnMarket": 2,
+      "2026-09-30": {
+        "daysOnMarket": 1,
         "event": "Sale Listing",
-        "listedDate": "2026-09-29T00:00:00Z",
+        "listedDate": "2026-09-30T00:00:00Z",
         "listingType": "Standard",
         "price": 525000.0
       }
@@ -21,9 +21,9 @@
       "fee": 0.0
     },
     "id": "2737-Thistlewane-Trl,-Dallas,-TX-75214",
-    "lastSeenDate": "2026-09-29T14:00:00Z",
+    "lastSeenDate": "2026-09-30T14:00:00Z",
     "latitude": 32.794245,
-    "listedDate": "2026-09-29T00:00:00Z",
+    "listedDate": "2026-09-30T00:00:00Z",
     "listingType": "Standard",
     "longitude": -96.718199,
     "lotSize": 13130.0,

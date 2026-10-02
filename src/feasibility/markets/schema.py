@@ -203,7 +203,7 @@ class Sources(PackModel):
 
 
 class BuyBox(PackModel):
-    """Which candidates the builder wants. Validated now, applied by the sourcing step."""
+    """Which candidates the builder wants. Applied by sourcing/filters.py."""
 
     zips: list[Annotated[str, Field(pattern=r"^\d{5}$")]] = Field(min_length=1)
     price_max: Annotated[Decimal, Field(gt=0)]
@@ -211,6 +211,39 @@ class BuyBox(PackModel):
     year_built_max: Annotated[int, Field(ge=1800, le=2100)]
     land_to_total_min: Annotated[Decimal, Field(ge=0, le=1)]
     property_types: list[str] = Field(min_length=1)
+
+
+Weight = Annotated[Decimal, Field(ge=0, le=100)]
+
+
+class Scoring(PackModel):
+    """Teardown-score weights and the points where each component earns full credit.
+
+    The zero points come from the buy box: the land-ratio floor, the age cut-off year and
+    the lot-size floor.
+    """
+
+    land_ratio_weight: Weight
+    land_ratio_full: Annotated[Decimal, Field(gt=0, le=1)]
+    age_weight: Weight
+    age_full_year: Annotated[int, Field(ge=1800, le=2100)]
+    lot_weight: Weight
+    lot_full_sqft: Annotated[Decimal, Field(gt=0)]
+    price_land_weight: Weight
+    # Price divided by land value: full credit at or below _full, nothing at or above _zero.
+    price_land_full: Annotated[Decimal, Field(gt=0)]
+    price_land_zero: Annotated[Decimal, Field(gt=0)]
+    # Fraction of the age points a vacant lot earns.
+    vacant_age_credit: Annotated[Decimal, Field(ge=0, le=1)]
+    # Appraisal values are as of January 1 of the roll year; land value is drifted forward.
+    value_drift_pct_per_year: Annotated[Decimal, Field(ge=0, le=30)]
+    max_drift_years: Annotated[Decimal, Field(gt=0, le=5)]
+    stale_values_years: Annotated[Decimal, Field(gt=0, le=5)]
+
+
+class Sourcing(PackModel):
+    source_priority: list[str] = Field(min_length=1)  # highest first; names match listing.source
+    scoring: Scoring
 
 
 class CostAssumptions(PackModel):
@@ -229,4 +262,32 @@ class MarketPack(PackModel):
     market: MarketInfo
     sources: Sources
     buy_box: BuyBox
+    sourcing: Sourcing
     cost_assumptions: CostAssumptions
+
+    @model_validator(mode="after")
+    def _check_sourcing_against_buy_box(self) -> "MarketPack":
+        scoring, box = self.sourcing.scoring, self.buy_box
+        weights = (
+            scoring.land_ratio_weight
+            + scoring.age_weight
+            + scoring.lot_weight
+            + scoring.price_land_weight
+        )
+        if weights != 100:
+            raise ValueError(f"scoring weights must sum to 100, got {weights}")
+        if scoring.age_full_year >= box.year_built_max:
+            raise ValueError("age_full_year must be earlier than buy_box.year_built_max")
+        if scoring.land_ratio_full <= box.land_to_total_min:
+            raise ValueError("land_ratio_full must exceed buy_box.land_to_total_min")
+        if scoring.lot_full_sqft <= box.lot_size_min_sqft:
+            raise ValueError("lot_full_sqft must exceed buy_box.lot_size_min_sqft")
+        if scoring.price_land_full >= scoring.price_land_zero:
+            raise ValueError("price_land_full must be below price_land_zero")
+        priority = self.sourcing.source_priority
+        if len(set(priority)) != len(priority):
+            raise ValueError("source_priority must not repeat a source")
+        unknown = set(priority) - {spec.adapter for spec in self.sources.listings}
+        if unknown:
+            raise ValueError(f"source_priority names unconfigured sources: {sorted(unknown)}")
+        return self

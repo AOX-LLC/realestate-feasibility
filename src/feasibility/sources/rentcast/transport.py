@@ -93,14 +93,21 @@ def _json_or_none(response: httpx.Response) -> Any:
 
 class SnapshotTransport:
     """Serves data/snapshot/rentcast/<request key>.json. A request the snapshot does not
-    hold answers 404, which RentCast uses for "no records matched"."""
+    hold answers 404, which RentCast uses for "no records matched".
 
-    def __init__(self, directory: Path) -> None:
-        self._directory = directory
+    An overlay directory, when given, is searched first: a snapshot day replaces only the
+    responses that changed since the base day."""
+
+    def __init__(self, directory: Path, overlay: Path | None = None) -> None:
+        self._directories = [overlay, directory] if overlay is not None else [directory]
 
     def get(self, path: str, params: Mapping[str, str]) -> TransportResponse:
-        snapshot_file = self._directory / f"{request_key(path, params)}.json"
-        if not snapshot_file.is_file():
+        file_name = f"{request_key(path, params)}.json"
+        snapshot_file = next(
+            (found for found in (d / file_name for d in self._directories) if found.is_file()),
+            None,
+        )
+        if snapshot_file is None:
             return TransportResponse(404, {"status": 404, "error": "snapshot/not-found"})
         recorded = json.loads(snapshot_file.read_text(encoding="utf-8"))
         return TransportResponse(int(recorded["status"]), recorded["body"])

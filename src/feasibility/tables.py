@@ -131,6 +131,7 @@ listing = Table(
     Column("external_id", Text, nullable=False),
     Column("market", Text, nullable=False),
     Column("address_line", Text, nullable=False),
+    Column("unit", Text),
     Column("city", Text),
     Column("state", Text),
     Column("zip5", Text),
@@ -148,6 +149,114 @@ listing = Table(
     Column("raw", JSONB, nullable=False),
     UniqueConstraint("source", "external_id"),
     Index(None, "market", "first_seen_at"),
+    Index(None, "market", "last_seen_at"),
+)
+
+RUN_STATUSES = ("running", "completed", "failed")
+SYNC_STATUSES = ("fresh", "stale", "skipped", "pending")
+MATCH_STATUSES = ("matched", "ambiguous", "unmatched")
+MATCH_METHODS = ("exact", "stem", "gis_group", "street_only")
+LISTING_CHANGE_KINDS = ("new", "relisted", "price_changed", "unchanged", "gone", "aged_out")
+CANDIDATE_CHANGE_KINDS = ("new", "relisted", "price_changed", "unchanged")
+CANDIDATE_STATUSES = ("ranked", "filtered", "unscored")
+
+
+def _in_list(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN (" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+sourcing_run = Table(
+    "sourcing_run",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("market", Text, nullable=False),
+    Column("as_of", Date, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("sync_status", Text, nullable=False),
+    Column("counts", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("error", Text),
+    _timestamp("started_at"),
+    _timestamp("finished_at", nullable=True),
+    UniqueConstraint("market", "as_of"),
+    CheckConstraint(_in_list("status", RUN_STATUSES), name="status"),
+    CheckConstraint(_in_list("sync_status", SYNC_STATUSES), name="sync_status"),
+)
+
+listing_match = Table(
+    "listing_match",
+    metadata,
+    Column(
+        "listing_id", BigInteger, ForeignKey("listing.id", ondelete="CASCADE"), primary_key=True
+    ),
+    Column("status", Text, nullable=False),
+    Column("method", Text),
+    Column("account_id", Text),
+    Column("gis_parcel_id", Text),
+    Column("account_count", SmallInteger, nullable=False, server_default="0"),
+    Column("street_key", Text, nullable=False),
+    _timestamp("matched_at"),
+    CheckConstraint(_in_list("status", MATCH_STATUSES), name="status"),
+    CheckConstraint(_in_list("method", MATCH_METHODS), name="method"),
+    CheckConstraint("(status = 'matched') = (method IS NOT NULL)", name="method_iff_matched"),
+    Index(None, "account_id"),
+)
+
+# No ON DELETE cascade: a candidate's history is kept.
+candidate = Table(
+    "candidate",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("market", Text, nullable=False),
+    Column("property_key", Text, nullable=False),
+    Column("account_id", Text),
+    Column("gis_parcel_id", Text),
+    Column("zip5", Text),
+    Column("street_key", Text, nullable=False),
+    Column("first_as_of", Date, nullable=False),
+    _timestamp("created_at"),
+    UniqueConstraint("market", "property_key"),
+)
+
+run_listing = Table(
+    "run_listing",
+    metadata,
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="CASCADE"), nullable=False),
+    Column("listing_id", BigInteger, ForeignKey("listing.id", ondelete="CASCADE"), nullable=False),
+    Column("change_kind", Text, nullable=False),
+    Column("price", MONEY),
+    Column("prev_price", MONEY),
+    Column("candidate_id", BigInteger, ForeignKey("candidate.id")),
+    Column("is_primary", Boolean, nullable=False, server_default=text("false")),
+    Column("filter_reason", Text),
+    PrimaryKeyConstraint("run_id", "listing_id"),
+    CheckConstraint(_in_list("change_kind", LISTING_CHANGE_KINDS), name="change_kind"),
+    Index(None, "candidate_id"),
+)
+
+run_candidate = Table(
+    "run_candidate",
+    metadata,
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="CASCADE"), nullable=False),
+    Column("candidate_id", BigInteger, ForeignKey("candidate.id"), nullable=False),
+    Column("primary_listing_id", BigInteger, ForeignKey("listing.id"), nullable=False),
+    Column("change_kind", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("filter_reasons", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("unscored_reason", Text),
+    Column("score", Numeric(6, 2)),
+    Column("rank", Integer),
+    Column("breakdown", JSONB),
+    PrimaryKeyConstraint("run_id", "candidate_id"),
+    CheckConstraint(_in_list("change_kind", CANDIDATE_CHANGE_KINDS), name="change_kind"),
+    CheckConstraint(_in_list("status", CANDIDATE_STATUSES), name="status"),
+    CheckConstraint(
+        "(status = 'ranked') = (rank IS NOT NULL AND score IS NOT NULL AND breakdown IS NOT NULL)",
+        name="ranked_has_score",
+    ),
+    CheckConstraint(
+        "(status = 'unscored') = (unscored_reason IS NOT NULL)", name="unscored_has_reason"
+    ),
+    UniqueConstraint("run_id", "rank"),
 )
 
 api_cache = Table(

@@ -1,18 +1,28 @@
 import re
 
+import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Engine, inspect
+from sqlalchemy import Engine, insert, inspect
+from sqlalchemy.exc import IntegrityError
 
-from feasibility.db import current_schema_version
-from feasibility.tables import metadata
+from feasibility.db import alembic_config, current_schema_version, upgrade_to_head
+from feasibility.tables import (
+    candidate,
+    listing,
+    listing_match,
+    metadata,
+    run_candidate,
+    sourcing_run,
+)
 
 PERSONAL_DATA_COLUMN = re.compile(r"owner|mail|phone|email|agent|office|taxpayer|legal", re.I)
 
 
 def test_migrations_reach_head(migrated_engine: Engine) -> None:
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0001"
+        assert current_schema_version(connection) == "0002"
 
 
 def test_table_definitions_match_the_migrations(migrated_engine: Engine) -> None:
@@ -31,3 +41,96 @@ def test_no_table_can_hold_owner_or_contact_data(migrated_engine: Engine) -> Non
     ]
 
     assert [name for name in columns if PERSONAL_DATA_COLUMN.search(name)] == []
+
+
+def test_downgrade_to_0001_and_back_to_head(migrated_engine: Engine) -> None:
+    with migrated_engine.begin() as connection:
+        command.downgrade(alembic_config(connection), "0001")
+    with migrated_engine.connect() as connection:
+        assert current_schema_version(connection) == "0001"
+        tables = set(inspect(connection).get_table_names())
+        assert {"sourcing_run", "listing_match", "candidate", "run_listing"}.isdisjoint(tables)
+        assert "unit" not in {c["name"] for c in inspect(connection).get_columns("listing")}
+
+    upgrade_to_head(migrated_engine)
+
+    with migrated_engine.connect() as connection:
+        assert current_schema_version(connection) == "0002"
+        assert compare_metadata(MigrationContext.configure(connection), metadata) == []
+
+
+def _listing_id(engine: Engine) -> int:
+    with engine.begin() as connection:
+        return connection.execute(
+            insert(listing)
+            .values(
+                source="rentcast",
+                external_id="check-1",
+                market="dallas",
+                address_line="1 TEST ST",
+                raw={},
+            )
+            .returning(listing.c.id)
+        ).scalar_one()
+
+
+def _run_id(engine: Engine) -> int:
+    with engine.begin() as connection:
+        return connection.execute(
+            insert(sourcing_run)
+            .values(market="dallas", as_of="2026-10-01", status="running", sync_status="pending")
+            .returning(sourcing_run.c.id)
+        ).scalar_one()
+
+
+def test_a_matched_listing_match_needs_a_method(engine: Engine) -> None:
+    listing_id = _listing_id(engine)
+
+    with pytest.raises(IntegrityError, match="method_iff_matched"), engine.begin() as connection:
+        connection.execute(
+            insert(listing_match).values(listing_id=listing_id, status="matched", street_key="k")
+        )
+
+
+def test_an_unmatched_listing_match_cannot_carry_a_method(engine: Engine) -> None:
+    listing_id = _listing_id(engine)
+
+    with pytest.raises(IntegrityError, match="method_iff_matched"), engine.begin() as connection:
+        connection.execute(
+            insert(listing_match).values(
+                listing_id=listing_id, status="unmatched", method="exact", street_key="k"
+            )
+        )
+
+
+def _candidate_row(engine: Engine) -> dict[str, object]:
+    with engine.begin() as connection:
+        candidate_id = connection.execute(
+            insert(candidate)
+            .values(
+                market="dallas", property_key="addr:1", street_key="1|", first_as_of="2026-10-01"
+            )
+            .returning(candidate.c.id)
+        ).scalar_one()
+    return {
+        "run_id": _run_id(engine),
+        "candidate_id": candidate_id,
+        "primary_listing_id": _listing_id(engine),
+        "change_kind": "new",
+    }
+
+
+def test_a_ranked_row_needs_rank_score_and_breakdown(engine: Engine) -> None:
+    row = _candidate_row(engine)
+
+    with pytest.raises(IntegrityError, match="ranked_has_score"), engine.begin() as connection:
+        connection.execute(
+            insert(run_candidate).values(**row, status="ranked", score=50, breakdown={})
+        )
+
+
+def test_an_unscored_row_needs_a_reason(engine: Engine) -> None:
+    row = _candidate_row(engine)
+
+    with pytest.raises(IntegrityError, match="unscored_has_reason"), engine.begin() as connection:
+        connection.execute(insert(run_candidate).values(**row, status="unscored"))

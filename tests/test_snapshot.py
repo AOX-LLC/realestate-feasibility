@@ -1,7 +1,7 @@
 import csv
 import importlib.util
 import json
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -13,9 +13,11 @@ from sqlalchemy import Engine, text
 
 from feasibility.config import DataMode, Settings
 from feasibility.snapshot.cad_layout import DO_NOT_IMPORT
+from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.snapshot.load import LiveModeSeedError, seed
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
 from feasibility.sources.rentcast.transport import request_key
+from feasibility.sourcing.errors import NoSnapshotForDateError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = REPO_ROOT / "data" / "snapshot"
@@ -26,6 +28,7 @@ VALIDATORS: dict[str, TypeAdapter[Any]] = {
     "/properties": TypeAdapter(list[PropertyRecord]),
     "/avm/value": TypeAdapter(ValueEstimate),
 }
+OVERLAY = SNAPSHOT / "rentcast" / "day-2"
 EXCLUDED_ACCOUNT = "99000000000000060"
 CURRENT_ONLY = ("99000000000000061", "99000000000000062", "99000000000000063")
 RENAMED_ACCOUNT = "99000000000000015"
@@ -41,10 +44,12 @@ def _generator() -> ModuleType:
     return module
 
 
-def _rentcast_records() -> list[tuple[Path, dict[str, Any]]]:
+def _rentcast_records(*, base_only: bool = False) -> list[tuple[Path, dict[str, Any]]]:
+    """Every recorded response; the day-2 overlay too unless `base_only`."""
+    pattern = "*.json" if base_only else "**/*.json"
     return [
         (path, json.loads(path.read_text(encoding="utf-8")))
-        for path in sorted((SNAPSHOT / "rentcast").glob("*.json"))
+        for path in sorted((SNAPSHOT / "rentcast").glob(pattern))
     ]
 
 
@@ -76,7 +81,7 @@ def test_every_recorded_response_matches_its_model_and_its_file_name() -> None:
 
 def test_snapshot_holds_the_listings_and_five_detailed_listings() -> None:
     by_endpoint: dict[str, list[Any]] = {}
-    for _, record in _rentcast_records():
+    for _, record in _rentcast_records(base_only=True):
         by_endpoint.setdefault(record["endpoint"], []).append(record["body"])
 
     assert len(by_endpoint["/listings/sale"][0]) == 20
@@ -165,10 +170,14 @@ def test_seed_loads_parcels_values_and_listings(engine: Engine) -> None:
     assert renamed.street_name.split()[:-1] == certified_name.split()[:-1]
     assert renamed.total_value is not None and renamed.total_value > Decimal(0)
     assert report.listings == len(
-        next(r["body"] for _, r in _rentcast_records() if r["endpoint"] == "/listings/sale")
+        next(
+            r["body"]
+            for _, r in _rentcast_records(base_only=True)
+            if r["endpoint"] == "/listings/sale"
+        )
     )
     assert _count(engine, "listing") == report.listings
-    assert _count(engine, "parcel") == 62
+    assert _count(engine, "parcel") == 70
 
 
 def test_seed_exercises_the_importer_edge_cases(engine: Engine) -> None:
@@ -233,3 +242,140 @@ def test_seed_refuses_a_live_database(engine: Engine) -> None:
         seed(engine, live)
 
     assert _counts(engine) == {"parcel": 0, "parcel_version": 0, "source_file": 0, "listing": 0}
+
+
+def test_days_file_lists_both_snapshot_days() -> None:
+    recorded = json.loads((SNAPSHOT / "days.json").read_text(encoding="utf-8"))
+
+    assert recorded == {
+        "days": [
+            {"as_of": "2026-10-01", "overlay": None},
+            {"as_of": "2026-10-02", "overlay": "day-2"},
+        ],
+        "market": "dallas",
+    }
+
+
+def test_snapshot_day_resolves_each_date_and_rejects_others() -> None:
+    settings = Settings()
+
+    assert snapshot_day(settings, "dallas", date(2026, 10, 1)) is None
+    assert snapshot_day(settings, "dallas", date(2026, 10, 2)) == "day-2"
+    with pytest.raises(NoSnapshotForDateError, match="2026-10-01, 2026-10-02"):
+        snapshot_day(settings, "dallas", date(2026, 10, 3))
+
+
+def test_seeded_listings_are_first_seen_on_the_first_snapshot_day(engine: Engine) -> None:
+    seed(engine, Settings())
+
+    with engine.connect() as connection:
+        stamps = connection.execute(
+            text(
+                "SELECT min(first_seen_at AT TIME ZONE 'America/Chicago'), "
+                "max(last_seen_at AT TIME ZONE 'America/Chicago') FROM listing"
+            )
+        ).one()
+    assert stamps == (datetime(2026, 10, 1, 6, 0), datetime(2026, 10, 1, 6, 0))
+
+
+def _listings_in(directory: Path) -> list[dict[str, Any]]:
+    (feed,) = (
+        record["body"]
+        for record in (
+            json.loads(path.read_text(encoding="utf-8")) for path in directory.glob("*.json")
+        )
+        if record["endpoint"] == "/listings/sale"
+    )
+    return list(feed)
+
+
+def test_day_one_listings_were_listed_inside_a_two_day_window() -> None:
+    listings = _listings_in(SNAPSHOT / "rentcast")
+
+    assert len(listings) == 20
+    assert {listing["listedDate"][:10] for listing in listings} == {"2026-09-30", "2026-10-01"}
+
+
+def test_day_two_overlay_holds_the_documented_changes() -> None:
+    base = {listing["id"]: listing for listing in _listings_in(SNAPSHOT / "rentcast")}
+    overlay = {listing["id"]: listing for listing in _listings_in(OVERLAY)}
+
+    assert len(overlay) == 27
+    delisted = [i for i in base if i not in overlay and not i.endswith("-r2")]
+    assert sorted(delisted) == [
+        "6592-Sablewick-Dr,-Dallas,-TX-75218",
+        "7059-Ostravelle-Trl,-Dallas,-TX-75220",
+    ]
+    repriced = {i for i in base if i in overlay and base[i]["price"] != overlay[i]["price"]}
+    assert repriced == {"1893-Thistlewane-Dr,-Dallas,-TX-75218"}
+    assert overlay["1893-Thistlewane-Dr,-Dallas,-TX-75218"]["price"] == 321000.0
+    relisted = overlay["6592-Sablewick-Dr,-Dallas,-TX-75218-r2"]
+    assert (relisted["price"], relisted["listedDate"][:10]) == (399000.0, "2026-10-02")
+    new = [
+        item for item_id, item in overlay.items() if item_id not in base and "-r2" not in item_id
+    ]
+    assert len(new) == 8
+    assert {item["listedDate"][:10] for item in new} == {"2026-10-02"}
+
+
+def test_overlay_uses_the_same_request_key_as_the_base_feed() -> None:
+    base_feeds = [
+        path.name
+        for path, record in _rentcast_records(base_only=True)
+        if record["endpoint"] == "/listings/sale"
+    ]
+
+    assert len(base_feeds) == 1
+    assert (OVERLAY / base_feeds[0]).is_file()
+
+
+def test_seed_loads_the_address_cases(engine: Engine) -> None:
+    seed(engine, Settings())
+
+    def fields(account: str) -> tuple[Any, ...]:
+        row = _parcel(engine, account)
+        return (row.street_number, row.street_half, row.street_name, row.unit, row.gis_parcel_id)
+
+    assert fields("99000000000000064") == ("4120", None, "BRINDLECOMBE ST", None, "SYN000063")
+    assert fields("99000000000000065") == ("4120", "1/2", "BRINDLECOMBE ST", None, "SYN000064")
+    assert fields("99000000000000066")[2] == "N WEXCOMBE AVE"
+    assert fields("99000000000000067")[2] == "S WEXCOMBE AVE"
+    assert fields("99000000000000068")[3:] == ("101", "SYN000067")
+    assert fields("99000000000000069")[3:] == ("102", "SYN000067")
+    assert fields("99000000000000070")[4] != fields("99000000000000071")[4]
+    assert fields("99000000000000070")[:3] == fields("99000000000000071")[:3]
+    assert _parcel(engine, "99000000000000071").land_value == Decimal(200000)
+
+
+def test_reseeding_after_a_later_day_keeps_the_later_day(engine: Engine) -> None:
+    seed(engine, Settings())
+    later = "2026-10-02 06:00-05"
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE listing SET price = 1, last_seen_at = :t"), {"t": later})
+
+    seed(engine, Settings())
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT DISTINCT price, last_seen_at FROM listing")).all()
+    assert [(row.price, row.last_seen_at.isoformat()) for row in rows] == [
+        (Decimal(1), "2026-10-02T11:00:00+00:00")
+    ]
+
+
+def _settings_with_days(tmp_path: Path, content: str | None) -> Settings:
+    if content is not None:
+        (tmp_path / "days.json").write_text(content, encoding="utf-8")
+    return Settings(snapshot_dir=tmp_path)
+
+
+def test_snapshot_days_is_empty_without_a_file_or_for_another_market(tmp_path: Path) -> None:
+    assert snapshot_days(_settings_with_days(tmp_path, None), "dallas") == []
+    other = '{"days": [{"as_of": "2026-10-01", "overlay": null}], "market": "austin"}'
+    assert snapshot_days(_settings_with_days(tmp_path, other), "dallas") == []
+
+
+def test_an_overlay_name_cannot_escape_the_snapshot_directory(tmp_path: Path) -> None:
+    bad = '{"days": [{"as_of": "2026-10-01", "overlay": "../x"}], "market": "dallas"}'
+
+    with pytest.raises(ValueError, match="overlay name"):
+        snapshot_days(_settings_with_days(tmp_path, bad), "dallas")

@@ -11,6 +11,8 @@ Layout written under DIR:
     cad/dallas/current/*.CSV     a values-free "Most Current Ownership" set
     cad/dallas/manifest.json     roll year and file dates for the two sets
     rentcast/<request key>.json  one recorded RentCast response per request
+    rentcast/day-2/<key>.json    the second snapshot day's listing feed (an overlay)
+    days.json                    the dates mock mode can source, and each day's overlay
 
 RentCast bodies are built by instantiating the response models and dumping them, so they
 cannot drift from the schema the application validates against.
@@ -21,7 +23,7 @@ import json
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +86,8 @@ CURRENT_ONLY_COUNT = 3
 LISTED = (0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 20, 21, 22, 23, 40, 41, 47, 50, 51)
 DETAILED = (0, 1, 20, 40, 50)
 AS_OF = datetime(2026, 10, 1, tzinfo=UTC)
+DAY_2 = datetime(2026, 10, 2, tzinfo=UTC)
+OVERLAY_DIR = "day-2"
 LISTING_WINDOW_START = datetime(2026, 9, 18, tzinfo=UTC)
 SALE_LISTING_TYPES_OUT = (None, "Rental")
 
@@ -104,10 +108,14 @@ class Parcel:
     lot_sqft: int
     zoning: str
     excluded: bool = False
+    street_half: str = ""
+    unit: str = ""
+    directional: str = ""
+    gis: str | None = None
 
     @property
     def street_name(self) -> str:
-        return f"{self.street_word.upper()} {self.suffix}"
+        return _street_name(self, self.suffix)
 
     @property
     def line1(self) -> str:
@@ -124,6 +132,11 @@ class Parcel:
     @property
     def record_id(self) -> str:
         return f"{self.line1},-Dallas,-TX-{self.zip_code}".replace(" ", "-")
+
+
+def _street_name(parcel: Parcel, suffix: str) -> str:
+    prefix = f"{parcel.directional} " if parcel.directional else ""
+    return f"{prefix}{parcel.street_word.upper()} {suffix}"
 
 
 def _round(value: float, step: int = 1000) -> int:
@@ -212,6 +225,60 @@ def _extra_accounts(rng: random.Random, buy_box_zips: Sequence[str]) -> list[Par
     return extras
 
 
+def _case(
+    index: int,
+    number: str,
+    word: str,
+    suffix: str,
+    zip_code: str,
+    values: tuple[int, int, int, int, int],
+    zoning: str,
+    gis: str,
+    **extra: str,
+) -> Parcel:
+    land, improvement, year_built, lot_sqft, living_area = values
+    return Parcel(
+        index=index,
+        account=f"99{index + 1:015d}",
+        street_number=number,
+        street_word=word,
+        suffix=suffix,
+        zip_code=zip_code,
+        kind="teardown",
+        land_value=land,
+        improvement_value=improvement,
+        year_built=year_built,
+        living_area=living_area,
+        lot_sqft=lot_sqft,
+        zoning=zoning,
+        gis=gis,
+        **extra,
+    )
+
+
+# Hand-written (no randomness) parcels that exercise the listing-to-parcel matcher.
+# 065 is the half-number twin of 064; 066 and 067 differ only by directional; 068 and 069
+# are two accounts on one GIS parcel; 070 and 071 share a situs but not a GIS parcel.
+ADDRESS_CASES = (
+    _case(63, "4120", "Brindlecombe", "ST", "75214", (235000, 165000, 1954, 7400, 1150),
+          "R-7.5(A)", "SYN000063"),
+    _case(64, "4120", "Brindlecombe", "ST", "75214", (245000, 125000, 1949, 7600, 1000),
+          "R-7.5(A)", "SYN000064", street_half="1/2"),
+    _case(65, "5521", "Wexcombe", "AVE", "75206", (215000, 215000, 1962, 6500, 1400),
+          "R-5(A)", "SYN000065", directional="N"),
+    _case(66, "5521", "Wexcombe", "AVE", "75206", (270000, 150000, 1941, 9100, 1300),
+          "R-5(A)", "SYN000066", directional="S"),
+    _case(67, "3300", "Orrinmoor", "LN", "75209", (170000, 60000, 1952, 9000, 900),
+          "R-7.5(A)", "SYN000067", unit="101"),
+    _case(68, "3300", "Orrinmoor", "LN", "75209", (170000, 60000, 1952, 9000, 900),
+          "R-7.5(A)", "SYN000067", unit="102"),
+    _case(69, "2200", "Kestrelwyn", "DR", "75218", (200000, 100000, 1950, 8000, 1100),
+          "R-7.5(A)", "SYN000068"),
+    _case(70, "2200", "Kestrelwyn", "DR", "75218", (200000, 100000, 1950, 8000, 1100),
+          "R-7.5(A)", "SYN000069"),
+)  # fmt: skip
+
+
 def _account_info(parcel: Parcel, *, renamed: bool) -> dict[str, str]:
     suffix = RENAMED_SUFFIX[parcel.suffix] if renamed and parcel.index == RENAMED else parcel.suffix
     return {
@@ -220,11 +287,13 @@ def _account_info(parcel: Parcel, *, renamed: bool) -> dict[str, str]:
         "DIVISION_CD": "RES",
         "EXCLUDE_OWNER": "Y" if parcel.excluded else "",
         "STREET_NUM": parcel.street_number,
-        "FULL_STREET_NAME": f"{parcel.street_word.upper()} {suffix}",
+        "STREET_HALF_NUM": parcel.street_half,
+        "UNIT_ID": parcel.unit,
+        "FULL_STREET_NAME": _street_name(parcel, suffix),
         "PROPERTY_CITY": "DALLAS",
         "PROPERTY_ZIPCODE": f"{parcel.zip_code}{parcel.index:04d}",
         "NBHD_CD": f"SYN{parcel.index % 9:02d}",
-        "GIS_PARCEL_ID": f"SYN{parcel.index:06d}",
+        "GIS_PARCEL_ID": parcel.gis or f"SYN{parcel.index:06d}",
     }
 
 
@@ -289,9 +358,13 @@ def _land(parcel: Parcel, *, with_values: bool) -> list[dict[str, str]]:
 
 
 def cad_files(
-    parcels: Sequence[Parcel], extras: Sequence[Parcel], *, certified: bool
+    parcels: Sequence[Parcel],
+    extras: Sequence[Parcel],
+    cases: Sequence[Parcel],
+    *,
+    certified: bool,
 ) -> dict[str, bytes]:
-    accounts = list(parcels) if certified else [*parcels, *extras]
+    accounts = [*parcels, *cases] if certified else [*parcels, *extras, *cases]
     rows: dict[str, list[dict[str, str]]] = {key: [] for key in HEADERS}
     for parcel in accounts:
         rows["ACCOUNT_INFO"].append(_account_info(parcel, renamed=not certified))
@@ -307,7 +380,10 @@ def _dump(model: BaseModel) -> Any:
 
 def _listing(parcel: Parcel, rng: random.Random) -> SaleListing:
     is_land = parcel.kind == "vacant"
-    listed = LISTING_WINDOW_START.replace(day=rng.randint(18, 29))
+    # The draw stays so every later price is unchanged; only the date is rebased, to
+    # Sep 30 or Oct 1, so the listing sits inside a daysOld=2 window around AS_OF.
+    day = rng.randint(18, 29)
+    listed = AS_OF - timedelta(days=day % 2)
     markup = rng.uniform(1.04, 1.35)
     price = _round((parcel.land_value if is_land else parcel.total_value) * markup)
     seen = listed.replace(hour=rng.randint(6, 20))
@@ -466,21 +542,27 @@ def _snapshot_record(
     return f"{request_key(path, params)}.json", text.encode("utf-8")
 
 
-def rentcast_files(parcels: Sequence[Parcel], rng: random.Random) -> dict[str, bytes]:
+def make_listings(parcels: Sequence[Parcel], rng: random.Random) -> list[SaleListing]:
+    by_index = {parcel.index: parcel for parcel in parcels}
+    return [_listing(by_index[index], rng) for index in LISTED]
+
+
+def _listings_record(listings: Sequence[SaleListing]) -> tuple[str, bytes]:
     pack = get_pack(MARKET)
     spec = next(s for s in pack.sources.listings if isinstance(s, RentCastListings) and s.enabled)
-    by_index = {parcel.index: parcel for parcel in parcels}
-    listings = [_listing(by_index[index], rng) for index in LISTED]
-    files = dict(
-        [
-            _snapshot_record(
-                "/listings/sale",
-                "/listings/sale",
-                sale_listings_params(listing_query(pack, spec)),
-                [_dump(listing) for listing in listings],
-            )
-        ]
+    return _snapshot_record(
+        "/listings/sale",
+        "/listings/sale",
+        sale_listings_params(listing_query(pack, spec)),
+        [_dump(listing) for listing in listings],
     )
+
+
+def rentcast_files(
+    parcels: Sequence[Parcel], listings: Sequence[SaleListing], rng: random.Random
+) -> dict[str, bytes]:
+    by_index = {parcel.index: parcel for parcel in parcels}
+    files = dict([_listings_record(listings)])
     houses = [p for p in parcels if p.kind != "vacant" and not p.excluded]
     for index in DETAILED:
         parcel = by_index[index]
@@ -510,6 +592,93 @@ def rentcast_files(parcels: Sequence[Parcel], rng: random.Random) -> dict[str, b
     return files
 
 
+# Day-2 changes to the day-1 feed, by parcel index (account = index + 1).
+DELISTED_INDEX = 4  # account 005 disappears
+REPRICED_INDEX = 3  # account 004 drops to REPRICED_TO
+REPRICED_TO = 321000.0
+RELISTED_INDEX = 11  # account 012 returns under a new id at RELISTED_TO
+RELISTED_TO = 399000.0
+RELIST_ID_SUFFIX = "-r2"
+
+# Address line as written, zip, price, lot sqft, year built (numbered from 1 in order).
+NEW_DAY_2_LISTINGS = (
+    ("9496 Kestrelwyn Ave", "75230", 345000, 13035, 1945),
+    ("1348 Fenwyck Ave", "75206", 355000, 10250, 1958),
+    ("554 Ostravelle Ave", "75228", 430000, 11153, 1931),
+    ("4120 1/2 Brindlecombe St", "75214", 359000, 7600, 1949),
+    ("5521 South Wexcombe Avenue", "75206", 389000, 9100, 1941),
+    ("3300 Orrinmoor Ln", "75209", 450000, 9000, 1952),
+    ("2200 Kestrelwyn Dr", "75218", 310000, 8000, 1950),
+    ("9100 Brindlecombe St", "75214", 295000, 7000, 1948),
+)
+NEW_LISTING_SQFT = 1100
+
+
+def _new_day_2_listing(
+    number: int, spec: tuple[str, str, int, int, int], rng2: random.Random
+) -> SaleListing:
+    line1, zip_code, price, lot, year = spec
+    return SaleListing(
+        id=f"{line1},-Dallas,-TX-{zip_code}".replace(" ", "-"),
+        formatted_address=f"{line1}, Dallas, TX {zip_code}",
+        address_line1=line1,
+        city="Dallas",
+        state="TX",
+        zip_code=zip_code,
+        county="Dallas County",
+        latitude=round(32.70 + rng2.random() * 0.2, 6),
+        longitude=round(-96.90 + rng2.random() * 0.2, 6),
+        property_type="Single Family",
+        bedrooms=float(max(2, NEW_LISTING_SQFT // 650)),
+        bathrooms=float(max(1, NEW_LISTING_SQFT // 900)),
+        square_footage=NEW_LISTING_SQFT,
+        lot_size=float(lot),
+        year_built=year,
+        status="Active",
+        price=float(price),
+        listing_type="Standard",
+        listed_date=DAY_2,
+        created_date=DAY_2,
+        last_seen_date=DAY_2,
+        days_on_market=0,
+        mls_name="SYNTHETIC",
+        mls_number=f"SYN{100 + number:06d}",
+    )
+
+
+def day2_listing_files(
+    parcels: Sequence[Parcel], listings: Sequence[SaleListing], rng2: random.Random
+) -> dict[str, bytes]:
+    """The second day's /listings/sale response, keyed exactly like day 1's: one account
+    delisted, one repriced, one relisted under a new id, and eight new listings."""
+    by_index = {parcel.index: parcel for parcel in parcels}
+    delisted = by_index[DELISTED_INDEX].record_id
+    repriced = by_index[REPRICED_INDEX].record_id
+    relisted = by_index[RELISTED_INDEX].record_id
+    original = next(listing for listing in listings if listing.id == relisted)
+    relist = original.model_copy(
+        update={
+            "id": f"{relisted}{RELIST_ID_SUFFIX}",
+            "price": RELISTED_TO,
+            "listed_date": DAY_2,
+            "created_date": DAY_2,
+            "last_seen_date": DAY_2,
+            "days_on_market": 0,
+        }
+    )
+    feed = [
+        listing.model_copy(update={"price": REPRICED_TO}) if listing.id == repriced else listing
+        for listing in listings
+        if listing.id not in (delisted, relisted)
+    ]
+    feed.append(relist)
+    feed.extend(
+        _new_day_2_listing(number, spec, rng2)
+        for number, spec in enumerate(NEW_DAY_2_LISTINGS, start=1)
+    )
+    return dict([_listings_record(feed)])
+
+
 def _neighbors(houses: Sequence[Parcel], subject: Parcel, rng: random.Random) -> list[Parcel]:
     others = [house for house in houses if house.index != subject.index]
     return rng.sample(others, 6)
@@ -520,12 +689,13 @@ def write_snapshot(out: Path) -> None:
     buy_box = get_pack(MARKET).buy_box.zips
     parcels = make_parcels(rng, buy_box)
     extras = _extra_accounts(rng, buy_box)
+    rng2 = random.Random(SEED + 2)  # all new randomness; the original stream is untouched
 
     cad_dir = out / "cad" / MARKET
     for kind, certified in (("certified", True), ("current", False)):
         directory = cad_dir / kind
         directory.mkdir(parents=True, exist_ok=True)
-        for name, content in cad_files(parcels, extras, certified=certified).items():
+        for name, content in cad_files(parcels, extras, ADDRESS_CASES, certified=certified).items():
             (directory / name).write_bytes(content)
     manifest = {
         "market": MARKET,
@@ -536,12 +706,27 @@ def write_snapshot(out: Path) -> None:
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
+    days = {
+        "days": [
+            {"as_of": AS_OF.date().isoformat(), "overlay": None},
+            {"as_of": DAY_2.date().isoformat(), "overlay": OVERLAY_DIR},
+        ],
+        "market": MARKET,
+    }
+    (out / "days.json").write_text(
+        json.dumps(days, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
     rentcast_dir = out / "rentcast"
-    rentcast_dir.mkdir(parents=True, exist_ok=True)
-    for stale in rentcast_dir.glob("*.json"):
+    overlay_dir = rentcast_dir / OVERLAY_DIR
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    for stale in [*rentcast_dir.glob("*.json"), *overlay_dir.glob("*.json")]:
         stale.unlink()
-    for name, content in rentcast_files(parcels, rng).items():
+    listings = make_listings(parcels, rng)
+    for name, content in rentcast_files(parcels, listings, rng).items():
         (rentcast_dir / name).write_bytes(content)
+    for name, content in day2_listing_files(parcels, listings, rng2).items():
+        (overlay_dir / name).write_bytes(content)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

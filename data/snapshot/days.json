@@ -1,0 +1,13 @@
+{
+  "days": [
+    {
+      "as_of": "2026-10-01",
+      "overlay": null
+    },
+    {
+      "as_of": "2026-10-02",
+      "overlay": "day-2"
+    }
+  ],
+  "market": "dallas"
+}

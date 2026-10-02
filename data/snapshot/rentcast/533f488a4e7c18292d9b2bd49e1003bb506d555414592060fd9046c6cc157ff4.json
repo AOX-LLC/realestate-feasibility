@@ -5,14 +5,14 @@
     "bedrooms": 5.0,
     "city": "Dallas",
     "county": "Dallas County",
-    "createdDate": "2026-09-28T00:00:00Z",
-    "daysOnMarket": 3,
+    "createdDate": "2026-10-01T00:00:00Z",
+    "daysOnMarket": 0,
     "formattedAddress": "3692 Ostravelle Dr, Dallas, TX 75220",
     "history": {
-      "2026-09-28": {
-        "daysOnMarket": 3,
+      "2026-10-01": {
+        "daysOnMarket": 0,
         "event": "Sale Listing",
-        "listedDate": "2026-09-28T00:00:00Z",
+        "listedDate": "2026-10-01T00:00:00Z",
         "listingType": "Standard",
         "price": 1237000.0
       }
@@ -21,9 +21,9 @@
       "fee": 0.0
     },
     "id": "3692-Ostravelle-Dr,-Dallas,-TX-75220",
-    "lastSeenDate": "2026-09-28T07:00:00Z",
+    "lastSeenDate": "2026-10-01T07:00:00Z",
     "latitude": 32.815318,
-    "listedDate": "2026-09-28T00:00:00Z",
+    "listedDate": "2026-10-01T00:00:00Z",
     "listingType": "Standard",
     "longitude": -96.867172,
     "lotSize": 7476.0,

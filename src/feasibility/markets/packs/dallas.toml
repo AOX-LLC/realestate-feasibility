@@ -88,8 +88,7 @@ limit = 500
 adapter = "mls"
 enabled = false
 
-# Validated now, applied by the sourcing step. Decimals are strings so they
-# parse exactly.
+# Applied by sourcing/filters.py. Decimals are strings so they parse exactly.
 [buy_box]
 zips = ["75214", "75206", "75209", "75218", "75220", "75223", "75228", "75230"]
 price_max = "650000"
@@ -97,6 +96,26 @@ lot_size_min_sqft = "6000"
 year_built_max = 1965
 land_to_total_min = "0.55"
 property_types = ["Single Family", "Land"]
+
+# Teardown score (sourcing/scoring.py). The weights sum to 100. Zero points come from
+# the buy box: land ratio 0.55, built year 1965, lot 6000 sqft.
+[sourcing]
+source_priority = ["mls", "rentcast"]
+
+[sourcing.scoring]
+land_ratio_weight = "35"
+land_ratio_full = "0.85"
+age_weight = "20"
+age_full_year = 1940
+lot_weight = "20"
+lot_full_sqft = "12000"
+price_land_weight = "25"
+price_land_full = "1.00"
+price_land_zero = "1.75"
+vacant_age_credit = "1"
+value_drift_pct_per_year = "5"
+max_drift_years = "2"
+stale_values_years = "1"
 
 # Placeholders until the pro-forma phase sets reviewed values.
 [cost_assumptions]

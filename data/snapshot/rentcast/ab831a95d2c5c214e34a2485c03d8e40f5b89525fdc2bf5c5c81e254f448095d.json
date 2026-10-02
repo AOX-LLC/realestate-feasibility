@@ -5,14 +5,14 @@
     "bedrooms": 2.0,
     "city": "Dallas",
     "county": "Dallas County",
-    "createdDate": "2026-09-18T00:00:00Z",
-    "daysOnMarket": 13,
+    "createdDate": "2026-10-01T00:00:00Z",
+    "daysOnMarket": 0,
     "formattedAddress": "1406 Marlowmere St, Dallas, TX 75214",
     "history": {
-      "2026-09-18": {
-        "daysOnMarket": 13,
+      "2026-10-01": {
+        "daysOnMarket": 0,
         "event": "Sale Listing",
-        "listedDate": "2026-09-18T00:00:00Z",
+        "listedDate": "2026-10-01T00:00:00Z",
         "listingType": "Standard",
         "price": 576000.0
       }
@@ -21,9 +21,9 @@
       "fee": 0.0
     },
     "id": "1406-Marlowmere-St,-Dallas,-TX-75214",
-    "lastSeenDate": "2026-09-18T13:00:00Z",
+    "lastSeenDate": "2026-10-01T13:00:00Z",
     "latitude": 32.830767,
-    "listedDate": "2026-09-18T00:00:00Z",
+    "listedDate": "2026-10-01T00:00:00Z",
     "listingType": "Standard",
     "longitude": -96.793981,
     "lotSize": 7918.0,

@@ -1,11 +1,14 @@
-FROM python:3.12-slim
+# python:3.12-slim, index digest resolved 2026-10-02
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
+# ghcr.io/astral-sh/uv:0.12.10, index digest resolved 2026-10-02
+COPY --from=ghcr.io/astral-sh/uv:0.12.10@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
