@@ -2,7 +2,7 @@
 
 The workbook is an independent check on the pro-forma formulas, so these tests do not
 recompute anything: they pin its layout, keep its assumptions equal to the Dallas pack, and
-hold its recalculated values to the hand-computed figures in the formula section.
+hold its recalculated values to figures computed by hand from the pro-forma formulas.
 """
 
 from decimal import Decimal
@@ -26,6 +26,7 @@ AT_MAX_KEY_COLUMN = 6  # F
 BOOLEAN_INPUT_FORMULAS = {"=TRUE()", "=FALSE()"}
 CENT = Decimal("0.005")
 RATIO = Decimal("0.00005")
+EXACT_RATIO = RATIO / 10  # ratios in the workbook are rounded results, so compare tightly
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +56,11 @@ def number(cell_value: object) -> Decimal:
 
 def test_the_workbook_has_the_sheets_in_the_layout_contract(formulas: Any) -> None:
     assert formulas.sheetnames == SHEETS
+
+
+def test_the_workbook_has_no_hidden_sheets_or_defined_names(formulas: Any) -> None:
+    assert all(sheet.sheet_state == "visible" for sheet in formulas)
+    assert not list(formulas.defined_names)
 
 
 def test_no_sheet_has_merged_cells_or_hidden_rows(formulas: Any) -> None:
@@ -230,7 +236,7 @@ def test_ratios_match_the_formula_section(values: Any, index: int) -> None:
     name = SCENARIOS[index]
     for key, expected in RATIOS.items():
         got = number(scenario_value(values, name, key))
-        assert abs(got - Decimal(expected[index])) <= RATIO / 10, f"{name} {key}: {got}"
+        assert abs(got - Decimal(expected[index])) <= EXACT_RATIO, f"{name} {key}: {got}"
 
 
 @pytest.mark.parametrize("index", [0, 1, 2], ids=SCENARIOS)
@@ -255,7 +261,11 @@ def test_profit_at_the_maximum_offer_is_the_target_within_five_cents(
     values: Any, name: str, profit: str
 ) -> None:
     sheet = values[name]
-    at_max = number(sheet.cell(key_rows(sheet, AT_MAX_KEY_COLUMN)["atmax.tot.profit"], 5).value)
+    at_max = number(
+        sheet.cell(
+            key_rows(sheet, AT_MAX_KEY_COLUMN)["atmax.tot.profit"], AT_MAX_VALUE_COLUMN
+        ).value
+    )
     target = number(scenario_value(values, name, "max.target_profit"))
 
     assert abs(at_max - Decimal(profit)) <= CENT
@@ -267,10 +277,8 @@ def test_the_summary_shows_each_scenario_outcome(values: Any) -> None:
 
     assert [row[0] for row in rows] == SCENARIOS
     assert [number(row[1]) for row in rows] == [420000, 300000, 495000]
-    assert [
-        abs(number(row[4]) - Decimal(p)) <= CENT
-        for row, p in zip(rows, ("107559.59", "238226.17", "-512840.76"), strict=True)
-    ] == [True, True, True]
+    for row, profit in zip(rows, ("107559.59", "238226.17", "-512840.76"), strict=True):
+        assert abs(number(row[4]) - Decimal(profit)) <= CENT, row[0]
     assert rows[2][8] == "none"
 
 
@@ -287,8 +295,12 @@ GRID_SPOT_CHECKS = {
 
 def test_the_sensitivity_grid_has_sixty_rows_in_the_documented_order(values: Any) -> None:
     rows = list(values["Sensitivity"].iter_rows(min_row=2, max_row=61, max_col=9, values_only=True))
+    grid = get_pack("dallas").cost_assumptions.sensitivity
     expected = [
-        (d, e, h) for d in (-10, -5, 0, 5, 10) for e in (-10, 0, 10, 20) for h in (6, 9, 12)
+        (d, e, h)
+        for d in grid.arv_delta_pct
+        for e in grid.hard_cost_delta_pct
+        for h in grid.hold_months
     ]
 
     assert [tuple(row[:3]) for row in rows] == expected
