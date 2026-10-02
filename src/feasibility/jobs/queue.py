@@ -105,25 +105,33 @@ def complete(connection: Connection, job_id: int, worker_id: str) -> bool:
     return result.rowcount == 1
 
 
-def fail(connection: Connection, job_id: int, worker_id: str, error: str) -> str | None:
+def fail(
+    connection: Connection, job_id: int, worker_id: str, error: str, *, permanent: bool = False
+) -> str | None:
     """Record a failed attempt. The job is retried after 2^attempts minutes, or goes to
-    'dead' once it has used max_attempts. Returns the new status, or None when this
-    worker no longer holds the job."""
+    'dead' once it has used max_attempts or when the failure is permanent (retrying
+    cannot help). Returns the new status, or None when this worker no longer holds it."""
     row = connection.execute(
         text(
             """
             UPDATE job
-            SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'queued' END,
-                run_after = CASE WHEN attempts >= max_attempts THEN run_after
+            SET status = CASE WHEN (:permanent OR attempts >= max_attempts) THEN 'dead'
+                              ELSE 'queued' END,
+                run_after = CASE WHEN (:permanent OR attempts >= max_attempts) THEN run_after
                                  ELSE now() + make_interval(mins => power(2, attempts)::int)
                             END,
-                finished_at = CASE WHEN attempts >= max_attempts THEN now() END,
+                finished_at = CASE WHEN (:permanent OR attempts >= max_attempts) THEN now() END,
                 locked_by = NULL, locked_until = NULL, last_error = :error, updated_at = now()
             WHERE id = :job_id AND status = 'running' AND locked_by = :worker_id
             RETURNING status
             """
         ),
-        {"job_id": job_id, "worker_id": worker_id, "error": error[:ERROR_TEXT_LIMIT]},
+        {
+            "job_id": job_id,
+            "worker_id": worker_id,
+            "error": error[:ERROR_TEXT_LIMIT],
+            "permanent": permanent,
+        },
     ).first()
     return None if row is None else str(row.status)
 

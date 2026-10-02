@@ -11,7 +11,7 @@ from sqlalchemy import Engine
 
 from feasibility.config import Settings
 from feasibility.jobs import queue
-from feasibility.jobs.handlers import JobContext, Registry, lookup
+from feasibility.jobs.handlers import PERMANENT_ERRORS, JobContext, Registry, lookup
 from feasibility.logging import redact
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,7 @@ class Worker:
 
     def _record_failure(self, job: queue.ClaimedJob, error: Exception) -> None:
         message = describe_failure(error, self._settings.secret_values())
+        permanent = isinstance(error, PERMANENT_ERRORS)
         with self._engine.begin() as connection:
-            status = queue.fail(connection, job.id, self._worker_id, message)
+            status = queue.fail(connection, job.id, self._worker_id, message, permanent=permanent)
         log.error("job %d (%s) failed, now %s: %s", job.id, job.kind, status, message)

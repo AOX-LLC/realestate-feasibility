@@ -9,19 +9,23 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.jobs import queue
 from feasibility.listings import upsert_listings
-from feasibility.markets.loader import get_pack
+from feasibility.markets.loader import PackError, get_pack
 from feasibility.markets.schema import FileKind, ListingSourceSpec, MarketPack, RentCastListings
-from feasibility.sources.base import ImportRequest, ListingQuery, ListingSource
-from feasibility.sources.cad_csv.importer import CadCsvParcelSource
+from feasibility.sources.base import ImportRequest, ListingQuery, ListingSource, NotConfiguredError
+from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
 from feasibility.sources.mls.stub import MlsListingSource
 from feasibility.sources.rentcast.adapter import RentCastListingSource
-from feasibility.sources.rentcast.client import RentCastClient
+from feasibility.sources.rentcast.client import (
+    BudgetExhaustedError,
+    RentCastClient,
+    SchemaDriftError,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,19 @@ class UnknownJobKindError(ValueError):
 
 
 Registry = Mapping[str, JobKind]
+
+
+# Failures a retry cannot fix. Retrying some of them would also spend paid requests
+# (schema drift is billed), so they go straight to 'dead'.
+PERMANENT_ERRORS: tuple[type[Exception], ...] = (
+    UnknownJobKindError,
+    ValidationError,
+    PackError,
+    CadImportError,
+    NotConfiguredError,
+    SchemaDriftError,
+    BudgetExhaustedError,
+)
 
 
 def lookup(registry: Registry, kind: str) -> JobKind:

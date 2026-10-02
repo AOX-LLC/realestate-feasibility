@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -9,6 +9,7 @@ from feasibility.config import DataMode, Settings
 from feasibility.jobs import queue
 from feasibility.jobs.handlers import JobContext, JobKind, UnknownJobKindError, enqueue_job
 from feasibility.jobs.worker import Worker
+from feasibility.sources.rentcast.client import BudgetExhaustedError
 
 LEASE = timedelta(minutes=5)
 
@@ -178,3 +179,15 @@ def test_worker_records_a_redacted_failure(engine: Engine) -> None:
     assert row.status == "queued"
     assert sentinel not in row.last_error
     assert row.last_error.startswith("RuntimeError: upstream said")
+
+
+def test_permanent_failure_goes_straight_to_dead(engine: Engine) -> None:
+    def handler(payload: EchoPayload, context: JobContext) -> None:
+        raise BudgetExhaustedError(date(2026, 10, 1), 50)
+
+    job_id = _enqueue(engine)
+
+    assert Worker(engine, _settings(), _registry(handler), worker_id="w").run_once()
+
+    row = _job(engine, job_id)
+    assert (row.status, row.attempts) == ("dead", 1)
