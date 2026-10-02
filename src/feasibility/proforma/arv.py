@@ -11,6 +11,7 @@ from feasibility.proforma.money import round_money, round_ratio
 
 PERCENT = Decimal(100)
 TOO_FEW_COMPS = "too_few_comps"
+ARV_NOT_POSITIVE = "arv_not_positive"
 
 
 @dataclass(frozen=True)
@@ -45,13 +46,18 @@ def price_arv(
 
     median_psf = statistics.median(used)
     premium = 1 + config.new_build_premium_pct / PERCENT
+    arv = round_money(median_psf * buildable_sqft * premium)
+    if arv <= 0:  # comps priced at a few cents a foot: nothing to divide a margin by
+        return ArvUnavailable(
+            ARV_NOT_POSITIVE, comps=lines, comp_count_used=len(used), comp_count_dropped=dropped
+        )
     return PricedArv(
         comps=lines,
         comp_count_used=len(used),
         comp_count_dropped=dropped,
         median_psf=median_psf,
         premium_pct=config.new_build_premium_pct,
-        arv=round_money(median_psf * buildable_sqft * premium),
+        arv=arv,
     )
 
 

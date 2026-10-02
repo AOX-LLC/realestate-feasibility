@@ -121,3 +121,13 @@ def test_the_new_build_premium_is_applied_once_to_the_unrounded_product() -> Non
 
 def test_the_input_order_does_not_change_the_answer() -> None:
     assert priced(S1_COMPS[::-1], "3168").arv == priced(S1_COMPS, "3168").arv
+
+
+def test_comps_that_price_the_house_at_nothing_are_unavailable_not_a_crash() -> None:
+    nominal = [comp(1, 30000), comp(1, 30000), comp(1, 30000)]
+
+    result = price_arv(nominal, Decimal("2480"), RULES)
+
+    assert isinstance(result, ArvUnavailable)
+    assert result.reason == "arv_not_positive"
+    assert result.comp_count_used == 3
