@@ -36,3 +36,8 @@ data/local/
 .DS_Store
 .idea/
 .vscode/
+
+# Operator-downloaded source data and local reports
+local/
+*.zip
+*.ZIP
