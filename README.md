@@ -115,7 +115,7 @@ uv run feasibility import-cad local/DCAD2026_OWNERSHIP.ZIP --kind current --roll
 
 The import is idempotent by sha256. The same file again is a no-op. A re-download after DCAD issues supplements has a new sha and a new member date, so it loads as a new version. Options: `--force` replaces a load whose contents changed under the same key, `--file-date YYYY-MM-DD` overrides the archive member's date, `--roll-year` overrides the year parsed from the file name.
 
-Under Compose, `local/` is not mounted into the containers, so run `import-cad` and `verify-rentcast` from the host with `uv run` and `DATABASE_URL=postgresql+psycopg://feasibility:feasibility-local-dev@127.0.0.1:4502/feasibility`.
+Under Compose, `./local` is bind-mounted at `/app/local` in `migrate` and `worker` (the only writable path; the roots stay read-only). Create it first and make it writable by the container user: `mkdir -p local && chmod 777 local` (or `chown 10001 local`), otherwise Docker creates it root-owned. Then `docker compose run --rm migrate feasibility verify-rentcast` and `import-cad /app/local/<file>` work; `verify-rentcast` without a key exits 2 with a message before touching the filesystem.
 
 The same import runs as a job: enqueue `cad.import` with the payload `{"market": "dallas", "archive": "<file name inside local/>", "kind": "certified"}`.
 

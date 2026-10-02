@@ -7,6 +7,12 @@ x-hardening: &hardening
   tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=1700"]
   pids_limit: 256
 
+# The one writable path in the app containers: CAD archives in, verify-rentcast reports out.
+# It is gitignored and bind-mounted only into the services that read or write it.
+x-local-dir: &local-dir
+  volumes:
+    - ./local:/app/local
+
 x-app: &app
   build:
     context: .
@@ -48,7 +54,7 @@ services:
     mem_limit: 512m
 
   migrate:
-    <<: [*app, *hardening]
+    <<: [*app, *hardening, *local-dir]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -77,7 +83,7 @@ services:
     mem_limit: 256m
 
   worker:
-    <<: [*app, *hardening]
+    <<: [*app, *hardening, *local-dir]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:
