@@ -62,6 +62,18 @@ def sale_listings_params(query: ListingQuery) -> dict[str, str]:
     )
 
 
+def sale_listing_path(listing_id: str) -> str:
+    return f"/listings/sale/{quote(listing_id, safe='')}"
+
+
+def property_record_params(address: str) -> dict[str, str]:
+    return canonical_params({"address": address, "limit": "1"})
+
+
+def value_estimate_params(address: str, comp_count: int = 15) -> dict[str, str]:
+    return canonical_params({"address": address, "compCount": str(comp_count)})
+
+
 class RentCastError(Exception):
     def __init__(self, endpoint: str, status: int | None, error_code: str | None) -> None:
         detail = f"status {status}" if status is not None else "request failed"
@@ -175,19 +187,20 @@ class RentCastClient:
         return Fetched(fetched.data or [], fetched.stale)
 
     def sale_listing(self, listing_id: str) -> Fetched[SaleListing | None]:
-        path = f"/listings/sale/{quote(listing_id, safe='')}"
-        request = self._request("/listings/sale/{id}", path, {}, self._ttls.sale_listings)
+        request = self._request(
+            "/listings/sale/{id}", sale_listing_path(listing_id), {}, self._ttls.sale_listings
+        )
         return self._get(request, SALE_LISTING)
 
     def property_record(self, address: str) -> Fetched[PropertyRecord | None]:
-        params = {"address": address, "limit": "1"}
+        params = property_record_params(address)
         request = self._request("/properties", "/properties", params, self._ttls.property_records)
         fetched = self._get(request, PROPERTY_RECORDS)
         records = fetched.data or []
         return Fetched(records[0] if records else None, fetched.stale)
 
     def value_estimate(self, address: str, comp_count: int = 15) -> Fetched[ValueEstimate | None]:
-        params = {"address": address, "compCount": str(comp_count)}
+        params = value_estimate_params(address, comp_count)
         request = self._request("/avm/value", "/avm/value", params, self._ttls.value_estimates)
         return self._get(request, VALUE_ESTIMATE)
 
