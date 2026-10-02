@@ -147,15 +147,16 @@ def source_run(
     """Source one day: sync the feed, diff, match, filter, score and rank."""
     settings = get_settings()
     market_id = market or settings.market
-    run_date = date.fromisoformat(as_of) if as_of else None
     try:
-        # Validate the date before queueing, so a bad one fails here and not in the worker.
-        resolve_run_date(settings, get_pack(market_id), run_date)
+        requested = date.fromisoformat(as_of) if as_of else None
+        # Resolve the date before queueing, so a bad one fails here and not in the worker,
+        # and a job queued for "today" keeps the date it was queued for.
+        run_date, _ = resolve_run_date(settings, get_pack(market_id), requested)
         if enqueue_only:
-            _enqueue_sourcing(market_id, run_date)
+            _enqueue_sourcing(market_id, requested)
             return
         result = run_sourcing(get_engine(), settings, market_id, run_date)
-    except SourcingError as error:
+    except (SourcingError, PackError, ValueError) as error:
         typer.echo(f"sourcing refused: {error}", err=True)
         raise typer.Exit(code=2) from None
     typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")

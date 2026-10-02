@@ -157,3 +157,12 @@ def test_show_without_a_run_says_so(seeded: Engine) -> None:
 
 def test_the_date_error_is_a_sourcing_error() -> None:
     assert issubclass(NoSnapshotForDateError, SourcingError)
+
+
+@pytest.mark.parametrize(
+    "args", [["--as-of", "not-a-date"], ["--market", "nowhere", "--as-of", "2026-10-01"]]
+)
+def test_bad_input_exits_two_with_a_message(seeded: Engine, args: list[str]) -> None:
+    result = _invoke("run", *args)
+    assert result.exit_code == 2
+    assert "sourcing refused" in result.output
