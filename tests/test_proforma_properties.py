@@ -137,7 +137,7 @@ def test_profit_falls_as_the_hold_lengthens() -> None:
 
 
 @pytest.mark.parametrize("case", [s1, s2])
-def test_at_the_maximum_offer_the_target_is_met_and_one_dollar_more_misses_it(
+def test_the_maximum_offer_is_within_cents_of_the_target_and_a_dollar_more_misses(
     case: typing.Callable[[], ProformaInputs],
 ) -> None:
     result = computed(case())

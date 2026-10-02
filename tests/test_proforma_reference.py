@@ -354,7 +354,7 @@ def test_the_sensitivity_formulas_are_live(formulas: Any) -> None:
 # fails the test rather than being skipped.
 
 AS_OF = date(2026, 10, 2)
-ENGINE_CENT = Decimal("0.005")  # figures that are rounded to cents compare to the cent
+HALF_CENT = Decimal("0.005")  # figures that are rounded to cents compare to the cent
 UNROUNDED = Decimal("0.000001")  # figures the formulas leave unrounded compare to 1e-6
 AT_MAX_PREFIX = "atmax."
 
@@ -479,7 +479,7 @@ def assert_matches(key: str, kind: Kind, engine: Any, sheet_value: Any) -> None:
         return
     assert engine is not None, where
     wanted = number(sheet_value)
-    tolerance = {"money": ENGINE_CENT, "ratio": EXACT_RATIO, "exact": UNROUNDED}[kind]
+    tolerance = {"money": HALF_CENT, "ratio": EXACT_RATIO, "exact": UNROUNDED}[kind]
     assert abs(Decimal(engine) - wanted) <= tolerance, where
 
 
@@ -527,8 +527,8 @@ def test_the_maximum_offer_agrees_and_none_means_no_offer(
         assert workbook_headroom in (None, "")
     else:
         assert offer.max_offer is not None and offer.headroom_vs_offer is not None
-        assert abs(offer.max_offer - number(workbook_offer)) <= ENGINE_CENT
-        assert abs(offer.headroom_vs_offer - number(workbook_headroom)) <= ENGINE_CENT
+        assert abs(offer.max_offer - number(workbook_offer)) <= HALF_CENT
+        assert abs(offer.headroom_vs_offer - number(workbook_headroom)) <= HALF_CENT
         assert "no_viable_offer" not in engine_results[name].flags
 
 

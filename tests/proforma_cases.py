@@ -1,4 +1,4 @@
-"""Shared pro-forma test inputs: the three scenarios of the formula section (F.7)."""
+"""Shared pro-forma test inputs: three scenarios with hand-computed expected figures."""
 
 from datetime import date, timedelta
 from decimal import Decimal

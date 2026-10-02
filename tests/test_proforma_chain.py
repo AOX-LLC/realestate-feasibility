@@ -9,7 +9,7 @@ from feasibility.proforma.model import CostChain
 ASSUMPTIONS = get_pack("dallas").cost_assumptions
 HOLD = ASSUMPTIONS.holding.hold_months
 
-# price, demolition, hard cost, ARV: the inputs F.7 derives for S1-S3
+# price, demolition, hard cost, ARV: the inputs of the three hand-computed scenarios
 S1 = ("420000", "11700.00", "601920.00", "1420799.85")
 S2 = ("300000", "0.00", "665000.00", "1489400.50")
 S3 = ("495000", "14500.00", "471200.00", "678417.76")

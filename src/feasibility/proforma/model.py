@@ -201,7 +201,7 @@ class SensitivityTable(ProformaModel):
 
 
 class CostChain(ProformaModel):
-    """Lines 9-28 of the formulas for one price, hard cost, ARV and hold."""
+    """The cost, finance, hold and sell lines for one price, hard cost, ARV and hold."""
 
     costs: Costs
     arv: Dec | None

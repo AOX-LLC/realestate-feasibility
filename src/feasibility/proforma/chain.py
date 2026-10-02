@@ -1,4 +1,4 @@
-"""Lines 9-28 of the pro-forma formulas as one pure function.
+"""The cost, finance, hold and sell arithmetic of the pro-forma as one pure function.
 
 Sensitivity and the maximum offer call it again with other prices, hard costs, ARVs and holds,
 so there is exactly one copy of the arithmetic. Every money line is rounded to cents where it is
@@ -67,11 +67,13 @@ def _financing(costs: Costs, hold_months: Decimal, assumptions: CostAssumptions)
     financeable = price + demolition + build + costs.soft_costs
     loan = round_money(financeable * terms.loan_to_cost_pct / PERCENT)
 
-    interest_rate = terms.loan_to_cost_pct * terms.rate_pct
+    ltc_times_rate = (
+        terms.loan_to_cost_pct * terms.rate_pct
+    )  # in %-squared; INTEREST_DIVISOR undoes it
     front_balance = price + demolition + costs.soft_costs
-    interest_front = round_money(front_balance * interest_rate * hold_months / INTEREST_DIVISOR)
+    interest_front = round_money(front_balance * ltc_times_rate * hold_months / INTEREST_DIVISOR)
     interest_progressive = round_money(
-        build * interest_rate * (construction / 2 + sale) / INTEREST_DIVISOR
+        build * ltc_times_rate * (construction / 2 + sale) / INTEREST_DIVISOR
     )
     interest = interest_front + interest_progressive
     points = round_money(loan * terms.points_pct / PERCENT)
