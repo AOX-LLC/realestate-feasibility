@@ -199,23 +199,23 @@ MONEY: dict[str, tuple[str, str, str]] = {
     "fin.interest_progressive": ("24648.62", "27231.75", "19295.64"),
     "fin.points": ("18175.14", "17248.80", "16972.86"),
     "fin.total": ("74059.58", "68268.55", "71231.14"),
-    "hold.tax": ("7014.69", "5010.49", "8267.31"),
+    "hold.tax": ("7014.14", "5010.10", "8266.66"),
     "hold.insurance": ("6771.60", "7481.25", "5301.00"),
     "sell.total": ("85247.99", "89364.04", "40705.07"),
-    "tot.total_cost": ("1313240.26", "1251174.33", "1191258.52"),
-    "tot.profit": ("107559.59", "238226.17", "-512840.76"),
-    "tot.cash_invested": ("319235.15", "299370.29", "301910.25"),
+    "tot.total_cost": ("1313239.71", "1251173.94", "1191257.87"),
+    "tot.profit": ("107560.14", "238226.56", "-512840.11"),
+    "tot.cash_invested": ("319234.60", "299369.90", "301909.60"),
 }
 RATIOS: dict[str, tuple[str, str, str]] = {
     "arv.median_psf": ("448.4848", "425.5430", "273.55555"),
     "tot.margin": ("0.0757", "0.1599", "-0.7559"),
     "tot.roi": ("0.3369", "0.7958", "-1.6987"),
     "tot.annualized": ("0.4492", "1.0610", "-2.2649"),
-    "max.price_coeff": ("1.1027016375", "1.1027016375", "1.1027016375"),
+    "max.price_coeff": ("1.102700325", "1.102700325", "1.102700325"),
 }
 FIXED_PART = ("850105.5804", "920363.8400", "645421.2140")
-MAX_OFFER = ("324271.11", "313436.17", None)  # S3 has no viable offer
-HEADROOM = ("-95728.89", "13436.17", None)
+MAX_OFFER = ("324271.50", "313436.54", None)  # S3 has no viable offer
+HEADROOM = ("-95728.50", "13436.54", None)
 
 
 def scenario_value(values: Any, name: str, key: str) -> Any:
@@ -256,7 +256,7 @@ def test_the_maximum_offer_lines_match_the_formula_section(values: Any, index: i
         assert abs(number(headroom) - Decimal(str(HEADROOM[index]))) <= CENT
 
 
-@pytest.mark.parametrize(("name", "profit"), [("S1", "213119.99"), ("S2", "223410.08")])
+@pytest.mark.parametrize(("name", "profit"), [("S1", "213119.98"), ("S2", "223410.09")])
 def test_profit_at_the_maximum_offer_is_the_target_within_five_cents(
     values: Any, name: str, profit: str
 ) -> None:
@@ -277,7 +277,7 @@ def test_the_summary_shows_each_scenario_outcome(values: Any) -> None:
 
     assert [row[0] for row in rows] == SCENARIOS
     assert [number(row[1]) for row in rows] == [420000, 300000, 495000]
-    for row, profit in zip(rows, ("107559.59", "238226.17", "-512840.76"), strict=True):
+    for row, profit in zip(rows, ("107560.14", "238226.56", "-512840.11"), strict=True):
         assert abs(number(row[4]) - Decimal(profit)) <= CENT, row[0]
     assert rows[2][8] == "none"
 
@@ -285,11 +285,11 @@ def test_the_summary_shows_each_scenario_outcome(values: Any) -> None:
 # --- sensitivity grid ----------------------------------------------------------------------
 
 GRID_SPOT_CHECKS = {
-    (0, 0, 9): ("107559.59", "0.0757"),
-    (10, -10, 6): ("337940.06", "0.2162"),
-    (-10, 20, 12): ("-201523.13", "-0.1576"),
-    (-5, 0, 6): ("63672.23", "0.0472"),
-    (5, 20, 12): ("-1190.36", "-0.0008"),
+    (0, 0, 9): ("107560.14", "0.0757"),
+    (10, -10, 6): ("337940.43", "0.2162"),
+    (-10, 20, 12): ("-201522.39", "-0.1576"),
+    (-5, 0, 6): ("63672.60", "0.0472"),
+    (5, 20, 12): ("-1189.62", "-0.0008"),
 }
 
 

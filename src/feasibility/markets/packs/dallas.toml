@@ -156,7 +156,7 @@ draw_fee = "200"
 
 [cost_assumptions.holding]
 hold_months = "9"
-property_tax_rate_pct = "2.226885"
+property_tax_rate_pct = "2.226710"
 insurance_pct_of_hard_cost_per_year = "1.5"
 
 [cost_assumptions.selling]

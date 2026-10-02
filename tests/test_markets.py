@@ -267,7 +267,7 @@ def test_dallas_cost_assumptions_are_illustrative_and_complete() -> None:
     assert str(costs.sources_read_on) == "2026-10-02"
     assert costs.construction.hard_cost_per_sqft == 190
     assert costs.financing.draw_count == 5
-    assert costs.holding.property_tax_rate_pct == Decimal("2.226885")
+    assert costs.holding.property_tax_rate_pct == Decimal("2.226710")
     assert costs.sizing.default.coverage_pct == 40
     assert set(costs.sizing.rules) == {"R-7.5(A)", "R-5(A)", "R-10(A)"}
     assert costs.sensitivity.hold_months == [6, 9, 12]
