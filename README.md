@@ -121,7 +121,7 @@ Read-only API:
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /sourcing/runs` | Runs, newest first, with their counts |
+| `GET /sourcing/runs` | Runs, most recently created first, with their counts |
 | `GET /sourcing/runs/{run_id}` | One run |
 | `GET /sourcing/runs/{run_id}/candidates?status=ranked\|filtered\|unscored` | A run's candidates (ranked by rank; the others by candidate id) |
 | `GET /sourcing/runs/{run_id}/candidates/{candidate_id}` | One candidate with its score breakdown and the listings the run saw for it |

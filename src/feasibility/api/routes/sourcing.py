@@ -129,7 +129,7 @@ def list_runs(
     after: AfterId = None,
     limit: Limit = DEFAULT_PAGE_SIZE,
 ) -> Page[RunOut]:
-    """Runs, newest first. `after` is a run id: the next page holds older runs."""
+    """Runs, most recently created first. `after` is a run id: the next page is older."""
     query = select(*RUN_COLUMNS).where(sourcing_run.c.market == market)
     if after is not None:
         query = query.where(sourcing_run.c.id < after)
