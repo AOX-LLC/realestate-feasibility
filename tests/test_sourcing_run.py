@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import Engine, func, select
 
 from feasibility.config import DataMode, Settings
+from feasibility.markets.loader import get_pack
 from feasibility.snapshot.load import seed
 from feasibility.sources.base import ListingQuery
 from feasibility.sources.rentcast.client import (
@@ -19,6 +20,7 @@ from feasibility.sources.rentcast.client import (
     RentCastError,
 )
 from feasibility.sources.rentcast.models import SaleListing
+from feasibility.sourcing import run as run_module
 from feasibility.sourcing.errors import LiveDateError, NoSnapshotForDateError, RunOutOfOrderError
 from feasibility.sourcing.run import SourcingResult, run_sourcing
 from feasibility.tables import (
@@ -546,3 +548,19 @@ def test_an_earlier_date_is_refused_after_a_failed_later_run(seeded: Engine) -> 
 
     with pytest.raises(RunOutOfOrderError):
         _run(seeded, DAY_ONE)
+
+
+def test_the_build_refuses_when_a_later_run_started_after_this_one_did(seeded: Engine) -> None:
+    """Two runs started together: the later date must not let the earlier one build against
+    a listing table the later sync has moved on."""
+    _run(seeded, DAY_ONE)
+    started = run_module._start_run(seeded, "dallas", DAY_ONE)
+    with seeded.begin() as connection:
+        connection.execute(
+            sourcing_run.insert().values(
+                market="dallas", as_of=DAY_TWO, status="running", sync_status="pending"
+            )
+        )
+
+    with pytest.raises(RunOutOfOrderError), seeded.begin() as connection:
+        run_module._build_run(connection, get_pack("dallas"), started, DAY_ONE, "fresh")

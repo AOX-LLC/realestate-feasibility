@@ -127,14 +127,18 @@ def run_sourcing(
     return SourcingResult(run_id, run_date, sync_status, counts)
 
 
+def _refuse_if_out_of_order(connection: Connection, market: str, as_of: date) -> None:
+    latest = store.latest_run_as_of(connection, market)
+    if latest is not None and as_of < latest:
+        raise RunOutOfOrderError(
+            f"cannot source {as_of}: a run for {latest} has already been started"
+        )
+
+
 def _start_run(engine: Engine, market: str, as_of: date) -> int:
     with engine.begin() as connection:
         store.lock_market_runs(connection, market)
-        latest = store.latest_run_as_of(connection, market)
-        if latest is not None and as_of < latest:
-            raise RunOutOfOrderError(
-                f"cannot source {as_of}: a run for {latest} has already been started"
-            )
+        _refuse_if_out_of_order(connection, market, as_of)
         return store.start_run(connection, market, as_of)
 
 
@@ -328,6 +332,7 @@ def _build_run(
     """Everything one run writes, in the caller's transaction."""
     market = pack.market.id
     store.lock_market_runs(connection, market)
+    _refuse_if_out_of_order(connection, market, as_of)
     store.clear_run_rows(connection, run_id)
 
     window_start, window_end = _window(as_of, pack.market.timezone)

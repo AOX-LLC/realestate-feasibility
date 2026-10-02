@@ -259,7 +259,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 ## Sourcing
 
-`sourcing/run.py` turns the stored listings and parcels into a ranked, diffed candidate list for one day. One run is keyed by (market, `as_of`), is idempotent (running the same date again rewrites that run's rows only), and goes forward in time (an earlier date than any run already started is refused). All of a run's writes happen in one transaction, behind an advisory lock per market.
+`sourcing/run.py` turns the stored listings and parcels into a ranked, diffed candidate list for one day. One run is keyed by (market, `as_of`), is idempotent (running the same date again rewrites that run's rows only), and goes forward in time (an earlier date than any run already started is refused). Starting the run, the sync, and recording the sync status are separate transactions; building the run (diff, match, score, rank, write) is one transaction, taken behind an advisory lock per market that re-checks the date order. The sync itself runs outside that lock.
 
 **Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write.
 
