@@ -26,8 +26,9 @@ def migrated_engine() -> Iterator[Engine]:
 
 @pytest.fixture
 def engine(migrated_engine: Engine) -> Engine:
-    """The migrated database with every table emptied."""
-    table_names = ", ".join(table.name for table in metadata.sorted_tables)
+    """The migrated database with every table emptied. DELETE is far quicker than
+    TRUNCATE on tables this small."""
     with migrated_engine.begin() as connection:
-        connection.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
+        for table in reversed(metadata.sorted_tables):
+            connection.execute(table.delete())
     return migrated_engine
