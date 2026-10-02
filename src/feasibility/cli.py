@@ -10,8 +10,10 @@ from types import FrameType
 from typing import Annotated
 
 import typer
+import uvicorn
 from pydantic import ValidationError
 
+from feasibility.api.app import create_app
 from feasibility.config import get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.jobs.handlers import build_registry, enqueue_job
@@ -144,3 +146,20 @@ def seed() -> None:
                 f"{imported.rows_read} read, {imported.rows_skipped} skipped"
             )
     typer.echo(f"listings upserted: {report.listings}")
+
+
+@app.command()
+def serve(
+    host: Annotated[str, typer.Option(help="Interface to bind")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port to listen on")] = 4501,
+) -> None:
+    """Run the read-only HTTP API."""
+    settings = get_settings()
+    uvicorn.run(
+        create_app(settings, get_engine()),
+        host=host,
+        port=port,
+        # Keep the root handler (and its secret redaction) for uvicorn's own loggers.
+        log_config=None,
+        server_header=False,
+    )
