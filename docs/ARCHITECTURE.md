@@ -167,7 +167,7 @@ The importer is generic and driven entirely by the market pack. DCAD is a pack, 
 - The pack may only reference files declared in it. The Dallas pack declares `ACCOUNT_INFO`, `ACCOUNT_APPRL_YEAR`, `LAND` and `RES_DETAIL`.
 - Pack validation rejects any mapped file or column whose name matches `OWNER|PHONE|BIZ_NAME|LEGAL|TAXPAYER|APPLICANT|MAIL`.
 - The reader cannot select an unmapped column.
-- A pack may name a skip flag. For Dallas it is `ACCOUNT_INFO.EXCLUDE_OWNER`: any value other than blank, `N`, `0`, `F` or `FALSE` skips the whole account, counted in the import report. The flag's value is never stored.
+- A pack may name a skip flag. For Dallas it is `ACCOUNT_INFO.EXCLUDE_OWNER`: any value other than blank, `N`, `0`, `F` or `FALSE` skips the whole account, counted in the import report. If an earlier load stored that account, its `parcel` and `parcel_version` rows are deleted in the same transaction. The flag's value is never stored.
 
 ## RentCast client
 
@@ -291,3 +291,4 @@ Pre-commit runs gitleaks and ruff.
 - **No update schedule and no downloader for DCAD.** The operator downloads files by hand. DCAD publishes no redistribution license that we found, so its files are never committed.
 - **Listing-to-parcel matching** is not done. `listing.account_id` stays NULL until phase 2.
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
+- **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.

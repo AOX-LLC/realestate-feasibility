@@ -67,7 +67,7 @@ Real DCAD files and real RentCast responses are fetched by whoever runs the soft
 **Personal data is excluded by construction.**
 
 - The CAD importer can only read columns the market pack maps. A pack cannot map owner, contact, legal-description or taxpayer columns; validation rejects it.
-- Accounts flagged `EXCLUDE_OWNER` are skipped whole.
+- Accounts flagged `EXCLUDE_OWNER` are skipped whole, and an account flagged after an earlier load has its stored rows deleted in the same import.
 - RentCast agent, office and owner objects are removed before anything is validated, cached or stored.
 - No table has a column that could hold them.
 

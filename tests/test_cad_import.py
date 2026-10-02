@@ -273,3 +273,25 @@ def test_a_hundred_megabyte_import_streams_in_bounded_memory(
 
     assert report.rows_loaded == accounts
     assert peak < 50 * 1024 * 1024
+
+
+def test_account_flagged_after_an_earlier_load_is_removed(engine: Engine, tmp_path: Path) -> None:
+    source = _source(engine)
+    source.import_archive(ImportRequest(_archive(tmp_path), "certified"))
+    later = tmp_path / "v2"
+    later.mkdir()
+    files = _files()
+    files["ACCOUNT_INFO"][0]["EXCLUDE_OWNER"] = "Y"
+    write_archive(str(later / "DCAD2026_CURRENT.ZIP"), files, MEMBER_TIME)
+
+    report = source.import_archive(
+        ImportRequest(later / "DCAD2026_CURRENT.ZIP", "certified", file_date=date(2026, 10, 1))
+    )
+
+    assert report.skip_reasons["removed_flagged_accounts"] == 1
+    assert _parcel(engine, ACCOUNT_A) is None
+    with engine.connect() as connection:
+        versions = connection.execute(
+            text("SELECT count(*) FROM parcel_version WHERE account_id = :a"), {"a": ACCOUNT_A}
+        ).scalar_one()
+    assert versions == 0

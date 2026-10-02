@@ -208,7 +208,10 @@ class CadCsvParcelSource:
             _upsert_parcels(
                 connection, source_file_id, key.file_date, self._spec.kinds[key.kind].carries_values
             )
+            removed = _remove_flagged_accounts(connection, self._market, stats.flagged_accounts)
             reasons = dict(stats.reasons or {})
+            if removed:
+                reasons["removed_flagged_accounts"] = removed
             connection.execute(
                 text(
                     """
@@ -400,6 +403,36 @@ def _insert_versions(
         text(statement), {"market": market, "source_file_id": source_file_id}
     )
     return result.rowcount
+
+
+def _remove_flagged_accounts(connection: Connection, market: str, accounts: list[str]) -> int:
+    """Delete every stored row of accounts the skip flag now marks, so an account flagged
+    after an earlier load does not linger. Returns how many parcels were removed."""
+    if not accounts:
+        return 0
+    connection.execute(
+        text("CREATE TEMPORARY TABLE flagged_account (account_id text) ON COMMIT DROP")
+    )
+    driver = cast(psycopg.Connection[Any], connection.connection.driver_connection)
+    with driver.cursor() as cursor, cursor.copy("COPY flagged_account FROM STDIN") as copy:
+        for account_id in accounts:
+            copy.write_row((account_id,))
+    params = {"market": market}
+    connection.execute(
+        text(
+            "DELETE FROM parcel_version WHERE market = :market"
+            " AND account_id IN (SELECT account_id FROM flagged_account)"
+        ),
+        params,
+    )
+    removed = connection.execute(
+        text(
+            "DELETE FROM parcel WHERE market = :market"
+            " AND account_id IN (SELECT account_id FROM flagged_account)"
+        ),
+        params,
+    )
+    return removed.rowcount
 
 
 def _upsert_parcels(

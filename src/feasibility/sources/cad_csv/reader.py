@@ -9,7 +9,7 @@ import io
 import zipfile
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
@@ -93,6 +93,8 @@ class ReadStats:
     rows_read: int = 0
     rows_skipped: int = 0
     reasons: Counter[str] | None = None
+    # Accounts dropped by the pack's skip flag; earlier loads of them must be removed too.
+    flagged_accounts: list[str] = field(default_factory=list)
 
     def note(self, reason: str, *, skipped: bool = False) -> None:
         if self.reasons is None:
@@ -130,6 +132,7 @@ def iter_member_rows(
                 continue
             if _flag_is_set(row, positions, plan.skip_accounts):
                 stats.note(f"{plan.file_key}:skip_flag", skipped=True)
+                stats.flagged_accounts.append(account_id)
                 continue
             values = _staged_values(row, positions, plan, unit_factors, stats)
             yield (account_id, row_no, *values)
