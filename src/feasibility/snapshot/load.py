@@ -18,8 +18,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine
 
 from feasibility.config import Settings
-from feasibility.jobs.handlers import listing_query
-from feasibility.listings import upsert_listings
+from feasibility.listings import listing_query, upsert_listings
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.snapshot.days import snapshot_days

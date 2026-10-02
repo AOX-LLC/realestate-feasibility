@@ -3,11 +3,15 @@ keys on it."""
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, Engine, text
 
-from feasibility.sources.base import ListingBatch
+from feasibility.markets.schema import ListingSourceSpec, MarketPack, RentCastListings
+from feasibility.sources.base import ListingBatch, ListingQuery, ListingSource
+from feasibility.sources.mls.stub import MlsListingSource
+from feasibility.sources.rentcast.adapter import RentCastListingSource
+from feasibility.sources.rentcast.client import RentCastClient
 
 UPSERT_LISTING = text(
     """
@@ -75,3 +79,43 @@ def upsert_listings(
     ]
     connection.execute(UPSERT_LISTING, rows)
     return len(rows)
+
+
+def listing_query(pack: MarketPack, spec: ListingSourceSpec) -> ListingQuery:
+    if isinstance(spec, RentCastListings):
+        return ListingQuery(
+            city=spec.city,
+            state=spec.state,
+            status=spec.status,
+            days_old=spec.days_old,
+            limit=spec.limit,
+        )
+    return ListingQuery(city=pack.market.county, state=pack.market.state, days_old=1, limit=500)
+
+
+def sync_listings(
+    engine: Engine,
+    pack: MarketPack,
+    client: RentCastClient,
+    observed_at: datetime | None = None,
+) -> Literal["fresh", "stale"]:
+    """Fetch and store the listings of every enabled source in the pack.
+
+    Returns "stale" when any source answered from an expired cache: those listings were
+    stored but not seen today.
+    """
+    sync_status: Literal["fresh", "stale"] = "fresh"
+    for spec in pack.sources.listings:
+        if not spec.enabled:
+            continue
+        source: ListingSource = (
+            RentCastListingSource(client)
+            if isinstance(spec, RentCastListings)
+            else MlsListingSource()
+        )
+        batch = source.fetch_listings(listing_query(pack, spec))
+        with engine.begin() as connection:
+            upsert_listings(connection, pack.market.id, batch, observed_at)
+        if batch.stale:
+            sync_status = "stale"
+    return sync_status

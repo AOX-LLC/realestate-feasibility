@@ -14,18 +14,18 @@ from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.jobs import queue
-from feasibility.listings import upsert_listings
+from feasibility.listings import sync_listings
 from feasibility.markets.loader import PackError, get_pack
-from feasibility.markets.schema import FileKind, ListingSourceSpec, MarketPack, RentCastListings
-from feasibility.sources.base import ImportRequest, ListingQuery, ListingSource, NotConfiguredError
+from feasibility.markets.schema import FileKind
+from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
-from feasibility.sources.mls.stub import MlsListingSource
-from feasibility.sources.rentcast.adapter import RentCastListingSource
 from feasibility.sources.rentcast.client import (
     BudgetExhaustedError,
     RentCastClient,
     SchemaDriftError,
 )
+from feasibility.sourcing.errors import SourcingError
+from feasibility.sourcing.run import run_sourcing
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,7 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     NotConfiguredError,
     SchemaDriftError,
     BudgetExhaustedError,
+    SourcingError,
 )
 
 
@@ -120,36 +121,26 @@ class ListingsSyncPayload(BaseModel):
     market: str
 
 
-def listing_query(pack: MarketPack, spec: ListingSourceSpec) -> ListingQuery:
-    if isinstance(spec, RentCastListings):
-        return ListingQuery(
-            city=spec.city,
-            state=spec.state,
-            status=spec.status,
-            days_old=spec.days_old,
-            limit=spec.limit,
-        )
-    return ListingQuery(city=pack.market.county, state=pack.market.state, days_old=1, limit=500)
-
-
 def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None:
     """Fetch new listings from every enabled source in the market pack and store them."""
     pack = get_pack(payload.market)
     client = RentCastClient.from_settings(context.engine, context.settings)
     try:
-        for spec in pack.sources.listings:
-            if not spec.enabled:
-                continue
-            source: ListingSource = (
-                RentCastListingSource(client)
-                if isinstance(spec, RentCastListings)
-                else MlsListingSource()
-            )
-            batch = source.fetch_listings(listing_query(pack, spec))
-            with context.engine.begin() as connection:
-                upsert_listings(connection, pack.market.id, batch)
+        sync_listings(context.engine, pack, client)
     finally:
         client.close()
+
+
+class SourcingRunPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    market: str
+    # None means today in the market's time zone (live mode); mock mode needs a date.
+    as_of: date | None = None
+
+
+def run_sourcing_job(payload: SourcingRunPayload, context: JobContext) -> None:
+    run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
 
 
 def build_registry() -> dict[str, JobKind]:
@@ -157,4 +148,5 @@ def build_registry() -> dict[str, JobKind]:
     return {
         "cad.import": JobKind(CadImportPayload, run_cad_import),
         "listings.sync": JobKind(ListingsSyncPayload, run_listings_sync),
+        "sourcing.run": JobKind(SourcingRunPayload, run_sourcing_job),
     }

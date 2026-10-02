@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from feasibility.api.app import create_app
 from feasibility.config import get_settings
 from feasibility.db import get_engine, upgrade_to_head
-from feasibility.jobs.handlers import build_registry, enqueue_job
+from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
 from feasibility.jobs.worker import Worker
 from feasibility.logging import configure_logging
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
@@ -26,11 +26,21 @@ from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
+from feasibility.sourcing import store as sourcing_store
+from feasibility.sourcing.errors import SourcingError
+from feasibility.sourcing.run import resolve_run_date, run_sourcing
 
 # Uncaught errors go through logging (and its secret redaction), not Typer's printer.
 app = typer.Typer(no_args_is_help=True, add_completion=False, pretty_exceptions_enable=False)
 market_app = typer.Typer(no_args_is_help=True, help="Market pack commands.")
 app.add_typer(market_app, name="market")
+source_app = typer.Typer(no_args_is_help=True, help="Daily sourcing: run it, read the result.")
+app.add_typer(source_app, name="source")
+
+TOP_CANDIDATES_SHOWN = 10
+SourcingStatus = Annotated[
+    str, typer.Option("--status", help="ranked, filtered or unscored", show_default=True)
+]
 
 
 @app.callback()
@@ -122,6 +132,91 @@ def worker(
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     job_worker.run_forever(stop)
+
+
+@source_app.command("run")
+def source_run(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    as_of: Annotated[
+        str | None, typer.Option(help="YYYY-MM-DD; required in mock mode, today in live mode")
+    ] = None,
+    enqueue_only: Annotated[
+        bool, typer.Option("--enqueue", help="Queue the run for the worker instead of running it")
+    ] = False,
+) -> None:
+    """Source one day: sync the feed, diff, match, filter, score and rank."""
+    settings = get_settings()
+    market_id = market or settings.market
+    try:
+        requested = date.fromisoformat(as_of) if as_of else None
+        # Resolve the date before queueing, so a bad one fails here and not in the worker,
+        # and a job queued for "today" keeps the date it was queued for.
+        run_date, _ = resolve_run_date(settings, get_pack(market_id), requested)
+        if enqueue_only:
+            _enqueue_sourcing(market_id, run_date)
+            return
+        result = run_sourcing(get_engine(), settings, market_id, run_date)
+    except (SourcingError, PackError, ValueError) as error:
+        typer.echo(f"sourcing refused: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")
+    for name, value in result.counts.model_dump().items():
+        typer.echo(f"{name} {value}")
+    with get_engine().connect() as connection:
+        top = sourcing_store.candidate_summaries(
+            connection, result.run_id, "ranked", TOP_CANDIDATES_SHOWN
+        )
+    typer.echo(f"top {len(top)} ranked:")
+    for line in top:
+        typer.echo(f"{line.rank} {line.score} {line.price} {line.address}")
+
+
+def _enqueue_sourcing(market: str, as_of: date) -> None:
+    payload = SourcingRunPayload(market=market, as_of=as_of)
+    dedupe_key = f"sourcing.run:{market}:{as_of}"
+    with get_engine().begin() as connection:
+        job_id = enqueue_job(
+            connection,
+            build_registry(),
+            "sourcing.run",
+            payload.model_dump(mode="json"),
+            dedupe_key=dedupe_key,
+        )
+    typer.echo(f"queued job {job_id}" if job_id else "an identical job is already active")
+
+
+@source_app.command("show")
+def source_show(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    status: SourcingStatus = "ranked",
+    limit: Annotated[int, typer.Option(min=1, max=500)] = 20,
+) -> None:
+    """Print a run's candidates (read-only)."""
+    if status not in ("ranked", "filtered", "unscored"):
+        raise typer.BadParameter("status must be ranked, filtered or unscored")
+    with get_engine().connect() as connection:
+        shown_run = run_id or sourcing_store.latest_run_id(
+            connection, market or get_settings().market
+        )
+        if shown_run is None:
+            typer.echo("no completed run yet", err=True)
+            raise typer.Exit(code=1)
+        lines = sourcing_store.candidate_summaries(connection, shown_run, status, limit)
+    typer.echo(f"run {shown_run}, {status}: {len(lines)} shown")
+    for line in lines:
+        typer.echo(
+            "\t".join(
+                [
+                    str(line.rank or "-"),
+                    str(line.score or "-"),
+                    str(line.price),
+                    line.change_kind,
+                    line.detail or "-",
+                    line.address,
+                ]
+            )
+        )
 
 
 @app.command("verify-rentcast")
