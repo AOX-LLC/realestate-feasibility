@@ -28,7 +28,7 @@ from feasibility.tables import parcel
 MatchStatus = Literal["matched", "ambiguous", "unmatched"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatchParcel:
     account_id: str
     gis_parcel_id: str | None
@@ -43,7 +43,7 @@ class MatchParcel:
     values_file_date: date | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatchResult:
     status: MatchStatus
     method: str | None
@@ -52,7 +52,7 @@ class MatchResult:
     street_key: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatchedParcel:
     """The values of the matched parcel, or of a GIS group's accounts combined."""
 
@@ -66,7 +66,7 @@ class MatchedParcel:
     values_file_date: date | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ParcelIndex:
     by_key: dict[tuple[str, str], list[MatchParcel]]
     by_stem: dict[tuple[str, str], list[MatchParcel]]

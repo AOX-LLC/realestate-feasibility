@@ -29,7 +29,7 @@ UNIT_MARKERS = frozenset({"UNIT", "APT", "APARTMENT", "STE", "SUITE", "#", "NO"}
 LISTING_STREET = re.compile(r"^(?P<num>\d+[A-Z]?)(?: (?P<half>\d/\d))? (?P<rest>.+)$")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StreetKey:
     number: str
     half: str
