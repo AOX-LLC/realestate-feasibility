@@ -274,3 +274,16 @@ def test_rewriting_a_failed_match_clears_the_account(engine: Engine) -> None:
         0,
     )
     assert account is None
+
+
+def test_a_stem_hit_never_crosses_units() -> None:
+    index = build_index([_parcel("300", "50", "ROSE LN", "75214", unit="B")])
+
+    assert match_listing(index, "75214", "50 ROSE DR", "A").status == "unmatched"
+    assert match_listing(index, "75214", "50 ROSE DR", "B").method == "stem"
+
+
+def test_a_stem_hit_accepts_the_one_unitless_parcel_for_a_unit_listing() -> None:
+    index = build_index([_parcel("300", "50", "ROSE LN", "75214")])
+
+    assert match_listing(index, "75214", "50 ROSE DR", "A").method == "stem"

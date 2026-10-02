@@ -156,6 +156,28 @@ def _match_exact(exact: Sequence[MatchParcel], unit: str | None, street_key: str
     return _ambiguous(exact, street_key)
 
 
+def _match_stem(stem: Sequence[MatchParcel], unit: str | None, street_key: str) -> MatchResult:
+    """The suffix-less fallback. A listing with a unit is held to the same unit rule as an
+    exact hit, so it is never scored on another unit's values."""
+    if unit is not None:
+        same = [item for item in stem if item.unit == unit]
+        if same:
+            return (
+                _matched("stem", same, street_key)
+                if len(same) == 1
+                else _ambiguous(same, street_key)
+            )
+        if len(stem) == 1 and stem[0].unit is None:
+            return _matched("stem", stem, street_key)
+        return _unmatched(street_key)
+    accounts = {item.account_id for item in stem}
+    if len(accounts) == 1:
+        return _matched("stem", stem, street_key)
+    if accounts:
+        return _ambiguous(stem, street_key)
+    return _unmatched(street_key)
+
+
 def match_listing(
     index: ParcelIndex, zip5: str | None, address_line: str, unit: str | None
 ) -> MatchResult:
@@ -165,7 +187,8 @@ def match_listing(
     2. Parcels with the same street key (number, half, name with canonical suffix) in the
        zip: judged by unit, then by whether several accounts share one GIS parcel.
     3. Otherwise parcels with the same stem (the street without its suffix): exactly one
-       is a match, several are ambiguous, none is unmatched.
+       is a match, several are ambiguous, none is unmatched. A listing's unit must agree
+       with the parcel's, as in rule 2.
     """
     parsed = parse_listing_street(address_line, unit)
     if zip5 is None or parsed is None:
@@ -175,13 +198,7 @@ def match_listing(
     exact = index.by_key.get((zip5, street_key))
     if exact:
         return _match_exact(exact, listing_unit, street_key)
-    stem = index.by_stem.get((zip5, stem_key(key)), [])
-    accounts = {item.account_id for item in stem}
-    if len(accounts) == 1:
-        return _matched("stem", stem, street_key)
-    if accounts:
-        return _ambiguous(stem, street_key)
-    return _unmatched(street_key)
+    return _match_stem(index.by_stem.get((zip5, stem_key(key)), []), listing_unit, street_key)
 
 
 def _sum(values: Sequence[Decimal | None]) -> Decimal | None:
