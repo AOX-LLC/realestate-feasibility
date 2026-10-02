@@ -270,6 +270,10 @@ agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in th
 
 All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
 
+**Container hardening.** Base images are pinned by index digest, with the tag kept in a comment beside it: `python:3.12-slim` and `ghcr.io/astral-sh/uv:0.12.10` in the Dockerfile, `postgres:16-alpine` in compose and in the CI service container. Never use `:latest`. To refresh a digest, request the manifest from the registry and read the `Docker-Content-Digest` response header (for example `curl -sI -H 'Accept: application/vnd.oci.image.index.v1+json' <registry manifest URL for the tag>`), then update every place the image appears.
+
+`migrate`, `api` and `worker` run with a read-only root filesystem, all capabilities dropped, `no-new-privileges`, a 256-process limit and a 64 MB `noexec` tmpfs at `/tmp` (the seed writes temporary CSV archives there). `db` is read-only too, with tmpfs at `/tmp` and `/run/postgresql`, the data volume writable, and only the five capabilities its entrypoint needs to chown the data directory and drop to the postgres user (`CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID`).
+
 CI (`.github/workflows/ci.yml`) runs four jobs:
 
 - lint: ruff check, ruff format check, mypy strict

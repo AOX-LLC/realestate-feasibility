@@ -1,5 +1,12 @@
 name: realestate-feasibility
 
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=1700"]
+  pids_limit: 256
+
 x-app: &app
   build:
     context: .
@@ -17,7 +24,13 @@ x-app: &app
 
 services:
   db:
-    image: postgres:16-alpine
+    # postgres:16-alpine, index digest resolved 2026-10-02
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: ["/tmp", "/run/postgresql"]
     environment:
       POSTGRES_USER: feasibility
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-feasibility-local-dev}
@@ -34,7 +47,7 @@ services:
     mem_limit: 512m
 
   migrate:
-    <<: *app
+    <<: [*app, *hardening]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -43,7 +56,7 @@ services:
     mem_limit: 384m
 
   api:
-    <<: *app
+    <<: [*app, *hardening]
     ports:
       - "127.0.0.1:4501:4501"
     depends_on:
@@ -63,7 +76,7 @@ services:
     mem_limit: 256m
 
   worker:
-    <<: *app
+    <<: [*app, *hardening]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:
