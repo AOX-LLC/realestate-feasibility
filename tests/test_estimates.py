@@ -495,3 +495,23 @@ def test_a_mock_client_buys_every_target_and_never_touches_the_budget(engine: En
     assert counts == EstimateCounts(estimates_targeted=5, estimates_called=5)
     with engine.connect() as connection:
         assert connection.execute(select(func.count()).select_from(api_budget)).scalar_one() == 0
+
+
+def test_a_client_in_another_period_than_the_run_spends_nothing(spend: Spend) -> None:
+    """Dallas is still on Oct 31 while the client's UTC clock is already in the next period:
+    the budget units it reports belong to a different period than the cap's rows, so the
+    stage defers instead of guessing."""
+    spend.now = datetime(2026, 11, 1, 1, tzinfo=UTC)
+
+    counts = spend_estimates(
+        spend.engine,
+        spend.client(),
+        POLICY,
+        run_id=spend.run_id,
+        as_of=date(2026, 10, 31),
+        billing_anchor_day=1,
+        secrets=[],
+    )
+
+    assert spend.transport.addresses == []
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_deferred=5)
