@@ -14,7 +14,6 @@ from feasibility.proforma.chain import cost_chain
 from feasibility.proforma.model import (
     ArvDetail,
     CompLine,
-    CostChain,
     EstimateInput,
     ExistingSqftSource,
     ProformaInputs,
@@ -22,7 +21,6 @@ from feasibility.proforma.model import (
     Site,
     SizingResult,
     Status,
-    Totals,
 )
 from feasibility.proforma.money import round_money
 from feasibility.proforma.offer import max_offer
@@ -81,10 +79,19 @@ def build_proforma(
     site = _site(inputs, rule_used=choice.rule_used, existing_source=existing_source)
     status: Status = "computed" if outcome.arv is not None else "no_arv"
 
-    result = ProformaResult(
+    offer = table = None
+    if chain.totals is not None:
+        if chain.totals.profit < -chain.totals.cash_invested:
+            flags.append("loss_exceeds_equity")
+        offer = max_offer(chain, assumptions)
+        if offer.max_offer is None:
+            flags.append("no_viable_offer")
+        table = sensitivity_grid(chain, assumptions)
+
+    return ProformaResult(
         status=status,
         reason=outcome.reason,
-        flags=(),
+        flags=tuple(flags),
         assumptions=assumptions,
         site=site,
         sizing=choice.sizing,
@@ -94,32 +101,8 @@ def build_proforma(
         holding=chain.holding,
         selling=chain.selling,
         totals=chain.totals,
-        max_offer=None,
-        sensitivity=None,
-    )
-    if chain.totals is None:
-        return result.model_copy(update={"flags": tuple(flags)})
-    return _with_offer_and_sensitivity(result, chain, chain.totals, assumptions, flags)
-
-
-def _with_offer_and_sensitivity(
-    result: ProformaResult,
-    chain: CostChain,
-    totals: Totals,
-    assumptions: CostAssumptions,
-    flags: list[str],
-) -> ProformaResult:
-    if totals.profit < -totals.cash_invested:
-        flags.append("loss_exceeds_equity")
-    offer = max_offer(chain, assumptions)
-    if offer.max_offer is None:
-        flags.append("no_viable_offer")
-    return result.model_copy(
-        update={
-            "flags": tuple(flags),
-            "max_offer": offer,
-            "sensitivity": sensitivity_grid(chain, assumptions),
-        }
+        max_offer=offer,
+        sensitivity=table,
     )
 
 
