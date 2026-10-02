@@ -4,6 +4,7 @@ import pytest
 
 from feasibility.markets.loader import get_pack
 from feasibility.proforma.chain import cost_chain
+from feasibility.proforma.model import CostChain
 
 ASSUMPTIONS = get_pack("dallas").cost_assumptions
 HOLD = ASSUMPTIONS.holding.hold_months
@@ -14,7 +15,7 @@ S2 = ("300000", "0.00", "665000.00", "1489400.50")
 S3 = ("495000", "14500.00", "471200.00", "678417.76")
 
 
-def chain(case: tuple[str, str, str, str], hold: Decimal = HOLD):
+def chain(case: tuple[str, str, str, str], hold: Decimal = HOLD) -> CostChain:
     price, demolition, hard, arv = case
     return cost_chain(
         Decimal(price), Decimal(demolition), Decimal(hard), Decimal(arv), hold, ASSUMPTIONS
