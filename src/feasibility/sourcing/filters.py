@@ -64,6 +64,9 @@ def parcel_filter_reasons(listing: ListingFacts, parcel: MatchedParcel, box: Buy
     The parcel must have usable values (`has_usable_values`); a parcel without them is
     unscored, not filtered.
     """
+    if parcel.land_value is None or parcel.total_value is None or parcel.total_value <= 0:
+        raise ValueError("parcel_filter_reasons needs a parcel with usable values")
+
     reasons: list[str] = []
 
     lot = lot_size_of(listing, parcel)
@@ -77,8 +80,6 @@ def parcel_filter_reasons(listing: ListingFacts, parcel: MatchedParcel, box: Buy
     elif year_built > box.year_built_max:
         reasons.append("year_built")
 
-    if parcel.land_value is None or parcel.total_value is None or parcel.total_value <= 0:
-        raise ValueError("parcel_filter_reasons needs a parcel with usable values")
     if parcel.land_value / parcel.total_value < box.land_to_total_min:
         reasons.append("land_to_total")
 
