@@ -5,13 +5,19 @@ Payloads are validated against the model when a job is enqueued and again when i
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.jobs import queue
+from feasibility.markets.loader import get_pack
+from feasibility.markets.schema import FileKind
+from feasibility.sources.base import ImportRequest
+from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,41 @@ def enqueue_job(
     return queue.enqueue(connection, kind, model, dedupe_key=dedupe_key)
 
 
+class CadImportPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    market: str
+    # A file name inside the local data directory; jobs never read files elsewhere.
+    archive: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+    kind: FileKind
+    roll_year: int | None = None
+    file_date: date | None = None
+    force: bool = False
+
+
+def resolve_local_file(local_dir: Path, name: str) -> Path:
+    root = local_dir.resolve()
+    path = (root / name).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"{name!r} is outside the local data directory")
+    return path
+
+
+def run_cad_import(payload: CadImportPayload, context: JobContext) -> None:
+    source = CadCsvParcelSource(context.engine, get_pack(payload.market))
+    source.import_archive(
+        ImportRequest(
+            archive=resolve_local_file(context.settings.local_dir, payload.archive),
+            kind=payload.kind,
+            roll_year=payload.roll_year,
+            file_date=payload.file_date,
+            force=payload.force,
+        )
+    )
+
+
 def build_registry() -> dict[str, JobKind]:
     """Every job kind this application runs."""
-    return {}
+    return {
+        "cad.import": JobKind(CadImportPayload, run_cad_import),
+    }
