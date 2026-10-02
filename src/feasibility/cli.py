@@ -144,7 +144,7 @@ def source_run(
         bool, typer.Option("--enqueue", help="Queue the run for the worker instead of running it")
     ] = False,
 ) -> None:
-    """Source one day: sync the feed, diff, match, filter, score and rank."""
+    """Source one day: sync the feed, diff, match, filter, score and rank, then price the top."""
     settings = get_settings()
     market_id = market or settings.market
     try:
@@ -162,6 +162,11 @@ def source_run(
     typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")
     for name, value in result.counts.model_dump().items():
         typer.echo(f"{name} {value}")
+    counts = result.counts
+    typer.echo(
+        f"estimates: {counts.estimates_called} called, {counts.estimates_reused} reused, "
+        f"{counts.estimates_deferred} deferred, {counts.estimates_failed} failed"
+    )
     with get_engine().connect() as connection:
         top = sourcing_store.candidate_summaries(
             connection, result.run_id, "ranked", TOP_CANDIDATES_SHOWN
