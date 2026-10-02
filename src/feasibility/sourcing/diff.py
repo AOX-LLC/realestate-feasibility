@@ -4,6 +4,7 @@ The RentCast feed is a window (`days_old`), not the inventory: a listing older t
 window stops appearing though it may still be for sale. So absence from today's feed is
 `gone` only when the listing was young enough to still be in the window (or its status
 says it is off the market); otherwise it is `aged_out` and nothing is known about a sale.
+A listing with no listed date is `aged_out`: a missing date proves nothing, a status flip does.
 """
 
 from collections.abc import Collection, Mapping
@@ -61,8 +62,10 @@ def absence_kind(
     absent: AbsentListing, as_of: date, feed_window_days: int
 ) -> Literal["gone", "aged_out"]:
     """`gone` when the listing should still be in the feed and is not."""
-    if absent.status != "Active" or absent.listed_date is None:
+    if absent.status != "Active":
         return "gone"
+    if absent.listed_date is None:
+        return "aged_out"
     still_in_window = absent.listed_date >= as_of - timedelta(days=feed_window_days)
     return "gone" if still_in_window else "aged_out"
 

@@ -277,7 +277,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 - In both, price differs: `price_changed` (up or down); otherwise `unchanged`.
 - Only in `S_R`: `relisted` when the listing was first seen before today (the same id returning after a gap) or its property already was a candidate on an earlier run date (a new id for a known property); otherwise `new`. With no previous run everything is `new`.
-- Only in `S_P`: `gone` or `aged_out`. The RentCast feed is a window (`days_old`), not the inventory: a listing older than the window stops appearing though it is probably still for sale. So absence is `gone` only when the listing's status is not Active, it has no listed date, or it was young enough to still be in the window; otherwise it is `aged_out` and nothing is known about a sale.
+- Only in `S_P`: `gone` or `aged_out`. The RentCast feed is a window (`days_old`), not the inventory: a listing older than the window stops appearing though it is probably still for sale. So absence is `gone` only when the listing's status is not Active or it was young enough to still be in the window; otherwise (including a listing with no listed date) it is `aged_out` and nothing is known about a sale.
 - When the sync was `stale` (served from an expired cache) or `skipped` (budget spent), absence proves nothing: nothing is recorded as gone and the count goes to `unknown_absent`.
 - Listings in the feed with another status than Active that were not in the previous run are ignored and counted in `inactive_ignored`.
 
@@ -361,7 +361,6 @@ Pre-commit runs gitleaks and ruff.
 - **No retention for the new tables.** `run_listing`, `run_candidate` and `candidate` grow by a day's rows per run and are never pruned. A retention rule is undecided.
 - **`load_parcel_index` loads every parcel of the requested zips into memory.** Estimated at about 73 MB per 70,000 parcels, close to the worker's 256 MB limit; check before adding zips near 100,000 accounts. Narrowing by street number is not done.
 - **An old run shows today's match.** `listing_match` holds only the latest attempt and `candidate.account_id` changes when an unmatched candidate is upgraded, so the candidate API serves a past run's rows with the current match status, method and account. Storing the match per run needs a column on `run_listing`.
-- **A listing with no listed date is `gone` when absent.** Whether it should be `aged_out` is undecided.
 - **A new source's listing can make a continuously listed property `relisted`.** A listing from a source not seen before, for a property that had a candidate on an earlier day, is classified as relisted by the property rule even though another source's listing was in the previous feed.
 - **Value-estimate spend is not built.** Phase 3 spends RentCast estimates on top-ranked candidates (see the budget math above); nothing in phase 2 calls an estimate endpoint.
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
