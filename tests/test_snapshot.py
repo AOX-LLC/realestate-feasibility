@@ -13,7 +13,7 @@ from sqlalchemy import Engine, text
 
 from feasibility.config import DataMode, Settings
 from feasibility.snapshot.cad_layout import DO_NOT_IMPORT
-from feasibility.snapshot.days import snapshot_day
+from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.snapshot.load import LiveModeSeedError, seed
 from feasibility.sources.rentcast.models import PropertyRecord, SaleListing, ValueEstimate
 from feasibility.sources.rentcast.transport import request_key
@@ -360,3 +360,22 @@ def test_reseeding_after_a_later_day_keeps_the_later_day(engine: Engine) -> None
     assert [(row.price, row.last_seen_at.isoformat()) for row in rows] == [
         (Decimal(1), "2026-10-02T11:00:00+00:00")
     ]
+
+
+def _settings_with_days(tmp_path: Path, content: str | None) -> Settings:
+    if content is not None:
+        (tmp_path / "days.json").write_text(content, encoding="utf-8")
+    return Settings(snapshot_dir=tmp_path)
+
+
+def test_snapshot_days_is_empty_without_a_file_or_for_another_market(tmp_path: Path) -> None:
+    assert snapshot_days(_settings_with_days(tmp_path, None), "dallas") == []
+    other = '{"days": [{"as_of": "2026-10-01", "overlay": null}], "market": "austin"}'
+    assert snapshot_days(_settings_with_days(tmp_path, other), "dallas") == []
+
+
+def test_an_overlay_name_cannot_escape_the_snapshot_directory(tmp_path: Path) -> None:
+    bad = '{"days": [{"as_of": "2026-10-01", "overlay": "../x"}], "market": "dallas"}'
+
+    with pytest.raises(ValueError, match="overlay name"):
+        snapshot_days(_settings_with_days(tmp_path, bad), "dallas")

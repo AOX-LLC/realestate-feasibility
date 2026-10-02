@@ -2,6 +2,7 @@
 holds each day's listing feed (None means the base `rentcast/` directory)."""
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date
 
@@ -9,6 +10,7 @@ from feasibility.config import Settings
 from feasibility.sourcing.errors import NoSnapshotForDateError
 
 DAYS_FILE = "days.json"
+OVERLAY_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
 @dataclass(frozen=True)
