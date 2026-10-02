@@ -247,6 +247,15 @@ def complete_run(connection: Connection, run_id: int, counts: dict[str, Any]) ->
     )
 
 
+def merge_counts(connection: Connection, run_id: int, patch: dict[str, Any]) -> None:
+    """Add or replace keys of a run's counts, leaving the others as they are."""
+    connection.execute(
+        update(sourcing_run)
+        .where(sourcing_run.c.id == run_id)
+        .values(counts=sourcing_run.c.counts.concat(patch))
+    )
+
+
 def listings_seen_between(
     connection: Connection, market: str, start: datetime, end: datetime
 ) -> list[ListingRow]:

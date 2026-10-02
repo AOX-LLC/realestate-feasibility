@@ -187,6 +187,11 @@ class RentCastClient:
     def close(self) -> None:
         self._transport.close()
 
+    @property
+    def live(self) -> bool:
+        """True when a request can be billed; False when the snapshot answers."""
+        return self._live
+
     def budget_usage(self) -> budget.BudgetUsage:
         period = budget.period_start(self._clock().date(), self._anchor_day)
         with self._engine.connect() as connection:
