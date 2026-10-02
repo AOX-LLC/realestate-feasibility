@@ -515,3 +515,22 @@ def test_a_client_in_another_period_than_the_run_spends_nothing(spend: Spend) ->
 
     assert spend.transport.addresses == []
     assert counts == EstimateCounts(estimates_targeted=5, estimates_deferred=5)
+
+
+def test_a_fresh_cache_answer_keeps_its_date_and_is_not_counted_as_bought(engine: Engine) -> None:
+    """Another caller (verify-rentcast) priced the address on Sept 28 with the same request;
+    the client answers from its cache with no bill. The row says Sept 28, not today."""
+    spend = Spend(engine, use_cache=True)
+    spend.spend()
+    with engine.begin() as connection:
+        connection.execute(delete(candidate_estimate))
+        connection.execute(text("UPDATE api_cache SET fetched_at = '2026-09-28 12:00+00'"))
+    spend.transport.addresses.clear()
+
+    counts = spend.spend(date(2026, 10, 1))
+
+    assert spend.transport.addresses == []
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_reused=5)
+    with engine.connect() as connection:
+        dates = set(connection.execute(select(candidate_estimate.c.fetched_on)).scalars())
+    assert dates == {date(2026, 9, 28)}

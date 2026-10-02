@@ -110,6 +110,9 @@ class Fetched[T]:
     data: T
     # True when the request failed and an expired cache entry was served instead.
     stale: bool = False
+    # When the answer came from a fresh cache entry rather than a new request: the time that
+    # entry was fetched. None for an answer that was just requested.
+    cached_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -264,7 +267,7 @@ class RentCastClient:
         if hit is None:
             return None
         self._log(connection, request, None, "cache_hit", None, billed=False)
-        return Fetched(adapter.validate_python(hit.body))
+        return Fetched(adapter.validate_python(hit.body), cached_at=hit.fetched_at)
 
     def _from_snapshot[T](self, request: _Request, adapter: TypeAdapter[T]) -> Fetched[T | None]:
         response = self._transport.get(request.path, request.params)

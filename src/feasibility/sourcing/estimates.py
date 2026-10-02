@@ -53,8 +53,9 @@ class SpendPlan:
 
 @dataclass(frozen=True, slots=True)
 class EstimateCounts:
-    """Every target ends in exactly one of reused, called, deferred or failed; a call that
-    RentCast answered with no estimate is a called target that is also counted no_estimate."""
+    """Every target ends in exactly one of reused, called, deferred or failed. `called` means
+    a new request was answered; an answer the response cache already held counts as reused.
+    A call answered with no estimate is also counted no_estimate."""
 
     estimates_targeted: int = 0
     estimates_reused: int = 0
@@ -206,8 +207,14 @@ def _call_all(
                 tally.deferred += 1
                 continue
             data = None if fetched.data is None else to_value_estimate(fetched.data, target.address)
+            # An answer from the response cache was bought earlier (by another caller of the
+            # endpoint, or under a longer cache TTL): it keeps its own date and is not a
+            # purchase of this run.
+            fetched_on = (
+                as_of if fetched.cached_at is None else min(as_of, fetched.cached_at.date())
+            )
             with engine.begin() as connection:
-                estimate_store.save_estimate(connection, _write(target, data, run_id, as_of))
+                estimate_store.save_estimate(connection, _write(target, data, run_id, fetched_on))
         except BudgetExhaustedError:
             tally.deferred += waiting + 1
             return
@@ -219,19 +226,22 @@ def _call_all(
             tally.failed += 1
             tally.deferred += waiting
             raise
-        tally.called += 1
-        tally.no_estimate += data is None
+        if fetched.cached_at is None:
+            tally.called += 1
+            tally.no_estimate += data is None
+        else:
+            tally.reused += 1
 
 
 def _write(
-    target: EstimateTarget, estimate: ValueEstimate | None, run_id: int, as_of: date
+    target: EstimateTarget, estimate: ValueEstimate | None, run_id: int, fetched_on: date
 ) -> EstimateWrite:
     address = target.address.one_line
     if estimate is None:
-        return EstimateWrite(target.candidate_id, as_of, "no_estimate", address, run_id=run_id)
+        return EstimateWrite(target.candidate_id, fetched_on, "no_estimate", address, run_id=run_id)
     return EstimateWrite(
         target.candidate_id,
-        as_of,
+        fetched_on,
         "ok",
         address,
         price=estimate.price,
