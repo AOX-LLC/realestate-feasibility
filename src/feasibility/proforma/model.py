@@ -9,7 +9,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from feasibility.markets.schema import CostAssumptions
 
@@ -21,6 +21,10 @@ def _reject_float(value: Any) -> Any:
 
 
 Dec = Annotated[Decimal, BeforeValidator(_reject_float)]
+# Inputs come from outside, so they are bounded: 15 digits keeps every product well inside the
+# 28 digits Decimal arithmetic and cent rounding allow.
+InAmount = Annotated[Dec, Field(max_digits=15)]
+InPrice = Annotated[Dec, Field(gt=0, max_digits=15, decimal_places=2)]
 
 Status = Literal["computed", "no_arv", "unsizable"]
 CappedBy = Literal["max", "min", "none"]
@@ -37,7 +41,7 @@ class ProformaModel(BaseModel):
 
 class Comp(ProformaModel):
     address: str
-    price: Dec
+    price: InAmount
     living_area_sqft: int | None
     distance_miles: Dec | None
     year_built: int | None
@@ -51,16 +55,22 @@ class EstimateInput(ProformaModel):
 
 
 class ProformaInputs(ProformaModel):
-    price: Dec  # the primary listing's price in this run
-    lot_sqft: Dec | None
+    price: InPrice  # the primary listing's price in this run
+    lot_sqft: InAmount | None
     lot_source: LotSource
     zoning: str | None
     zoning_values_seen: tuple[str, ...] = ()
     is_vacant: bool
     is_gis_group: bool
-    existing_living_sqft: Dec | None
+    existing_living_sqft: InAmount | None
     as_of: date
     estimate: EstimateInput | None
+
+    @model_validator(mode="after")
+    def _estimate_is_not_from_the_future(self) -> "ProformaInputs":
+        if self.estimate is not None and self.estimate.fetched_on > self.as_of:
+            raise ValueError("the estimate was fetched after the as-of date")
+        return self
 
 
 # --- results --------------------------------------------------------------------------------

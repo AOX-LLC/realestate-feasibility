@@ -58,3 +58,29 @@ def test_decimals_serialise_as_strings() -> None:
     dumped = make_inputs().model_dump(mode="json")
     assert dumped["price"] == "420000"
     assert dumped["estimate"]["comps"][0]["distance_miles"] == "0.40"
+
+
+def test_a_price_must_be_positive_and_in_whole_cents() -> None:
+    for bad in (Decimal(0), Decimal("-100000"), Decimal("420000.005")):
+        with pytest.raises(ValidationError):
+            make_inputs(price=bad)
+    assert make_inputs(price=Decimal("420000.50")).price == Decimal("420000.50")
+
+
+def test_an_estimate_fetched_after_the_as_of_date_is_rejected() -> None:
+    future = EstimateInput(fetched_on=date(2026, 10, 3), outcome="ok", price=Decimal(1), comps=())
+    with pytest.raises(ValidationError, match="after"):
+        make_inputs(estimate=future)
+
+
+def test_absurdly_large_amounts_are_rejected_before_they_reach_the_arithmetic() -> None:
+    with pytest.raises(ValidationError):
+        make_inputs(price=Decimal("1E26"))
+    with pytest.raises(ValidationError):
+        Comp(
+            address="1 Main St",
+            price=Decimal("1E26"),
+            living_area_sqft=3000,
+            distance_miles=None,
+            year_built=None,
+        )
