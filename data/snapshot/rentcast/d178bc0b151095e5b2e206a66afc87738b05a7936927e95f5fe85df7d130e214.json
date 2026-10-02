@@ -1,0 +1,44 @@
+{
+  "body": {
+    "addressLine1": "2737 Thistlewane Trl",
+    "bathrooms": 1.0,
+    "bedrooms": 2.0,
+    "city": "Dallas",
+    "county": "Dallas County",
+    "createdDate": "2026-09-29T00:00:00Z",
+    "daysOnMarket": 2,
+    "formattedAddress": "2737 Thistlewane Trl, Dallas, TX 75214",
+    "history": {
+      "2026-09-29": {
+        "daysOnMarket": 2,
+        "event": "Sale Listing",
+        "listedDate": "2026-09-29T00:00:00Z",
+        "listingType": "Standard",
+        "price": 525000.0
+      }
+    },
+    "hoa": {
+      "fee": 0.0
+    },
+    "id": "2737-Thistlewane-Trl,-Dallas,-TX-75214",
+    "lastSeenDate": "2026-09-29T14:00:00Z",
+    "latitude": 32.794245,
+    "listedDate": "2026-09-29T00:00:00Z",
+    "listingType": "Standard",
+    "longitude": -96.718199,
+    "lotSize": 13130.0,
+    "mlsName": "SYNTHETIC",
+    "mlsNumber": "SYN000001",
+    "price": 525000.0,
+    "propertyType": "Single Family",
+    "squareFootage": 945,
+    "state": "TX",
+    "status": "Active",
+    "yearBuilt": 1946,
+    "zipCode": "75214"
+  },
+  "endpoint": "/listings/sale/{id}",
+  "params": {},
+  "path": "/listings/sale/2737-Thistlewane-Trl%2C-Dallas%2C-TX-75214",
+  "status": 200
+}

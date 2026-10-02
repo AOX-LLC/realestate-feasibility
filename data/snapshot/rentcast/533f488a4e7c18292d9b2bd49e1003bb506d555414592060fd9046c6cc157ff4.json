@@ -1,0 +1,44 @@
+{
+  "body": {
+    "addressLine1": "3692 Ostravelle Dr",
+    "bathrooms": 3.0,
+    "bedrooms": 5.0,
+    "city": "Dallas",
+    "county": "Dallas County",
+    "createdDate": "2026-09-28T00:00:00Z",
+    "daysOnMarket": 3,
+    "formattedAddress": "3692 Ostravelle Dr, Dallas, TX 75220",
+    "history": {
+      "2026-09-28": {
+        "daysOnMarket": 3,
+        "event": "Sale Listing",
+        "listedDate": "2026-09-28T00:00:00Z",
+        "listingType": "Standard",
+        "price": 1237000.0
+      }
+    },
+    "hoa": {
+      "fee": 0.0
+    },
+    "id": "3692-Ostravelle-Dr,-Dallas,-TX-75220",
+    "lastSeenDate": "2026-09-28T07:00:00Z",
+    "latitude": 32.815318,
+    "listedDate": "2026-09-28T00:00:00Z",
+    "listingType": "Standard",
+    "longitude": -96.867172,
+    "lotSize": 7476.0,
+    "mlsName": "SYNTHETIC",
+    "mlsNumber": "SYN000021",
+    "price": 1237000.0,
+    "propertyType": "Single Family",
+    "squareFootage": 3434,
+    "state": "TX",
+    "status": "Active",
+    "yearBuilt": 2002,
+    "zipCode": "75220"
+  },
+  "endpoint": "/listings/sale/{id}",
+  "params": {},
+  "path": "/listings/sale/3692-Ostravelle-Dr%2C-Dallas%2C-TX-75220",
+  "status": 200
+}

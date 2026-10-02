@@ -19,6 +19,7 @@ from feasibility.jobs.worker import Worker
 from feasibility.logging import configure_logging
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
+from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
@@ -128,3 +129,18 @@ def verify_rentcast() -> None:
         raise typer.Exit(code=2)
     report_path = verify.verify(get_engine(), settings)
     typer.echo(f"field report written to {report_path}")
+
+
+@app.command()
+def seed() -> None:
+    """Load the committed synthetic snapshot (idempotent; no network)."""
+    report = seed_snapshot(get_engine(), get_settings())
+    for kind, imported in (("certified", report.certified), ("current", report.current)):
+        if imported is None:
+            typer.echo(f"{kind}: not in the snapshot")
+        else:
+            typer.echo(
+                f"{kind}: {imported.status}, {imported.rows_loaded} loaded of "
+                f"{imported.rows_read} read, {imported.rows_skipped} skipped"
+            )
+    typer.echo(f"listings upserted: {report.listings}")

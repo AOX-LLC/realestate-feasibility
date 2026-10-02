@@ -1,0 +1,40 @@
+{
+  "body": [
+    {
+      "addressLine1": "8773 Orrinmoor Trl",
+      "assessorID": "99000000000000051",
+      "city": "Dallas",
+      "county": "Dallas County",
+      "formattedAddress": "8773 Orrinmoor Trl, Dallas, TX 75209",
+      "id": "8773-Orrinmoor-Trl,-Dallas,-TX-75209",
+      "lastSaleDate": "2009-07-02T00:00:00Z",
+      "lastSalePrice": 196000.0,
+      "lotSize": 10134.0,
+      "propertyType": "Land",
+      "state": "TX",
+      "taxAssessments": {
+        "2025": {
+          "improvements": 0.0,
+          "land": 306000.0,
+          "value": 306000.0,
+          "year": 2025
+        },
+        "2026": {
+          "improvements": 0.0,
+          "land": 322000.0,
+          "value": 322000.0,
+          "year": 2026
+        }
+      },
+      "zipCode": "75209",
+      "zoning": "R-7.5(A)"
+    }
+  ],
+  "endpoint": "/properties",
+  "params": {
+    "address": "8773 Orrinmoor Trl, Dallas, TX 75209",
+    "limit": "1"
+  },
+  "path": "/properties",
+  "status": 200
+}

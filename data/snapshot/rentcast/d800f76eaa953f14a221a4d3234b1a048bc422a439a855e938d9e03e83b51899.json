@@ -1,0 +1,52 @@
+{
+  "body": [
+    {
+      "addressLine1": "2737 Thistlewane Trl",
+      "assessorID": "99000000000000001",
+      "city": "Dallas",
+      "county": "Dallas County",
+      "features": {
+        "architectureType": "Ranch",
+        "cooling": true,
+        "floorCount": 1,
+        "garage": true,
+        "garageSpaces": 1,
+        "heating": true,
+        "pool": false,
+        "roofType": "Composition Shingle"
+      },
+      "formattedAddress": "2737 Thistlewane Trl, Dallas, TX 75214",
+      "id": "2737-Thistlewane-Trl,-Dallas,-TX-75214",
+      "lastSaleDate": "2004-02-24T00:00:00Z",
+      "lastSalePrice": 198000.0,
+      "lotSize": 13130.0,
+      "propertyType": "Single Family",
+      "squareFootage": 945,
+      "state": "TX",
+      "taxAssessments": {
+        "2025": {
+          "improvements": 149000.0,
+          "land": 267000.0,
+          "value": 416000.0,
+          "year": 2025
+        },
+        "2026": {
+          "improvements": 157000.0,
+          "land": 281000.0,
+          "value": 438000.0,
+          "year": 2026
+        }
+      },
+      "yearBuilt": 1946,
+      "zipCode": "75214",
+      "zoning": "R-5(A)"
+    }
+  ],
+  "endpoint": "/properties",
+  "params": {
+    "address": "2737 Thistlewane Trl, Dallas, TX 75214",
+    "limit": "1"
+  },
+  "path": "/properties",
+  "status": 200
+}

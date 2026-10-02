@@ -1,0 +1,44 @@
+{
+  "body": {
+    "addressLine1": "1406 Marlowmere St",
+    "bathrooms": 1.0,
+    "bedrooms": 2.0,
+    "city": "Dallas",
+    "county": "Dallas County",
+    "createdDate": "2026-09-18T00:00:00Z",
+    "daysOnMarket": 13,
+    "formattedAddress": "1406 Marlowmere St, Dallas, TX 75214",
+    "history": {
+      "2026-09-18": {
+        "daysOnMarket": 13,
+        "event": "Sale Listing",
+        "listedDate": "2026-09-18T00:00:00Z",
+        "listingType": "Standard",
+        "price": 576000.0
+      }
+    },
+    "hoa": {
+      "fee": 0.0
+    },
+    "id": "1406-Marlowmere-St,-Dallas,-TX-75214",
+    "lastSeenDate": "2026-09-18T13:00:00Z",
+    "latitude": 32.830767,
+    "listedDate": "2026-09-18T00:00:00Z",
+    "listingType": "Standard",
+    "longitude": -96.793981,
+    "lotSize": 7918.0,
+    "mlsName": "SYNTHETIC",
+    "mlsNumber": "SYN000041",
+    "price": 576000.0,
+    "propertyType": "Single Family",
+    "squareFootage": 1532,
+    "state": "TX",
+    "status": "Active",
+    "yearBuilt": 1972,
+    "zipCode": "75214"
+  },
+  "endpoint": "/listings/sale/{id}",
+  "params": {},
+  "path": "/listings/sale/1406-Marlowmere-St%2C-Dallas%2C-TX-75214",
+  "status": 200
+}

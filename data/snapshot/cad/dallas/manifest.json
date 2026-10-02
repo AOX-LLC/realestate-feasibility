@@ -1,0 +1,12 @@
+{
+  "market": "dallas",
+  "roll_year": 2026,
+  "sets": {
+    "certified": {
+      "file_date": "2026-09-15"
+    },
+    "current": {
+      "file_date": "2026-09-15"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "body": [
+    {
+      "addressLine1": "3692 Ostravelle Dr",
+      "assessorID": "99000000000000021",
+      "city": "Dallas",
+      "county": "Dallas County",
+      "features": {
+        "architectureType": "Contemporary",
+        "cooling": true,
+        "floorCount": 2,
+        "garage": true,
+        "garageSpaces": 2,
+        "heating": true,
+        "pool": false,
+        "roofType": "Composition Shingle"
+      },
+      "formattedAddress": "3692 Ostravelle Dr, Dallas, TX 75220",
+      "id": "3692-Ostravelle-Dr,-Dallas,-TX-75220",
+      "lastSaleDate": "2018-03-28T00:00:00Z",
+      "lastSalePrice": 770000.0,
+      "lotSize": 7476.0,
+      "propertyType": "Single Family",
+      "squareFootage": 3434,
+      "state": "TX",
+      "taxAssessments": {
+        "2025": {
+          "improvements": 752000.0,
+          "land": 279000.0,
+          "value": 1032000.0,
+          "year": 2025
+        },
+        "2026": {
+          "improvements": 792000.0,
+          "land": 294000.0,
+          "value": 1086000.0,
+          "year": 2026
+        }
+      },
+      "yearBuilt": 2002,
+      "zipCode": "75220",
+      "zoning": "CD-12"
+    }
+  ],
+  "endpoint": "/properties",
+  "params": {
+    "address": "3692 Ostravelle Dr, Dallas, TX 75220",
+    "limit": "1"
+  },
+  "path": "/properties",
+  "status": 200
+}

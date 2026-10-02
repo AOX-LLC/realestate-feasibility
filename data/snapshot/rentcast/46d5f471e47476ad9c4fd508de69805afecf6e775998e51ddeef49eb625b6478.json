@@ -1,0 +1,40 @@
+{
+  "body": {
+    "addressLine1": "8773 Orrinmoor Trl",
+    "city": "Dallas",
+    "county": "Dallas County",
+    "createdDate": "2026-09-28T00:00:00Z",
+    "daysOnMarket": 3,
+    "formattedAddress": "8773 Orrinmoor Trl, Dallas, TX 75209",
+    "history": {
+      "2026-09-28": {
+        "daysOnMarket": 3,
+        "event": "Sale Listing",
+        "listedDate": "2026-09-28T00:00:00Z",
+        "listingType": "Standard",
+        "price": 378000.0
+      }
+    },
+    "hoa": {
+      "fee": 0.0
+    },
+    "id": "8773-Orrinmoor-Trl,-Dallas,-TX-75209",
+    "lastSeenDate": "2026-09-28T10:00:00Z",
+    "latitude": 32.824296,
+    "listedDate": "2026-09-28T00:00:00Z",
+    "listingType": "Standard",
+    "longitude": -96.85207,
+    "lotSize": 10134.0,
+    "mlsName": "SYNTHETIC",
+    "mlsNumber": "SYN000051",
+    "price": 378000.0,
+    "propertyType": "Land",
+    "state": "TX",
+    "status": "Active",
+    "zipCode": "75209"
+  },
+  "endpoint": "/listings/sale/{id}",
+  "params": {},
+  "path": "/listings/sale/8773-Orrinmoor-Trl%2C-Dallas%2C-TX-75209",
+  "status": 200
+}

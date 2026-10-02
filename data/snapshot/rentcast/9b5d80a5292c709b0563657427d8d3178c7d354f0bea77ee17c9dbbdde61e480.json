@@ -1,0 +1,52 @@
+{
+  "body": [
+    {
+      "addressLine1": "1406 Marlowmere St",
+      "assessorID": "99000000000000041",
+      "city": "Dallas",
+      "county": "Dallas County",
+      "features": {
+        "architectureType": "Contemporary",
+        "cooling": true,
+        "floorCount": 1,
+        "garage": true,
+        "garageSpaces": 2,
+        "heating": true,
+        "pool": false,
+        "roofType": "Composition Shingle"
+      },
+      "formattedAddress": "1406 Marlowmere St, Dallas, TX 75214",
+      "id": "1406-Marlowmere-St,-Dallas,-TX-75214",
+      "lastSaleDate": "2013-09-28T00:00:00Z",
+      "lastSalePrice": 273000.0,
+      "lotSize": 7918.0,
+      "propertyType": "Single Family",
+      "squareFootage": 1532,
+      "state": "TX",
+      "taxAssessments": {
+        "2025": {
+          "improvements": 270000.0,
+          "land": 254000.0,
+          "value": 523000.0,
+          "year": 2025
+        },
+        "2026": {
+          "improvements": 284000.0,
+          "land": 267000.0,
+          "value": 551000.0,
+          "year": 2026
+        }
+      },
+      "yearBuilt": 1972,
+      "zipCode": "75214",
+      "zoning": "R-7.5(A)"
+    }
+  ],
+  "endpoint": "/properties",
+  "params": {
+    "address": "1406 Marlowmere St, Dallas, TX 75214",
+    "limit": "1"
+  },
+  "path": "/properties",
+  "status": 200
+}
