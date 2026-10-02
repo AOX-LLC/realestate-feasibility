@@ -13,7 +13,14 @@ from feasibility.api.routes import sourcing as sourcing_routes
 from feasibility.config import DataMode, Settings
 from feasibility.snapshot.load import seed
 from feasibility.sourcing.run import run_sourcing
-from feasibility.tables import candidate, listing, run_candidate, run_listing, sourcing_run
+from feasibility.tables import (
+    candidate,
+    listing,
+    listing_match,
+    run_candidate,
+    run_listing,
+    sourcing_run,
+)
 
 DAY_ONE = date(2026, 10, 1)
 DAY_TWO = date(2026, 10, 2)
@@ -317,3 +324,100 @@ def test_a_filtered_candidate_inserted_by_hand_has_no_breakdown(engine: Engine) 
         body = client.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
     assert body["status"] == "filtered" and body["breakdown"] is None
     assert body["match"] is None
+
+
+# 4. the match a run made is the match it serves
+
+
+def _candidate_of(engine: Engine, street: str) -> int:
+    with engine.connect() as connection:
+        return connection.execute(
+            select(run_listing.c.candidate_id)
+            .join(listing, listing.c.id == run_listing.c.listing_id)
+            .where(listing.c.address_line == street)
+            .distinct()
+        ).scalar_one()
+
+
+def test_a_day_one_candidate_serves_the_match_that_run_made(
+    engine: Engine, ran_both_days: TestClient
+) -> None:
+    candidate_id = _candidate_of(engine, "1893 THISTLEWANE DR")
+    run_id = _run_id(ran_both_days, "2026-10-01")
+
+    body = ran_both_days.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+
+    assert body["match"] == {"status": "matched", "method": "exact"}
+    assert body["account_id"] == "99000000000000004"
+
+
+def test_a_later_match_or_account_change_does_not_rewrite_an_old_run(
+    engine: Engine, ran_both_days: TestClient
+) -> None:
+    candidate_id = _candidate_of(engine, "1893 THISTLEWANE DR")
+    run_id = _run_id(ran_both_days, "2026-10-01")
+    with engine.begin() as connection:
+        # (a) a later re-match overwrites the listing's one listing_match row ...
+        connection.execute(
+            listing_match.update()
+            .where(
+                listing_match.c.listing_id
+                == select(listing.c.id)
+                .where(listing.c.address_line == "1893 THISTLEWANE DR")
+                .scalar_subquery()
+            )
+            .values(status="unmatched", method=None, account_id=None)
+        )
+        # (b) ... and a later parcel import upgrades the candidate in place.
+        connection.execute(
+            candidate.update()
+            .where(candidate.c.id == candidate_id)
+            .values(account_id="99000000000000777", property_key="acct:99000000000000777")
+        )
+
+    body = ran_both_days.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+
+    assert body["match"] == {"status": "matched", "method": "exact"}
+    assert body["account_id"] == "99000000000000004"
+
+
+def test_a_row_written_before_migration_0003_serves_no_match(engine: Engine) -> None:
+    run_id = _insert_run(engine, DAY_ONE)
+    _insert_listings(engine, 1, price=Decimal(300000), zip5="75214")
+    with engine.begin() as connection:
+        listing_id = connection.execute(select(listing.c.id)).scalar_one()
+        candidate_id = connection.execute(
+            candidate.insert()
+            .values(
+                market="dallas",
+                property_key="acct:1",
+                account_id="1",
+                street_key="0|0|MAIN ST",
+                first_as_of=DAY_ONE,
+            )
+            .returning(candidate.c.id)
+        ).scalar_one()
+        connection.execute(
+            run_listing.insert().values(
+                run_id=run_id,
+                listing_id=listing_id,
+                change_kind="new",
+                candidate_id=candidate_id,
+                is_primary=True,
+            )
+        )
+        connection.execute(
+            run_candidate.insert().values(
+                run_id=run_id,
+                candidate_id=candidate_id,
+                primary_listing_id=listing_id,
+                change_kind="new",
+                status="filtered",
+                filter_reasons=["lot_size"],
+            )
+        )
+    with _client(engine) as client:
+        body = client.get(f"/sourcing/runs/{run_id}/candidates/{candidate_id}").json()
+
+    assert body["match"] is None
+    assert body["account_id"] is None

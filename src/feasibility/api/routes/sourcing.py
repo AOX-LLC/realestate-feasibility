@@ -31,7 +31,6 @@ from feasibility.sourcing.scoring import ScoreBreakdown
 from feasibility.tables import (
     candidate,
     listing,
-    listing_match,
     run_candidate,
     run_listing,
     sourcing_run,
@@ -69,8 +68,8 @@ def _require_run(connection: Connection, run_id: int) -> None:
 
 
 def _candidate_query(run_id: int) -> Select[tuple[object, ...]]:
-    """One row per candidate of a run: the candidate, its primary listing and that
-    listing's match. Explicit columns only; the stored raw listing never leaves the database."""
+    """One row per candidate of a run: the candidate, its primary listing and the match that
+    run made for it. Explicit columns only; the stored raw listing never leaves the database."""
     return (
         select(
             run_candidate.c.candidate_id,
@@ -83,9 +82,9 @@ def _candidate_query(run_id: int) -> Select[tuple[object, ...]]:
             run_candidate.c.status,
             run_candidate.c.filter_reasons,
             run_candidate.c.unscored_reason,
-            listing_match.c.status.label("match_status"),
-            listing_match.c.method.label("match_method"),
-            candidate.c.account_id,
+            run_listing.c.match_status,
+            run_listing.c.match_method,
+            run_listing.c.match_account_id,
             run_candidate.c.breakdown,
         )
         .select_from(
@@ -96,7 +95,6 @@ def _candidate_query(run_id: int) -> Select[tuple[object, ...]]:
                 (run_listing.c.run_id == run_candidate.c.run_id)
                 & (run_listing.c.listing_id == run_candidate.c.primary_listing_id),
             )
-            .outerjoin(listing_match, listing_match.c.listing_id == listing.c.id)
         )
         .where(run_candidate.c.run_id == run_id)
     )
@@ -118,7 +116,7 @@ def _candidate_fields(values: RowMapping) -> dict[str, Any]:
             if values["match_status"] is None
             else MatchOut(status=values["match_status"], method=values["match_method"])
         ),
-        "account_id": values["account_id"],
+        "account_id": values["match_account_id"],
     }
 
 
