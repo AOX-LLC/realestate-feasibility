@@ -115,6 +115,8 @@ uv run feasibility import-cad local/DCAD2026_OWNERSHIP.ZIP --kind current --roll
 
 The import is idempotent by sha256. The same file again is a no-op. A re-download after DCAD issues supplements has a new sha and a new member date, so it loads as a new version. Options: `--force` replaces a load whose contents changed under the same key, `--file-date YYYY-MM-DD` overrides the archive member's date, `--roll-year` overrides the year parsed from the file name.
 
+Under Compose, `local/` is not mounted into the containers, so run `import-cad` and `verify-rentcast` from the host with `uv run` and `DATABASE_URL=postgresql+psycopg://feasibility:feasibility-local-dev@127.0.0.1:4502/feasibility`.
+
 The same import runs as a job: enqueue `cad.import` with the payload `{"market": "dallas", "archive": "<file name inside local/>", "kind": "certified"}`.
 
 DCAD publishes no update schedule, and there is no downloader yet. The importer streams the files, so memory stays bounded; a slow test imports a roughly 100 MB archive under 50 MB peak.
@@ -147,7 +149,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 - `uv run pytest -m slow` runs the memory test.
 - `uv run python scripts/generate_snapshot.py` regenerates the snapshot. CI requires the committed files to match the output byte for byte.
 - `uv run python scripts/check_rentcast_docs.py` diffs the models against RentCast's published docs. It needs the network but no key.
-- Pre-commit runs ruff and gitleaks: `uvx pre-commit install`.
+- Pre-commit runs ruff and gitleaks: `uvx pre-commit install`. The gitleaks hook runs in a container that sees only the working directory, so in a git worktree it scans nothing; run `gitleaks git` against the main checkout instead.
 
 Design notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
