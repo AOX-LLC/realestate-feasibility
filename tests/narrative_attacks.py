@@ -196,6 +196,7 @@ REVIEW_ATTACKS: list[tuple[str, str]] = [
     ("split_mil_lion", "About mil-lion dollars."),
     ("split_across_newline", "About thou\nsand dollars."),
     ("split_hun_dred", "About hun dred dollars."),
+    ("hyphenated_at_a_line_break", "Plans for tw-\no lots."),
 ]
 
 # Plain English that holds a number word inside it and must still pass.

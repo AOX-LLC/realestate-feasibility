@@ -216,7 +216,8 @@ _PER_CENT = re.compile(r"\bper[\s-]cent\b|\bbasis\s+points?\b", re.IGNORECASE)
 _ROMAN = re.compile(r"[MDCLXVI]{2,}")
 _LOOKALIKE_NUMBER = re.compile(r"\$?[lIOS]+(?:[.,][lIOS]+)*%?")
 _APOSTROPHE_IN_WORD = re.compile(r"(?<=[A-Za-z])[\u2018\u2019'](?=[A-Za-z])")
-_JOINED_BY_PUNCTUATION = re.compile(r"(?<=[A-Za-z])[-._](?=[A-Za-z])")
+# Whitespace may follow the mark: a word hyphenated at a line break reads whole.
+_JOINED_BY_PUNCTUATION = re.compile(r"(?<=[A-Za-z])[-._]\s*(?=[A-Za-z])")
 _SPACED_LETTERS = re.compile(r"\b(?:[A-Za-z][ \t\n]+){2,}[A-Za-z]\b")
 _DIGIT = re.compile(r"[0-9]")
 # What may not follow a figure, however far off it sits (whitespace, a hyphen, a bracket): a
