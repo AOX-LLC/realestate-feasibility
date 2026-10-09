@@ -41,3 +41,5 @@ Four narrative cases errored (`snap-004`, `adv-second-injection`, `adv-gis-group
 tokens, so the JSON was cut off and failed validation. These cases are not in the acceptance rate's
 denominator. Nothing in the prompts, answer key, catalogue or cases was changed after seeing these
 numbers; raising `max_tokens` or shortening the output is a decision that needs a new recording.
+
+The limit leaves little room. Of the 13 narrative replies that finished, 8 used 1,222 to 1,466 of the 1,500 output tokens, so a live narrative may often be cut off and stored as a structured-output failure; the live cost projection in `cost.md` assumes the replies finish. The cut-off replies also hold little text for their token count (539 to 1,730 characters for 1,500 tokens, against about 2.7 characters a token in the shortest finished replies), which suggests that part of the output is not in the recorded text. The recordings cannot say what that part is (hidden reasoning is one possibility; `effort` is not set), so raising `max_tokens` or shortening the output may not be enough. Find out what the tokens are before the next recording.
