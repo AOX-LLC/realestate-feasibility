@@ -10,7 +10,7 @@ this file does not.
 
 **Dallas Central Appraisal District (DCAD).** The CSV layout the county-appraisal importer reads (the
 file names, the column names and the padded, quoted fields) follows the files DCAD publishes. Only the
-layout is used. The 70 parcels in `data/snapshot/` are synthetic: invented account numbers (they start
+layout is used. The parcels in `data/snapshot/` are synthetic: invented account numbers (they start
 with `99`), invented street names, no owner or contact data. Real DCAD files are downloaded by whoever
 runs the software, are kept in `local/` (gitignored), and are never committed. DCAD publishes no
 redistribution licence that we found. This project is not affiliated with or endorsed by DCAD.
@@ -23,7 +23,7 @@ instantiating the response models); they are not RentCast data. This project is 
 endorsed by RentCast.
 
 **Model provider.** Model calls go through [agent-core](https://github.com/AOX-LLC/agent-core)
-(MIT) to Anthropic's API, only in record and live mode and only with a key the operator supplies.
+(MIT) to Anthropic's API, only with `AGENT_CORE_MODE=record` or `live` and a key the operator supplies.
 Nothing is sent in the default replay mode. The committed listing text (`data/mls/dallas.json`) is
 synthetic.
 
@@ -101,9 +101,12 @@ Development and test dependencies (not in the image):
   notice stay with copies of the package. They do in the installed distributions; this file does not
   replace them.
 - **LGPL-3.0-only: psycopg and psycopg-binary.** The database driver is used unmodified as a separate
-  library, installed from PyPI, and replaceable by installing another build. `psycopg-binary` bundles
-  compiled libraries (`libpq` under the PostgreSQL licence, OpenSSL and others); the wheel carries
-  their notices. Anyone who redistributes the container image redistributes these and should keep them.
+  library, installed from PyPI, and replaceable by installing another build. `psycopg-binary`
+  bundles compiled libraries: its wheel lists them in an SBOM (`sboms/auditwheel.cdx.json`) as
+  libpq, OpenSSL, krb5, cyrus-sasl, openldap, pcre, libselinux, keyutils and com_err, each under its
+  own licence. The wheel ships only psycopg's own licence text, not theirs, and this file does not
+  reproduce them. Anyone who redistributes the container image redistributes those libraries and
+  should obtain and keep their notices.
 - **MPL-2.0: certifi** (a root-certificate bundle, unmodified) and, for development only, **pathspec**.
   File-level copyleft: it applies to modifications of those files, which this project does not make.
 - **tzdata, colorama, httpx2-jsfetch** are installed only on some platforms (Windows, Emscripten) and
