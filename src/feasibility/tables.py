@@ -137,6 +137,8 @@ parcel = Table(
     _timestamp("updated_at"),
     PrimaryKeyConstraint("market", "account_id"),
     Index(None, "market", "zip5"),
+    # The pro-forma reads a GIS group's parcels by this id (with the zip), once per run.
+    Index(None, "market", "gis_parcel_id"),
 )
 
 listing = Table(

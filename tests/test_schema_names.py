@@ -86,3 +86,21 @@ def test_revision_0008_renames_the_doubled_names_a_database_built_before_it_hold
         command.downgrade(alembic_config(connection), "0007")
     upgrade_to_head(migrated_engine)
     assert _check_names(migrated_engine) == before
+
+
+def test_a_gis_group_lookup_can_use_the_gis_parcel_index(migrated_engine: Engine) -> None:
+    """The pro-forma stage reads a group's parcels by `gis_parcel_id`. The demo has 70 parcels, so
+    the planner would scan them anyway; with scans switched off it must find the index."""
+    with migrated_engine.begin() as connection:
+        connection.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = "\n".join(
+            row[0]
+            for row in connection.execute(
+                text(
+                    "EXPLAIN SELECT account_id FROM parcel "
+                    "WHERE market = 'dallas' AND gis_parcel_id IN ('SYN000067', 'SYN000068')"
+                )
+            )
+        )
+
+    assert "ix_parcel_market_gis_parcel_id" in plan
