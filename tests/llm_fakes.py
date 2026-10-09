@@ -127,3 +127,51 @@ class Extractor:
         **_: Any,
     ) -> Any:
         return self._answer(prompt, inputs, tier)
+
+
+class Narrator:
+    """A stand-in for the model that plays a script of narrative drafts, one per call, and
+    keeps the inputs of every call. An exception in the script is raised."""
+
+    def __init__(self, *script: Any, cost: str = "0.012000") -> None:
+        self._script = list(script)
+        self._cost = cost
+        self.inputs: list[Mapping[str, JsonValue]] = []
+
+    def _next(self, inputs: Mapping[str, JsonValue], tier: Tier | None) -> Any:
+        self.inputs.append(inputs)
+        item = self._script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return CallResult(
+            output=item,
+            tier=tier or Tier.MID,
+            task="narrative_write",
+            provider=Provider.ANTHROPIC,
+            model="a-mid-model",
+            mode=Mode.REPLAY,
+            usage=Usage(input_tokens=1500, output_tokens=300),
+            cost_usd=Decimal(self._cost),
+            latency_ms=1.0,
+            stop_reason="end_turn",
+        )
+
+    def call_sync(
+        self,
+        prompt: PromptRef,
+        *,
+        inputs: Mapping[str, JsonValue],
+        tier: Tier | None = None,
+        **_: Any,
+    ) -> Any:
+        return self._next(inputs, tier)
+
+    async def call(
+        self,
+        prompt: PromptRef,
+        *,
+        inputs: Mapping[str, JsonValue],
+        tier: Tier | None = None,
+        **_: Any,
+    ) -> Any:
+        return self._next(inputs, tier)

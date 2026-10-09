@@ -108,6 +108,8 @@ _NUMBER_WORDS = (
 )
 _SPELLED = re.compile(rf"\b(?:{_NUMBER_WORDS})(?:s|fold|th|ths)?\b", re.IGNORECASE)
 _DIGIT = re.compile(r"[0-9]")
+# A figure followed by a magnitude letter, even after a space, is a bigger number: $1,000.00 k.
+_MAGNITUDE_SUFFIX = re.compile(r"\s{0,2}(?:[kmb]|mm|bn)\b", re.IGNORECASE)
 
 
 def _is_odd(character: str) -> bool:
@@ -129,6 +131,8 @@ def _stands_alone(text: str, start: int, end: int) -> bool:
         after = text[end]
         # A percent sign after a figure changes its unit: $420,000.00%.
         if after.isalnum() or after == "%":
+            return False
+        if _MAGNITUDE_SUFFIX.match(text, end):
             return False
         if after in ",." and end + 1 < len(text) and text[end + 1].isdigit():
             return False

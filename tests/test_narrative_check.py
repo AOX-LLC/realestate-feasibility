@@ -46,6 +46,8 @@ ACCEPTED = [
     ("stress_cases", "It still makes $84,670.08 with a longer hold.", {"profit_if_hold_longer"}),
     ("prose_words", "One risk stands out; a single lot, half the room, double or twice.", set()),
     ("ordinal_prose", "A second lot would help; the first step is a survey.", set()),
+    ("sentence_after_a_figure", "Profit is $107,560.14. Maybe more later.", {"profit"}),
+    ("word_after_a_figure", "Profit is $107,560.14 but the margin is thin.", {"profit"}),
     ("no_numbers", "The margin falls short of the target.", set()),
     ("percent_symbol_stands_alone", "A margin of 15.00% is the target.", {"target_margin"}),
 ]
@@ -115,6 +117,9 @@ REJECTED = [
         "ARV $1,420,799.85 or $420,799.85.",
         [("unlisted_figure", "$420,799.85")],
     ),
+    ("spaced_k", "Profit is $107,560.14 k.", [("unlisted_figure", "$107,560.14")]),
+    ("spaced_m", "An ARV of $1,420,799.85 M.", [("unlisted_figure", "$1,420,799.85")]),
+    ("spaced_mm", "A cost of $1,313,239.71 mm.", [("unlisted_figure", "$1,313,239.71")]),
     ("money_as_percent", "A $420,000.00% offer.", [("unlisted_figure", "$420,000.00%")]),
     ("area_as_money", "A $3,168 sq ft home.", [("unlisted_figure", "$3,168")]),
     ("percent_inside_longer", "A 17.57% margin.", [("unlisted_figure", "17.57%")]),
