@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,7 +18,7 @@ from aox_agent_core.errors import (
     StructuredOutputError,
 )
 from conftest import empty_database
-from llm_fakes import RunModel
+from llm_fakes import RunModel, config_without_recordings
 from sqlalchemy import Engine, text
 from test_api import SENTINEL
 from typer.testing import CliRunner
@@ -42,6 +43,17 @@ FREE = {"small_cost": "0", "mid_cost": "0"}
 
 def _settings(**overrides: Any) -> Settings:
     return Settings(_env_file=None, data_mode=DataMode.MOCK, **overrides)  # type: ignore[call-arg]
+
+
+def _replay_with_no_recordings(monkeypatch: pytest.MonkeyPatch, folder: Path) -> None:
+    """The library's own client in replay, pointed at an empty recordings folder: the first
+    call misses, whatever the repository has recorded."""
+    config = config_without_recordings(folder)
+
+    def build(settings: Settings) -> Any:
+        return build_model_client(settings.model_copy(update={"llm_config_path": config}))
+
+    monkeypatch.setattr("feasibility.llm.run.default_model", build)
 
 
 @pytest.fixture
@@ -615,10 +627,9 @@ def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(
 
 
 def test_a_missing_recording_is_permanent_and_says_nothing_about_the_remarks(
-    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # The library's own client in replay, with no recordings: the first call misses.
-    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _replay_with_no_recordings(monkeypatch, tmp_path)
 
     with pytest.raises(PermanentModelError) as raised:
         run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
@@ -981,9 +992,9 @@ def test_only_a_stage_that_cannot_succeed_on_retry_is_permanent() -> None:
 
 
 def test_a_missing_recording_sends_the_job_straight_to_dead(
-    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _replay_with_no_recordings(monkeypatch, tmp_path)
     _queue_the_run(seeded)
 
     assert Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
@@ -1018,9 +1029,9 @@ def cli_engine(seeded: Engine, monkeypatch: pytest.MonkeyPatch) -> Engine:
 
 
 def test_the_command_line_says_a_model_stage_did_not_finish_and_exits_one(
-    cli_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    cli_engine: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _replay_with_no_recordings(monkeypatch, tmp_path)
 
     result = CliRunner().invoke(cli.app, ["source", "run", "--as-of", "2026-10-01"])
 
@@ -1190,9 +1201,9 @@ def test_the_command_line_does_not_print_what_failed_validation(
 
 
 def test_a_dead_job_keeps_no_text_of_the_listings(
-    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _replay_with_no_recordings(monkeypatch, tmp_path)
     _queue_the_run(seeded)
 
     Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
