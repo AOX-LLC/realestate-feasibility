@@ -20,6 +20,8 @@ from sqlalchemy import Engine, delete, func, select, update
 from test_api import SENTINEL
 
 from feasibility.config import DataMode, Settings
+from feasibility.db import create_db_engine
+from feasibility.jobs.queue import ERROR_TEXT_LIMIT
 from feasibility.logging import REDACTED
 from feasibility.markets.loader import get_pack
 from feasibility.proforma import run as proforma_run
@@ -472,3 +474,20 @@ def test_a_run_that_is_no_longer_completed_gets_no_pro_formas_and_keeps_its_own_
     assert _count(seeded, proforma) == 0
     stored = _stored_run(seeded, result.run_id)
     assert (stored.status, stored.error) == ("failed", "the newer attempt failed")
+
+
+def test_a_long_error_is_cut_to_the_length_the_job_queue_keeps(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fail_after_writing(monkeypatch, "x" * 10_000)
+
+    with pytest.raises(RuntimeError):
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
+
+    with seeded.connect() as connection:
+        error = connection.execute(select(sourcing_run.c.error)).scalar_one()
+    assert len(error) == ERROR_TEXT_LIMIT and error.startswith("RuntimeError: xxx")
+
+
+def test_the_engine_hides_the_values_bound_to_a_failing_statement() -> None:
+    assert create_db_engine("postgresql+psycopg://u:p@127.0.0.1:1/x").hide_parameters

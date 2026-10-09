@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
+from feasibility.jobs.queue import ERROR_TEXT_LIMIT
 from feasibility.listings import sync_listings
 from feasibility.logging import redact
 from feasibility.markets.loader import get_pack
@@ -146,7 +147,7 @@ def _source(
         with engine.begin() as connection:
             counts = _build_run(connection, pack, run_id, run_date, sync_status)
     except Exception as error:
-        message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+        message = _error_message(error, settings)
         with engine.begin() as connection:
             # A failed run must not serve the previous attempt's rows.
             store.clear_run_rows(connection, run_id)
@@ -196,9 +197,16 @@ def _price_proformas(
         raise
 
 
+def _error_message(error: Exception, settings: Settings) -> str:
+    """What a failure says on the run: redacted, and cut to the length the job queue keeps (a
+    database error can carry the statement and its values)."""
+    text = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+    return text[:ERROR_TEXT_LIMIT]
+
+
 def _record_stage_error(engine: Engine, settings: Settings, run_id: int, error: Exception) -> None:
     """Note on the completed run that a stage after the build failed (redacted)."""
-    message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+    message = _error_message(error, settings)
     try:
         with engine.begin() as connection:
             store.set_run_error(connection, run_id, message)
