@@ -1,5 +1,6 @@
 """One sourcing run: sync the feed, diff it against the previous run, match, filter, score,
-rank and store the result, then price the top candidates.
+rank and store the result, then price the top candidates and compute a pro-forma for each
+ranked one.
 
 A run is keyed by (market, as_of) and idempotent: running the same date again rewrites the
 run's own rows and leaves candidates and matches unduplicated. Runs go forward in time only.
@@ -21,6 +22,7 @@ from feasibility.listings import sync_listings
 from feasibility.logging import redact
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
+from feasibility.proforma.run import ProformaCounts, run_proformas
 from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.sources.rentcast.client import BudgetExhaustedError, RentCastClient
 from feasibility.sourcing import diff, estimates, store
@@ -113,8 +115,8 @@ def run_sourcing(
     client: RentCastClient | None = None,
 ) -> SourcingResult:
     """Source one day. A failure in the sync or the build marks the run failed and propagates.
-    A failure after the build (the estimate spend) leaves the ranked run completed with its
-    error recorded, and also propagates."""
+    A failure after the build (the estimate spend, the pro-formas) leaves the ranked run
+    completed with its error recorded, and also propagates."""
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
     run_id = _start_run(engine, market, run_date)
@@ -153,9 +155,9 @@ def _source(
     # The ranking is stored and the run completed: a later stage that fails leaves both in
     # place, records its error on the run and propagates so the job retries.
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
-    return SourcingResult(
-        run_id, run_date, sync_status, counts.model_copy(update=asdict(estimate_counts))
-    )
+    proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
+    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts)}
+    return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
 
 def _spend_estimates(
@@ -176,6 +178,19 @@ def _spend_estimates(
             billing_anchor_day=settings.rentcast_billing_anchor_day,
             secrets=settings.secret_values(),
         )
+    except Exception as error:
+        _record_stage_error(engine, settings, run_id, error)
+        raise
+
+
+def _price_proformas(
+    engine: Engine, settings: Settings, pack: MarketPack, run_id: int, run_date: date
+) -> ProformaCounts:
+    """Stage 5, a pro-forma for every ranked candidate. A failure leaves the ranked run and
+    its estimates in place, like a failed spend, and propagates so the job retries."""
+    try:
+        with engine.begin() as connection:
+            return run_proformas(connection, pack, run_id, run_date)
     except Exception as error:
         _record_stage_error(engine, settings, run_id, error)
         raise

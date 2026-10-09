@@ -48,3 +48,8 @@ class RunCounts(BaseModel):
     estimates_no_estimate: int = 0
     estimates_deferred: int = 0
     estimates_failed: int = 0
+    # The pro-formas of the ranked candidates (stage 5). Zero on runs stored before they existed.
+    proformas: int = 0
+    proformas_computed: int = 0
+    proformas_no_arv: int = 0
+    proformas_unsizable: int = 0
