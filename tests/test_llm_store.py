@@ -136,6 +136,28 @@ def test_narrative_lines_page_by_rank_and_filter_by_status(engine: Engine) -> No
     assert [line.rank for line in one] == [1]
 
 
+def test_a_summary_planted_in_a_rejected_row_is_still_not_served(engine: Engine) -> None:
+    run = ranked_candidates(engine, 1)
+    entry = run["candidates"][0]
+    with engine.begin() as connection:
+        store.write_narrative(
+            connection, run["run_id"], entry["candidate_id"], DIGEST, rejected_narrative()
+        )
+        # Written around the model's validator, as a bug or a hand edit could.
+        connection.execute(
+            text(
+                "UPDATE candidate_narrative SET result = jsonb_set(result, '{summary}', "
+                "to_jsonb(CAST(:text AS text))) WHERE run_id = :run"
+            ),
+            {"text": "Planted text that was never accepted.", "run": run["run_id"]},
+        )
+
+    with engine.connect() as connection:
+        lines = store.narrative_lines(connection, run["run_id"], limit=10)
+
+    assert [(line.status, line.summary) for line in lines] == [("rejected", None)]
+
+
 def test_a_candidate_is_current_only_for_the_attempt_that_built_the_run(engine: Engine) -> None:
     run = ranked_candidates(engine)
     candidate_id = run["candidates"][0]["candidate_id"]
