@@ -419,6 +419,13 @@ class CandidateSummary:
     address: str
 
 
+def run_exists(connection: Connection, run_id: int) -> bool:
+    return (
+        connection.execute(select(sourcing_run.c.id).where(sourcing_run.c.id == run_id)).first()
+        is not None
+    )
+
+
 def latest_run_id(connection: Connection, market: str) -> int | None:
     run_id: int | None = connection.execute(
         select(sourcing_run.c.id)

@@ -12,6 +12,7 @@ from typing import Annotated
 import typer
 import uvicorn
 from pydantic import ValidationError
+from sqlalchemy import Connection
 
 from feasibility.api.app import create_app
 from feasibility.config import get_settings
@@ -21,6 +22,8 @@ from feasibility.jobs.worker import Worker
 from feasibility.logging import configure_logging
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
+from feasibility.proforma import render
+from feasibility.proforma import store as proforma_store
 from feasibility.snapshot.load import LiveModeSeedError
 from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
@@ -36,6 +39,8 @@ market_app = typer.Typer(no_args_is_help=True, help="Market pack commands.")
 app.add_typer(market_app, name="market")
 source_app = typer.Typer(no_args_is_help=True, help="Daily sourcing: run it, read the result.")
 app.add_typer(source_app, name="source")
+proforma_app = typer.Typer(no_args_is_help=True, help="Pro-formas of a run (read-only).")
+app.add_typer(proforma_app, name="proforma")
 
 TOP_CANDIDATES_SHOWN = 10
 SourcingStatus = Annotated[
@@ -222,6 +227,60 @@ def source_show(
                 ]
             )
         )
+
+
+def _proforma_run(connection: Connection, market: str | None, run_id: int | None) -> int:
+    """The run to read: the given one, else the latest completed. Exit 2 when there is none."""
+    if run_id is None:
+        run_id = sourcing_store.latest_run_id(connection, market or get_settings().market)
+        if run_id is None:
+            typer.echo("no completed run yet", err=True)
+            raise typer.Exit(code=2)
+    elif not sourcing_store.run_exists(connection, run_id):
+        typer.echo(f"no run {run_id}", err=True)
+        raise typer.Exit(code=2)
+    return run_id
+
+
+@proforma_app.command("list")
+def proforma_list(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    status: Annotated[
+        str | None, typer.Option("--status", help="computed, no_arv or unsizable")
+    ] = None,
+    limit: Annotated[int, typer.Option(min=1, max=500)] = 20,
+) -> None:
+    """Print a run's pro-formas in rank order (read-only)."""
+    if status not in (None, "computed", "no_arv", "unsizable"):
+        raise typer.BadParameter("status must be computed, no_arv or unsizable")
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        items = proforma_store.read_proformas(connection, shown_run, status=status, limit=limit)
+    typer.echo(f"run {shown_run}, {status or 'all statuses'}: {len(items)} shown")
+    for line in render.list_lines(items):
+        typer.echo(line)
+
+
+@proforma_app.command("show")
+def proforma_show(
+    candidate_id: Annotated[int, typer.Argument(min=1, help="The candidate's id")],
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    sensitivity: Annotated[
+        bool, typer.Option("--sensitivity", help="Also print the 60-cell sensitivity grid")
+    ] = False,
+) -> None:
+    """Print one candidate's whole pro-forma, section by section (read-only)."""
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        item = proforma_store.read_proforma(connection, shown_run, candidate_id)
+    if item is None:
+        typer.echo(f"candidate {candidate_id} has no pro-forma in run {shown_run}", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"run {shown_run}")
+    for line in render.show_lines(item, sensitivity=sensitivity):
+        typer.echo(line)
 
 
 @app.command("verify-rentcast")
