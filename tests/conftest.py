@@ -45,11 +45,12 @@ def engine(migrated_engine: Engine) -> Engine:
 
 @pytest.fixture(autouse=True, scope="session")
 def quiet_model() -> Iterator[None]:
-    """Every sourcing run reaches the model stages, and with no recordings the library's client
-    would miss on the first call. So by default a run is given a model that answers every prompt
-    plainly and for free. It is patched for the whole session, as module-scoped fixtures run
-    sourcing too. A test that wants something else passes `model=` to `run_sourcing`, or puts the
-    library's client back with `monkeypatch.setattr("feasibility.llm.run.default_model", ...)`."""
+    """Every sourcing run reaches the model stages. Tests should not depend on the committed
+    recordings (a prompt change would break them all), so by default a run is given a model that
+    answers every prompt plainly and for free. It is patched for the whole session, as
+    module-scoped fixtures run sourcing too. A test that wants something else passes `model=` to
+    `run_sourcing`, or puts the library's client back with
+    `monkeypatch.setattr("feasibility.llm.run.default_model", ...)`."""
     patch = pytest.MonkeyPatch()
     patch.setattr(
         "feasibility.llm.run.default_model", lambda settings: RunModel(small_cost="0", mid_cost="0")
