@@ -69,9 +69,10 @@ Real DCAD files and real RentCast responses are fetched by whoever runs the soft
 - The CAD importer can only read columns the market pack maps. A pack cannot map owner, contact, legal-description or taxpayer columns; validation rejects it.
 - Accounts flagged `EXCLUDE_OWNER` are skipped whole, and an account flagged after an earlier load has its stored rows deleted in the same import.
 - RentCast agent, office and owner objects are removed before anything is validated. Only fields the response models declare are cached or stored; the names of any other fields are logged as drift, never their values.
+- Listing remarks are redacted at ingestion, and the RESO agent, office, private-remarks and showing fields are never read. Redaction is pattern-based, so a bare name with no cue word can pass; the extraction eval measures that residual. See `docs/ARCHITECTURE.md`, "Listing remarks: redaction and screening".
 - No table has a dedicated column for owner or contact data. The JSON columns `listing.raw` and `api_cache.body` hold only declared fields; `candidate_estimate.comps` and `proforma.result` hold comparable sales (address, price, size), and the API leaves the addresses out.
 
-**Listing text.** `domain.Listing` has a nullable `remarks` field. RentCast listings carry no description text, so in live RentCast mode the LLM layer gets signals from structured fields only. Phase 4 adds a small synthetic RESO-shaped listing set with `PublicRemarks` for mock mode. A client's own MLS feed (the RESO stub in `src/feasibility/sources/mls/stub.py`) is where real remarks would come from.
+**Listing text.** `domain.Listing` has a nullable `remarks` field. RentCast listings carry no description text, so in live RentCast mode the LLM layer gets signals from structured fields only. Mock mode reads a small synthetic RESO-shaped listing set (`data/mls/dallas.json`, with `PublicRemarks`) and attaches each record's redacted remarks to the snapshot listing with the same MLS number. A client's own MLS feed (the RESO stub in `src/feasibility/sources/mls/stub.py`) is where real remarks would come from.
 
 ## Mock and live modes
 
