@@ -73,8 +73,9 @@ def test_revision_0008_renames_the_doubled_names_a_database_built_before_it_hold
     migrated_engine: Engine,
 ) -> None:
     before = _check_names(migrated_engine)
-    # Revisions 0006 and 0007 never doubled a name (and Postgres cuts a name at 63 characters, so
-    # a doubled long one could not exist): put the legacy spelling on every name that can have it.
+    # Revisions 0006 and 0007 never doubled a name, and a doubled name longer than 63 characters
+    # would be shortened by SQLAlchemy to something this revision does not undo (none of the real
+    # ones is that long: the longest is 56): put the legacy spelling on every name that can have it.
     legacy = [(t, n) for t, n in before if len(f"ck_{t}_{n}") <= MAX_NAME_LENGTH]
     assert len(legacy) > 20
     with migrated_engine.begin() as connection:
