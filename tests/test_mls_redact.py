@@ -203,7 +203,17 @@ def test_measurements_with_dots_are_not_domains() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["Mr. Alvarez", "Mrs Patel", "Ms. Okafor-Reyes", "Dr. Lindgren", "Miss Hartwell", "Mx. Quill"],
+    [
+        "Mr. Alvarez",
+        "Mrs Patel",
+        "Ms. Okafor-Reyes",
+        "Dr. Lindgren",
+        "Miss Hartwell",
+        "Mx. Quill",
+        "Mr. O'Neil",
+        "Mrs. O\u2019Neil",
+        "Mr. D'Angelo",
+    ],
 )
 def test_honorific_names_are_removed(name: str) -> None:
     result = redact_personal(f"Seller {name} will review offers.")
@@ -427,6 +437,44 @@ def test_a_number_inside_a_longer_figure_or_after_a_currency_sign_is_not_a_phone
     text = "Assessed at $214-555-0187 and 1,214-555-0187 units."
 
     assert _clean(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Showings: Dana Whitfield 214-555-0187", REMOVED),
+        ("Realtor: Dana Whitfield, dana@example.com", REMOVED),
+        ("Realtor Dana Whitfield", REMOVED),
+        ("Phone: Dana 214-555-0187. Flat lot.", f"{REMOVED}. Flat lot."),
+        ("Flat lot. Questions? Dana Whitfield, 214-555-0187", f"Flat lot. Questions? {REMOVED}"),
+        ("Flat lot. Dana Whitfield 214-555-0187", f"Flat lot. {REMOVED}"),
+        ("Flat lot. Kim O'Neil: 214-555-0187", f"Flat lot. {REMOVED}"),
+        ("Flat lot. Dana Marie Whitfield, 214-555-0187", f"Flat lot. {REMOVED}"),
+    ],
+)
+def test_a_name_with_no_cue_word_goes_with_the_number_it_labels(text: str, expected: str) -> None:
+    assert _clean(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Seller 214-555-0187 prefers a quick close.",
+        "Mail: dana@example.com",
+        "Plans: 214-555-0187",
+        "On IG @whitfieldhomes today.",
+    ],
+)
+def test_a_single_capitalised_word_before_a_contact_is_kept(text: str) -> None:
+    first_word = text.split()[0]
+
+    assert _clean(text).startswith(first_word)
+
+
+def test_a_name_next_to_a_removed_contact_is_the_only_thing_that_goes() -> None:
+    text = "Plans ready. Survey on file, call 214-555-0187 - flat lot."
+
+    assert _clean(text) == f"Plans ready. Survey on file, {REMOVED} - flat lot."
 
 
 def test_full_width_digits_cannot_hide_a_number() -> None:

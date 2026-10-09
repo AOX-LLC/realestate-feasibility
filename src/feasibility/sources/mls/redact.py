@@ -21,7 +21,9 @@ REMOVED = "[contact removed]"
 _CUES = (
     r"call|text|contact|e-?mail|ask\s+for|reach|listed\s+by|listing\s+agent|agent|broker(?:age)?"
     r"|showings?\s+(?:by|with|through)|co-?list(?:ed)?\s+(?:with|by)|presented\s+by"
-    r"|courtesy\s+of|represented\s+by"
+    r"|courtesy\s+of|represented\s+by|realtor"
+    # A label with a colon introduces a contact block ("Showings: Dana Whitfield 214-555-0187").
+    r"|(?:showings?|phone|tel)(?=\s*:)"
 )
 _HONORIFIC_ABBREVIATIONS = ("Mr", "Mrs", "Ms", "Mx", "Dr", "Prof")
 # One character of a clause. A clause ends at ! ? ; an em dash, a newline, a spaced hyphen or
@@ -90,7 +92,8 @@ _BARE_DOMAINS = re.compile(
     re.IGNORECASE,
 )
 
-_NAME_PART = r"[A-Z][A-Za-z]+(?:[-'][A-Z][A-Za-z]+)?"
+# A name: "Alvarez", "Okafor-Reyes", "O'Neil", "O\u2019Neil", "ALVAREZ".
+_NAME_PART = r"(?:[A-Z]['\u2019])?[A-Z][A-Za-z]+(?:[-'\u2019][A-Z][A-Za-z]+)?"
 # "Dr" is also a street suffix, so a doctor needs the full stop; "Elm Dr Lot 4" is an address.
 # The honorific is case-insensitive and the name may be in capitals: "MR. ALVAREZ".
 _HONORIFIC_NAME = re.compile(
@@ -111,6 +114,16 @@ _BROKERAGE = re.compile(
     rf"|(?:Real\s+Estate|Properties)(?:\s+Group\b|(?!\s+(?:{_ORDINARY_CONTINUATION})\b)))"
 )
 
+# Whatever the rules above removed, a name left sitting next to it goes too: "Questions? Dana
+# Whitfield, 214-555-0187" has no cue word, but the number is gone and the name is its label.
+# Two or three capitalised words (a first and a last name), joined by spaces and an optional
+# comma or colon. One word is left alone: "Seller", "Mail" and "Plans:" often precede a token.
+_NAME_WORD = r"(?:[A-Z]['\u2019])?[A-Z][a-z]{1,20}(?:[-'\u2019][A-Z][a-z]{1,20})?"
+_NAME_BEFORE_TOKEN = re.compile(
+    rf"(?<![\w'\u2019-]){_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{1,2}}[ \t]*[,:]?[ \t]+"
+    rf"(?=\[contact removed\])\[contact removed\]"
+)
+
 _LICENSE = re.compile(
     r"\b(?:TREC|Licen[sc]e|Lic)\b\.?(?:\s*(?:No\.?|Number|#|:|is\b))*\s*\d[\w-]{4,}",
     re.IGNORECASE,
@@ -128,6 +141,7 @@ _RULES = (
     _BARE_DOMAINS,
     _HONORIFIC_NAME,
     _LICENSE,
+    _NAME_BEFORE_TOKEN,
 )
 
 
