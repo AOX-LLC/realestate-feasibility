@@ -9,7 +9,8 @@ from sqlalchemy import Engine, text
 
 from feasibility.api.app import create_app
 from feasibility.config import DataMode, Settings
-from feasibility.jobs.handlers import JobContext, ListingsSyncPayload, run_listings_sync
+from feasibility.jobs.handlers import JobContext, run_listings_sync
+from feasibility.jobs.payloads import ListingsSyncPayload
 from feasibility.listings import listing_query
 from feasibility.markets.loader import get_pack
 from feasibility.sources.mls.reso import DROPPED_FIELDS

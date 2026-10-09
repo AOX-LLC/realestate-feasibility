@@ -5,19 +5,22 @@ Payloads are validated against the model when a job is enqueued and again when i
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.jobs import queue
+from feasibility.jobs.payloads import (
+    CadImportPayload,
+    ListingsSyncPayload,
+    SourcingRunPayload,
+)
 from feasibility.listings import sync_listings
 from feasibility.llm.run import PermanentModelError
 from feasibility.markets.loader import PackError, get_pack
-from feasibility.markets.schema import FileKind
 from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
 from feasibility.sources.mls.reso import remarks_source_for
@@ -86,18 +89,6 @@ def enqueue_job(
     return queue.enqueue(connection, kind, model, dedupe_key=dedupe_key)
 
 
-class CadImportPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-    # A file name inside the local data directory; jobs never read files elsewhere.
-    archive: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
-    kind: FileKind
-    roll_year: int | None = None
-    file_date: date | None = None
-    force: bool = False
-
-
 def resolve_local_file(local_dir: Path, name: str) -> Path:
     root = local_dir.resolve()
     path = (root / name).resolve()
@@ -119,12 +110,6 @@ def run_cad_import(payload: CadImportPayload, context: JobContext) -> None:
     )
 
 
-class ListingsSyncPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-
-
 def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None:
     """Fetch new listings from every enabled source in the market pack and store them."""
     pack = get_pack(payload.market)
@@ -135,14 +120,6 @@ def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None
         )
     finally:
         client.close()
-
-
-class SourcingRunPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-    # None means today in the market's time zone (live mode); mock mode needs a date.
-    as_of: date | None = None
 
 
 def run_sourcing_job(payload: SourcingRunPayload, context: JobContext) -> None:

@@ -19,7 +19,8 @@ from sqlalchemy import Connection
 from feasibility.api.app import create_app
 from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
-from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
+from feasibility.jobs.handlers import build_registry, enqueue_job
+from feasibility.jobs.payloads import SourcingRunPayload
 from feasibility.jobs.worker import Worker
 from feasibility.llm import ledger as llm_ledger
 from feasibility.llm import render as llm_render
