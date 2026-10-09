@@ -44,11 +44,13 @@ from aox_agent_core.errors import (
     ReplayError,
     StructuredOutputError,
 )
+from pydantic import ValidationError
 from sqlalchemy import Connection, Engine, text
 
 from feasibility.config import Settings
 from feasibility.llm import ledger
 from feasibility.llm import store as llm_store
+from feasibility.llm.catalogue import SignalCode
 from feasibility.llm.client import build_model_client, load_llm_config
 from feasibility.llm.errors import LlmBudgetError
 from feasibility.llm.facts import Facts, build_facts
@@ -67,6 +69,7 @@ from feasibility.llm.narrative import (
 from feasibility.llm.narrative import PROMPT_ID as NARRATIVE_PROMPT_ID
 from feasibility.llm.narrative import PROMPT_VERSION as NARRATIVE_PROMPT_VERSION
 from feasibility.llm.narrative import TASK as NARRATIVE_TASK
+from feasibility.llm.narrative_check import NarrativeDraft, RiskPoint, check_narrative
 from feasibility.llm.results import (
     CachedExtraction,
     ExtractionInfo,
@@ -78,6 +81,7 @@ from feasibility.llm.results import (
 from feasibility.llm.signals import (
     EXTRACT_PROMPT,
     ExtractionInput,
+    SignalClaim,
     SignalExtraction,
     build_extraction_input,
     extraction_inputs,
@@ -333,12 +337,39 @@ def _extraction_cache_key(digest: str, fingerprint: str) -> str:
     return hashlib.sha256(f"{digest}:{fingerprint}".encode()).hexdigest()
 
 
-def _cached_extraction(engine: Engine, tier: str, key: str) -> CachedExtraction | None:
+def _still_verifies(cached: CachedExtraction, extraction_input: ExtractionInput) -> bool:
+    """Whether today's verifier still accepts every stored quote against the text it would send.
+    The cache key names the prompt and its inputs, not the code that checks the answer, so a
+    verifier tightened since the entry was written must be able to refuse it."""
+    again = verify_extraction(
+        SignalExtraction(
+            signals=[
+                SignalClaim(code=cast(SignalCode, signal.code), quote=signal.quote or "")
+                for signal in cached.signals
+            ],
+            injection_suspected=cached.model_flagged_injection,
+        ),
+        extraction_input,
+    )
+    return not again.dropped and len(again.signals) == len(cached.signals)
+
+
+def _cached_extraction(
+    engine: Engine, tier: str, key: str, extraction_input: ExtractionInput
+) -> CachedExtraction | None:
+    """The cached extraction for these inputs when it is still valid and still verifies; else
+    None, and the caller makes the call again."""
     with engine.connect() as connection:
         found = llm_store.cached_result(
             connection, SIGNALS_PROMPT_ID, SIGNALS_PROMPT_VERSION, tier, key
         )
-    return None if found is None else CachedExtraction.model_validate(found)
+    if found is None:
+        return None
+    try:
+        cached = CachedExtraction.model_validate(found)
+    except ValidationError:
+        return None  # written under another shape of the model: treat it as absent
+    return cached if _still_verifies(cached, extraction_input) else None
 
 
 def _extracted(
@@ -386,7 +417,7 @@ def _extract_signals(
     fingerprint = _scan_fingerprint(extraction_input.hits)
 
     cache_key = _extraction_cache_key(digest, fingerprint)
-    cached = _cached_extraction(ctx.engine, tier, cache_key)
+    cached = _cached_extraction(ctx.engine, tier, cache_key, extraction_input)
     if cached is not None:
         return _extracted(info, cached, fields, tier=tier, digest=digest, call_id=None)
     if blocked.reason is not None:
@@ -558,12 +589,34 @@ def _reused(cached: NarrativeResult) -> NarrativeResult:
     )
 
 
-def _cached_narrative(engine: Engine, tier: str, digest: str) -> NarrativeResult | None:
+def _cached_narrative(
+    engine: Engine, tier: str, digest: str, facts: Facts
+) -> NarrativeResult | None:
+    """The cached narrative for these inputs when it is still valid and, if it was accepted, still
+    passes today's figure check against the facts; else None, and the caller writes it again. A
+    rejected one stays rejected: its text was not kept to check."""
     with engine.connect() as connection:
         found = llm_store.cached_result(
             connection, NARRATIVE_PROMPT_ID, NARRATIVE_PROMPT_VERSION, tier, digest
         )
-    return None if found is None else _reused(NarrativeResult.model_validate(found))
+    if found is None:
+        return None
+    try:
+        cached = NarrativeResult.model_validate(found)
+    except ValidationError:
+        return None  # written under another shape of the model: treat it as absent
+    if cached.status == "accepted" and not check_narrative(_draft_of(cached), facts).passed:
+        return None
+    return _reused(cached)
+
+
+def _draft_of(accepted: NarrativeResult) -> NarrativeDraft:
+    """The draft an accepted result was made from, to check it again."""
+    return NarrativeDraft(
+        summary=accepted.summary or "",
+        risks=[RiskPoint(basis=list(risk.basis), text=risk.text) for risk in accepted.risks],
+        checks_before_offer=list(accepted.checks_before_offer),
+    )
 
 
 def _write_new_narrative(
@@ -610,7 +663,7 @@ def _narrative_for(
     tier = client.tier_for(NARRATIVE_TASK)
     digest = input_sha256(NARRATIVE_PROMPT, tier, narrative_inputs(facts))
 
-    cached = _cached_narrative(ctx.engine, tier.value, digest)
+    cached = _cached_narrative(ctx.engine, tier.value, digest, facts)
     if cached is not None:
         return cached, digest
     if blocked.reason is not None:

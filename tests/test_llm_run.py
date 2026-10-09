@@ -463,6 +463,73 @@ def test_remarks_that_scan_differently_are_cached_apart_even_when_they_send_the_
     )
 
 
+def _quoting(remarks: str) -> SignalExtraction:
+    return SignalExtraction(
+        signals=[SignalClaim(code="as_is_sale", quote=" ".join(remarks.split())[:50])],
+        injection_suspected=False,
+    )
+
+
+def test_a_cached_signal_the_verifier_no_longer_accepts_is_extracted_again(
+    seeded: Engine,
+) -> None:
+    run_sourcing(
+        seeded, _settings(), "dallas", DAY_ONE, model=RunModel(extractions=_quoting, **FREE)
+    )
+    with seeded.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE llm_result SET result = jsonb_set(result, '{signals,0,quote}', "
+                "'\"words that are nowhere in the remarks\"') WHERE input_sha256 = "
+                "(SELECT min(input_sha256) FROM llm_result WHERE prompt_id = 'signals.extract')"
+            )
+        )
+
+    model = RunModel(extractions=_quoting, **FREE)
+    again = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    assert len(_signal_calls(model)) == 1
+    assert again.counts.signals_reused == 9
+    assert again.counts.signals_extracted == 10
+    quotes = _rows(seeded, "SELECT result::text AS text FROM candidate_signals")
+    assert not any("nowhere in the remarks" in row.text for row in quotes)
+
+
+def test_a_cached_narrative_the_figure_check_no_longer_accepts_is_written_again(
+    seeded: Engine,
+) -> None:
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    with seeded.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE llm_result SET result = jsonb_set(result, '{summary}', "
+                "'\"Profit is about $108k.\"') WHERE input_sha256 = "
+                "(SELECT min(input_sha256) FROM llm_result WHERE prompt_id = 'narrative.write')"
+            )
+        )
+
+    model = RunModel(**FREE)
+    again = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    assert len(_narrative_calls(model)) == 1
+    assert again.counts.narratives_reused == 4
+    assert again.counts.narratives_accepted == 5
+    stored = _rows(seeded, "SELECT result::text AS text FROM candidate_narrative")
+    assert not any("108k" in row.text for row in stored)
+
+
+def test_a_cached_result_of_another_shape_is_treated_as_absent(seeded: Engine) -> None:
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    with seeded.begin() as connection:
+        connection.execute(text("UPDATE llm_result SET result = '{\"version\": 7}'::jsonb"))
+
+    model = RunModel(**FREE)
+    again = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    assert len(model.calls) == 15
+    assert again.counts.signals_reused == again.counts.narratives_reused == 0
+
+
 def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(seeded: Engine) -> None:
     clean = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
     expected = _phase_three(seeded, clean.run_id)
