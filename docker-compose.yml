@@ -3,8 +3,9 @@ name: realestate-feasibility
 # Every service sets mem_limit (tests/test_compose.py fails the build if one does not). Each limit
 # is at least twice the peak working set `docker stats` showed over a seeded day-1 run in mock
 # mode (2026-10-08, synthetic snapshot): db 140 MiB, migrate (migrate, seed and both days' runs)
-# 81 MiB, api 88 MiB after a request of each kind, worker 76 MiB while it ran a job. The cgroup's
-# own peak agreed within 20% (db: the page cache of a day of test runs raised it to 268 MiB).
+# 81 MiB, api 88 MiB after a request of each kind, worker 76 MiB while it ran a `sourcing.run`
+# job. The cgroup's own peak agreed within 20% (db: 268 MiB, but that counts the page cache of a
+# day of test runs, which the kernel reclaims before it kills anything).
 # The db and migrate limits are larger than twice because real county data is bigger than the
 # snapshot and has not been measured: re-measure before trusting them with it.
 

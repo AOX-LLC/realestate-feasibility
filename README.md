@@ -69,7 +69,7 @@ Real DCAD files and real RentCast responses are fetched by whoever runs the soft
 - The CAD importer can only read columns the market pack maps. A pack cannot map owner, contact, legal-description or taxpayer columns; validation rejects it.
 - Accounts flagged `EXCLUDE_OWNER` are skipped whole, and an account flagged after an earlier load has its stored rows deleted in the same import.
 - RentCast agent, office and owner objects are removed before anything is validated. Only fields the response models declare are cached or stored; the names of any other fields are logged as drift, never their values.
-- No table has a dedicated column for owner or contact data. The JSON columns (`listing.raw`, `api_cache.body`) hold only declared fields.
+- No table has a dedicated column for owner or contact data. The JSON columns `listing.raw` and `api_cache.body` hold only declared fields; `candidate_estimate.comps` and `proforma.result` hold comparable sales (address, price, size), and the API leaves the addresses out.
 
 **Listing text.** `domain.Listing` has a nullable `remarks` field. RentCast listings carry no description text, so in live RentCast mode the LLM layer gets signals from structured fields only. Phase 4 adds a small synthetic RESO-shaped listing set with `PublicRemarks` for mock mode. A client's own MLS feed (the RESO stub in `src/feasibility/sources/mls/stub.py`) is where real remarks would come from.
 
@@ -133,7 +133,7 @@ Every ranked candidate gets a pro-forma, computed in code from its parcel, its p
 A pro-forma has one of three statuses:
 
 - `computed`: ARV, total cost, profit, margin (profit over ARV), ROI, annualized return, the most you can pay and still earn the 15% target, and a 60-cell sensitivity grid (ARV, hard cost, hold months).
-- `no_arv`: there is no usable value estimate (`no_estimate_yet` outside the top 5, `estimate_unavailable`, `estimate_expired`, `too_few_comps`), so only the costs that need no ARV are shown. Nothing stands in for a missing ARV.
+- `no_arv`: there is no usable value estimate (`no_estimate_yet` outside the top 5, `estimate_unavailable`, `estimate_expired`, `too_few_comps`, `arv_not_positive`), so only the costs that need no ARV are shown. Nothing stands in for a missing ARV.
 - `unsizable`: no lot size, so there is nothing to build on.
 
 ```bash
@@ -147,7 +147,7 @@ docker compose run --rm migrate feasibility proforma show 4 --sensitivity
 | Endpoint | Returns |
 | --- | --- |
 | `GET /sourcing/runs/{run_id}/proformas?status=computed\|no_arv\|unsizable` | A run's pro-formas in rank order: candidate, rank, address, status, reason, flags, offer price, ARV, total cost, profit, margin, ROI, annualized return and maximum offer. Money and ratios are decimal strings (0.1964 is 19.64%) |
-| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}/proforma` | One pro-forma with its full result: every assumption, input and line |
+| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}/proforma` | One pro-forma with its full result: every assumption, input and line (the comparable sales' addresses stay in the database) |
 
 On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two are marginal, one loses money) and day 2 six. A run costs the same RentCast calls as before: the pro-formas add none. In live mode a day is at most one listing sync plus up to five value estimates; in mock mode the estimates come from the snapshot and no budget is touched.
 
@@ -188,7 +188,7 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
-Job kinds in phase 1: `cad.import` and `listings.sync`.
+Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.
 
 ## Development
 

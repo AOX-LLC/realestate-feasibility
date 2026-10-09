@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the system as built in phase 1, and where later phases attach.
+This document describes the system as built through phase 3, and where later phases attach.
 
 ## Context
 
@@ -118,7 +118,7 @@ Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_matc
 | `api_request_log` | One row per attempt | Provider, endpoint, request key, period start, outcome (`ok`, `not_found`, `http_error`, `network_error`, `schema_error`, `refused_budget`, `cache_hit`, `stale_served`), status code, `billed`, `at`. |
 | `job` | The queue | `kind`, `payload` jsonb, `status` (`queued`, `running`, `done`, `failed`, `dead`), `priority`, `run_after`, `attempts`, `max_attempts`, `locked_by`, `locked_until`, `last_error`, `dedupe_key` (partial unique index while queued or running), timestamps. |
 
-No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged.
+No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged. Two more JSON columns hold comparable sales from the value estimate (address, price, size): `candidate_estimate.comps` and `proforma.result`.
 
 Later phases add their own tables in their own migrations: signals and risk narratives (4), briefs and deliveries (5).
 
@@ -149,7 +149,7 @@ RETURNING id, kind, payload, attempts, max_attempts
 - `cad.import` payloads name a file inside `local/` and are checked to stay inside that directory.
 - Phase 1 has **no HTTP endpoint that writes**, because anything that writes can spend RentCast budget. Jobs are enqueued from the CLI. Phase 5 adds an authenticated trigger endpoint for the 7 a.m. schedule run by n8n.
 
-Job kinds: `cad.import` and `listings.sync`.
+Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.
 
 ## Sources and the DCAD reality
 
@@ -226,7 +226,7 @@ The client never retries. Retries happen at the job level, with backoff.
 
 **Budget period.** It starts on `RENTCAST_BILLING_ANCHOR_DAY` (1 to 28). The limit defaults to 50. The hard stop keeps the counted requests under the plan's allowance. That holds only if the refund rule below matches how RentCast actually bills; see Known gaps.
 
-**Budget math.** About 30 listing syncs a month leave about 20 value estimates, and the spend rule below keeps a month inside that. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for. A live run makes the listing sync call (none when the response is still cached) plus at most `top_n` estimate calls, so never more than 1 + 5 a day with the Dallas pack, and typically 1 or 2.
+**Budget math.** About 30 listing syncs a month leave about 20 value estimates, and the spend rule below keeps a month inside that. A real deployment needs a paid tier or the client's MLS feed, which is what the stub is for. A live run makes the listing sync call (none when the response is still cached) plus at most `top_n` estimate calls, so never more than 1 + 5 an attempt with the Dallas pack, and typically 1 or 2. A same-date retry or re-run buys again for a target an earlier attempt failed or deferred (a read timeout is billed and counted as failed), within the cap and the reserve.
 
 **The spend rule** (`[sourcing.estimates]`, `sourcing/estimates.py`). After the run is ranked, the top `top_n` ranked candidates are the targets. A target that has a stored estimate fetched within `ttl_days` of the run date, whatever its outcome, is reused. The others are bought in rank order, one address at a time, up to
 
@@ -287,7 +287,7 @@ Each answer is committed the moment it arrives (`candidate_estimate`, one row pe
 
 **Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write. Then, outside any transaction, buy value estimates for the top candidates (the spend rule under the RentCast client's budget math). Last, compute a [pro-forma](#pro-forma) for every ranked candidate from what is stored.
 
-**A failure after the build.** The build transaction commits the ranking and completes the run before anything is paid for. If a later stage (the estimate spend, then the pro-formas) fails, the run stays `completed` with its ranking, `sourcing_run.error` carries the redacted message (a completed run with a non-null `error` means "ranked, but a later stage failed"), the counts record what was bought and `estimates_failed`, and the exception propagates. The pro-forma stage is one transaction, so a failure leaves none of its rows or counts behind. The error is cut to 2,000 characters and database errors do not echo the values bound to a statement. An unclassified error retries the job; a shape change (`SchemaDriftError`) is permanent for the worker, and the next day's run tries again. A retry rebuilds the run's rows, reuses every stored estimate and finishes; completing the run clears `error`. A retry buys no new estimate for a target that an earlier attempt answered, but it does retry a target that attempt failed or deferred, within the same cap and reserve. A stage that finds its run no longer `completed` (a newer attempt reset or failed it) writes nothing and leaves that run's own error alone. A failure in the sync or the build still marks the run `failed` and clears its rows.
+**A failure after the build.** The build transaction commits the ranking and completes the run before anything is paid for. If a later stage (the estimate spend, then the pro-formas) fails, the run stays `completed` with its ranking, `sourcing_run.error` carries the redacted message (a completed run with a non-null `error` means "ranked, but a later stage failed"), the counts record what was bought and `estimates_failed`, and the exception propagates. The pro-forma stage is one transaction, so a failure leaves none of its rows or counts behind. The error is cut to 2,000 characters and database errors do not echo the values bound to a statement. An unclassified error retries the job; a shape change (`SchemaDriftError`) is permanent for the worker, and the next day's run tries again. A retry rebuilds the run's rows, reuses every stored estimate and finishes; completing the run clears `error`. A retry buys no new estimate for a target that an earlier attempt answered, but it does retry a target that attempt failed or deferred, within the same cap and reserve. The pro-forma stage, when it finds its run no longer `completed` (a newer attempt reset or failed it), writes nothing and leaves that run's own error alone; the estimate spend has no such guard and only merges its counts. A failure in the sync or the build still marks the run `failed` and clears its rows.
 
 **Schema (`0002_sourcing` to `0004_candidate_estimate`).**
 
@@ -373,7 +373,7 @@ The AVM point estimate values the existing property and is stored for context on
 | Annualized return = ROI x 12 / hold, simple | Compounding would assume the same deal can be repeated at the same return | Under a compounded figure |
 | Selling costs as a percent of ARV, no price drift while marketing | Commission and seller closing are percentages of the price in Texas | Neutral |
 
-**A day, in mock mode and live.** Mock mode serves estimates from the snapshot: day 1 prices five candidates and day 2 one (the other four reuse theirs), `api_budget` stays untouched, and the pro-formas cost nothing. Live mode costs at most `1 + top_n` RentCast calls a day (the listing sync and up to five estimates, typically one or two), never more than the monthly cap and the sync reserve allow; the pro-formas add none.
+**A day, in mock mode and live.** Mock mode serves estimates from the snapshot: day 1 prices five candidates and day 2 one (the other four reuse theirs), `api_budget` stays untouched, and the pro-formas cost nothing. Live mode costs at most `1 + top_n` RentCast calls an attempt (the listing sync and up to five estimates, typically one or two), never more than the monthly cap and the sync reserve allow; the pro-formas add none.
 
 ## Where agent-core attaches (phase 4)
 
@@ -397,7 +397,7 @@ agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in th
 | `api` | `127.0.0.1:4501`; starts after `migrate` completes successfully; has a healthcheck |
 | `worker` | `feasibility worker`; starts after `migrate` completes successfully |
 
-Every service sets `mem_limit`, each at least twice the peak a seeded day-1 run showed in `docker stats` (the measurements are in the compose file's header), and `tests/test_compose.py` fails if one does not. All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
+Every service sets `mem_limit`, each at least twice the peak working set a seeded day-1 run showed in `docker stats` (the measurements are in the compose file's header), and `tests/test_compose.py` fails if one does not. All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
 
 **Container hardening.** Base images are pinned by index digest, with the tag kept in a comment beside it: `python:3.12-slim` and `ghcr.io/astral-sh/uv:0.12.10` in the Dockerfile, `postgres:16-alpine` in compose and in the CI service container. Never use `:latest`. To refresh a digest, request the manifest from the registry and read the `Docker-Content-Digest` response header (for example `curl -sI -H 'Accept: application/vnd.oci.image.index.v1+json' <registry manifest URL for the tag>`), then update every place the image appears.
 
@@ -446,11 +446,16 @@ Pre-commit runs gitleaks and ruff.
 - **The property tax rate is for Dallas ISD addresses inside the city.** Richardson ISD and other districts differ. Only the City of Dallas component was read from an official page.
 - **Live `/avm/value` has never been called.** Whether comps' `listingType` values match the sale types, how often there are three or more sale comps, and whether an estimate of a vacant lot returns comps are unverified.
 - **Estimates are used for up to 30 days** (reused for `ttl_days`); a market move inside that window is not seen. A ranked candidate below the top N has no estimate by design and shows `no_arv`. On day 2 of the snapshot six candidates compute, not five: the sixth-ranked one still has day 1's estimate.
-- **Retention is undecided for `proforma` and `candidate_estimate`**, like the other run tables. A comp's address is stored twice, in `candidate_estimate.comps` and in `proforma.result`, so any future retention or deletion path must cover both. The API serves the full result, comp addresses included.
+- **Retention is undecided for `proforma` and `candidate_estimate`**, like the other run tables. A comp's address is stored twice, in `candidate_estimate.comps` and in `proforma.result`, so any future retention or deletion path must cover both. The API serves the full result with the comparables' addresses left out; the `proforma show` command, which is local, prints them.
 - **A GIS group means more in the pro-forma than in the ranking.** The pro-forma adds up every account on the GIS parcel in the zip; the ranking's aggregate uses only the accounts matched at the listing's street address. On a parcel with two situs addresses the two can differ.
 - **Only the price comes from the run itself.** Lot size, property type and year built come from the listing's current row and the parcel from the current table; a parcel import or a later sync between the build and the pro-forma stage can change them. An out-of-order re-run is refused, which keeps that window small.
 - **A candidate whose price is not positive gets no pro-forma**, so `proformas` can be lower than `ranked`. After a failed pro-forma stage the counts read zero, and only `sourcing_run.error` tells "did not run" from "none".
 - **The pro-forma stage scans the market's parcels once** for a GIS group's accounts (by GIS id and zip). Nothing indexes `gis_parcel_id`; that is unmeasured at county size.
 - **Each stored result carries the whole assumptions block and the 60-cell grid** (about 5 KB a computed row on the demo), so the table grows with every run until retention exists.
 - **The `proforma` and `candidate_estimate` rows of runs written before this phase do not exist**, and runs written before migration 0003 serve `match: null`.
+- **Stored results are read through today's models.** A pro-forma's `result` embeds the pack's `CostAssumptions`, and the endpoint and `proforma show` validate it against the current model. A later change to the pack schema (a new required field, a tighter validator) would make old rows unreadable: the endpoint would answer 500 and `proforma show` would report it. Result version 1 should get its own frozen copy of the assumptions model before the pack schema changes.
+- **A missing lot is labelled as coming from the listing.** When neither the parcel nor the listing has a lot, `lot_source` still reads `listing` on the `unsizable` result.
+- **The sync reserve is read once per estimate stage.** `verify-rentcast` and a concurrent `listings.sync` do not take the spend lock, so another spender can run the period below the reserve during the stage. The hard budget stop and the cap still hold.
+- **The drift test compares columns and indexes, not check constraints** (Alembic's compare skips them); the check constraints of 0003 to 0005 were compared with `tables.py` by reading.
+- **`source show` exits 1 when there is no run, `proforma list|show` exit 2.**
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.
