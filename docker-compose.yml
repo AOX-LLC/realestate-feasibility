@@ -26,6 +26,24 @@ x-local-dir-read-only: &local-dir-read-only
   volumes:
     - ./local:/app/local:ro
 
+# The app's own variables, shared by every service that runs the app.
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/feasibility
+  DATA_MODE: ${DATA_MODE:-mock}
+  RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
+  RENTCAST_MONTHLY_BUDGET: ${RENTCAST_MONTHLY_BUDGET:-50}
+  RENTCAST_BILLING_ANCHOR_DAY: ${RENTCAST_BILLING_ANCHOR_DAY:-1}
+  MARKET: ${MARKET:-dallas}
+
+# Model settings, merged into worker and migrate only. The api never calls a model, so it never
+# receives the key (tests/test_compose.py asserts it).
+x-llm-environment: &llm-environment
+  AGENT_CORE_MODE: ${AGENT_CORE_MODE:-replay}
+  AGENT_CORE_ANTHROPIC_API_KEY: ${AGENT_CORE_ANTHROPIC_API_KEY:-}
+  AGENT_CORE_CONFIG: /app/data/llm/agent-core.toml
+  LLM_RUN_BUDGET_USD: ${LLM_RUN_BUDGET_USD:-1.00}
+  LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-10.00}
+
 x-app: &app
   build:
     context: .
@@ -33,13 +51,7 @@ x-app: &app
       GIT_COMMIT: ${GIT_COMMIT:-}
       GIT_BRANCH: ${GIT_BRANCH:-}
   image: realestate-feasibility:dev
-  environment:
-    DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/feasibility
-    DATA_MODE: ${DATA_MODE:-mock}
-    RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
-    RENTCAST_MONTHLY_BUDGET: ${RENTCAST_MONTHLY_BUDGET:-50}
-    RENTCAST_BILLING_ANCHOR_DAY: ${RENTCAST_BILLING_ANCHOR_DAY:-1}
-    MARKET: ${MARKET:-dallas}
+  environment: *app-environment
 
 services:
   db:
@@ -68,6 +80,8 @@ services:
 
   migrate:
     <<: [*app, *hardening, *local-dir]
+    environment:
+      <<: [*app-environment, *llm-environment]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -97,6 +111,8 @@ services:
 
   worker:
     <<: [*app, *hardening, *local-dir-read-only]
+    environment:
+      <<: [*app-environment, *llm-environment]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:
