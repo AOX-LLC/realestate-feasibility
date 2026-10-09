@@ -26,6 +26,7 @@ from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.proforma.run import ProformaCounts, run_proformas
 from feasibility.snapshot.days import snapshot_day, snapshot_days
+from feasibility.sources.mls.reso import remarks_source_for
 from feasibility.sources.rentcast.client import BudgetExhaustedError, RentCastClient
 from feasibility.sourcing import diff, estimates, store
 from feasibility.sourcing.counts import FilteredByReason, RunCounts
@@ -258,7 +259,9 @@ def _sync(
     )
     sync_status: Literal["fresh", "stale", "skipped"]
     try:
-        sync_status = sync_listings(engine, pack, client, observed_at)
+        sync_status = sync_listings(
+            engine, pack, client, remarks_source_for(settings, pack.market.id), observed_at
+        )
     except BudgetExhaustedError:
         sync_status = "skipped"
     with engine.begin() as connection:

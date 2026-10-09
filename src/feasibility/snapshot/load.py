@@ -24,6 +24,7 @@ from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.snapshot.days import snapshot_days
 from feasibility.sources.base import ImportReport, ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
+from feasibility.sources.mls.reso import attach_remarks, remarks_source_for
 from feasibility.sources.rentcast.adapter import RentCastListingSource
 from feasibility.sources.rentcast.client import RentCastClient, Ttls
 from feasibility.sources.rentcast.transport import SnapshotTransport
@@ -123,7 +124,10 @@ def _load_listings(engine: Engine, settings: Settings, pack: MarketPack) -> int:
         for spec in pack.sources.listings:
             if not isinstance(spec, RentCastListings) or not spec.enabled:
                 continue
-            batch = source.fetch_listings(listing_query(pack, spec))
+            batch = attach_remarks(
+                source.fetch_listings(listing_query(pack, spec)),
+                remarks_source_for(settings, pack.market.id),
+            )
             with engine.begin() as connection:
                 loaded += upsert_listings(connection, pack.market.id, batch, observed_at)
     finally:

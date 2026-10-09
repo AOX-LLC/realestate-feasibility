@@ -375,6 +375,18 @@ The AVM point estimate values the existing property and is stored for context on
 
 **A day, in mock mode and live.** Mock mode serves estimates from the snapshot: day 1 prices five candidates and day 2 one (the other four reuse theirs), `api_budget` stays untouched, and the pro-formas cost nothing. Live mode costs at most `1 + top_n` RentCast calls an attempt (the listing sync and up to five estimates, typically one or two), never more than the monthly cap and the sync reserve allow; the pro-formas add none.
 
+## Listing remarks: redaction and screening
+
+Remarks are free text from a listing feed, so they are personal-data-bearing and untrusted. The only path into `listing.remarks` is `sources/mls/reso.ingest_remarks`, applied before the domain `Listing` exists, and `attach_remarks` discards remarks set any other way.
+
+1. **The RESO record is mapped field by field.** `ResoProperty` declares the fields the adapter uses; the agent, office, private-remarks and showing-instruction fields are never read, validated, stored or quoted in an error. `listing.raw` holds the scrubbed RentCast record, never the RESO one.
+2. **Normalise.** NFKC, then removal of control, zero-width, bidirectional, tag-block and filler characters, which are counted.
+3. **Redact.** `sources/mls/redact.py` replaces personal data with `[contact removed]`: a cue word ("call", "listed by", "ask for", "agent", "showings:" ...) and its clause, emails in every common spelling, phone numbers in common formats, links and bare domains, honorific names, brokerage names, licence numbers, and a full name left beside a removed contact. Every scanning pattern is anchored or length-bounded so hostile input costs linear time; input is bounded before and after normalisation.
+4. **Cap and mark.** At most 4,000 characters. When three or more invisible characters were removed, a final line `[invisible characters removed]` is added after redaction, so that the injection scan can see it later without any state.
+5. **Screen at prompt build** (`llm/untrusted.py`, used from phase 4c): `scan_injection` marks attack phrasings and the sentences they sit in; a quote that overlaps one is dropped. The scan is a heuristic. The structural defences are the closed output schema, code that verifies every quote, and no digits from quotes reaching a narrative.
+
+**What redaction does not catch.** Redaction is pattern-based, not a named-entity model. A bare name with no cue word and no contact beside it ("Maria will meet you there"), spelled-out digits, letter-spaced or `-at-` style emails, homoglyph look-alikes in a cue word, lowercase brokerage names and brands with no suffix all pass. `evals/signals/answer_key.json` tags records that plant such forms `personal:residual`; the extraction eval reports them separately and does not gate on them. A real MLS feed needs a review of its remarks before it is ingested.
+
 ## Where agent-core attaches (phase 4)
 
 agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in this repository imports it today.
@@ -414,6 +426,7 @@ Pre-commit runs gitleaks and ruff.
 
 ## Known gaps and unverified points
 
+- **Remarks redaction is heuristic.** See "Listing remarks: redaction and screening": the patterns catch the forms listing agents commonly write, a bare name with no cue passes, and the residual eval tag measures it. Only synthetic remarks are committed.
 - **Live mode is unverified.** It was built from RentCast's published OpenAPI definition and has not been run against the real API. `feasibility verify-rentcast` checks it.
 - **The published schema marks no field as required.** The models require only the fields the application keys on (`id` and `formattedAddress`; `price` on a value estimate), so drift in other fields is caught only as a type mismatch.
 - **`EXCLUDE_OWNER` semantics are inferred.** It appears to flag a confidential owner. This is not confirmed from DCAD's layout document, so the importer skips the whole account for any value other than blank, `N`, `0`, `F` or `FALSE`.

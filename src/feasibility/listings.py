@@ -9,6 +9,7 @@ from sqlalchemy import Connection, Engine, text
 
 from feasibility.markets.schema import ListingSourceSpec, MarketPack, RentCastListings
 from feasibility.sources.base import ListingBatch, ListingQuery, ListingSource
+from feasibility.sources.mls.reso import RemarksSource, attach_remarks
 from feasibility.sources.mls.stub import MlsListingSource
 from feasibility.sources.rentcast.adapter import RentCastListingSource
 from feasibility.sources.rentcast.client import RentCastClient
@@ -97,9 +98,13 @@ def sync_listings(
     engine: Engine,
     pack: MarketPack,
     client: RentCastClient,
+    remarks: RemarksSource,
     observed_at: datetime | None = None,
 ) -> Literal["fresh", "stale"]:
     """Fetch and store the listings of every enabled source in the pack.
+
+    `remarks` supplies the redacted listing text and is required: an upsert replaces a
+    listing's remarks, so a caller that forgot it would erase them.
 
     Returns "stale" when any source answered from an expired cache: those listings were
     stored but not seen today.
@@ -113,7 +118,7 @@ def sync_listings(
             if isinstance(spec, RentCastListings)
             else MlsListingSource()
         )
-        batch = source.fetch_listings(listing_query(pack, spec))
+        batch = attach_remarks(source.fetch_listings(listing_query(pack, spec)), remarks)
         with engine.begin() as connection:
             upsert_listings(connection, pack.market.id, batch, observed_at)
         if batch.stale:

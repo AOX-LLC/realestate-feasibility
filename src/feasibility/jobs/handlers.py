@@ -19,6 +19,7 @@ from feasibility.markets.loader import PackError, get_pack
 from feasibility.markets.schema import FileKind
 from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
+from feasibility.sources.mls.reso import remarks_source_for
 from feasibility.sources.rentcast.client import (
     BudgetExhaustedError,
     RentCastClient,
@@ -126,7 +127,9 @@ def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None
     pack = get_pack(payload.market)
     client = RentCastClient.from_settings(context.engine, context.settings)
     try:
-        sync_listings(context.engine, pack, client)
+        sync_listings(
+            context.engine, pack, client, remarks_source_for(context.settings, pack.market.id)
+        )
     finally:
         client.close()
 
