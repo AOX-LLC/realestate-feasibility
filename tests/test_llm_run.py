@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from aox_agent_core.errors import (
     ModelRefusalError,
+    ProviderRequestError,
     ProviderUnavailableError,
     RateLimitedError,
     ReplayMissError,
@@ -428,6 +429,21 @@ def test_a_candidate_the_model_cannot_answer_is_failed_and_the_stage_goes_on(
     assert _signals_by_status(seeded, result.run_id) == {
         ("extracted", None): 9,
         ("failed", reason): 1,
+        ("fields_only", "no_remarks"): 2,
+    }
+    assert len(_signal_calls(model)) == 10
+
+
+def test_an_input_the_provider_rejects_fails_only_that_candidate(seeded: Engine) -> None:
+    model = _fails(ProviderRequestError("400"))(3)
+
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    # Unlike a 429 or a 5xx, a rejected input is not the provider's state: the stage goes on, and
+    # the job is not retried into the same rejection.
+    assert _signals_by_status(seeded, result.run_id) == {
+        ("extracted", None): 9,
+        ("failed", "provider_error"): 1,
         ("fields_only", "no_remarks"): 2,
     }
     assert len(_signal_calls(model)) == 10

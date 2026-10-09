@@ -40,6 +40,7 @@ from aox_agent_core.errors import (
     BudgetExceededError,
     ModelRefusalError,
     ProviderError,
+    ProviderRequestError,
     ReplayError,
     StructuredOutputError,
 )
@@ -210,6 +211,10 @@ def classify(error: Exception) -> Failure | None:
         return Failure("structured_error", "candidate")
     if isinstance(error, ModelRefusalError):
         return Failure("refusal", "candidate")
+    if isinstance(error, ProviderRequestError):
+        # The provider rejected this input as invalid: another attempt gets the same answer, and
+        # the candidates after it are not affected.
+        return Failure("provider_error", "candidate")
     if isinstance(error, ProviderError):
         return Failure("provider_error", "provider")
     if isinstance(error, ReplayError):
