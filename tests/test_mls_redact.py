@@ -255,7 +255,15 @@ def test_ordinary_uses_of_the_brokerage_words_stay(text: str) -> None:
 
 @pytest.mark.parametrize(
     "licence",
-    ["TREC #0123456", "TREC 0123456", "License 4567890", "License # 4567890", "Lic. No. 4567890"],
+    [
+        "TREC #0123456",
+        "TREC 0123456",
+        "License 4567890",
+        "License # 4567890",
+        "Lic. No. 4567890",
+        "License number is 4567890",
+        "License: 4567890",
+    ],
 )
 def test_license_numbers_are_removed(licence: str) -> None:
     result = redact_personal(f"Seller is licensed, {licence}, and disclosed.")
@@ -396,6 +404,29 @@ def test_phone_numbers_with_loose_separators_are_removed(phone: str) -> None:
         _clean(f"Plans ready, {phone}, survey current.")
         == f"Plans ready, {REMOVED}, survey current."
     )
+
+
+@pytest.mark.parametrize(
+    "hyphen",
+    ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212", "\u00b7", "\ufe63"],
+)
+def test_unicode_hyphens_and_dots_between_digit_groups_are_still_a_phone(hyphen: str) -> None:
+    number = hyphen.join(["214", "555", "0187"])
+
+    assert _clean(f"Plans ready, {number}, survey current.") == (
+        f"Plans ready, {REMOVED}, survey current."
+    )
+
+
+@pytest.mark.parametrize("lead", ["Info.", "Lot,", "Lot:", "(", "tel;"])
+def test_a_number_straight_after_punctuation_is_a_phone(lead: str) -> None:
+    assert _clean(f"{lead}214-555-0187 ok") == f"{lead}{REMOVED} ok"
+
+
+def test_a_number_inside_a_longer_figure_or_after_a_currency_sign_is_not_a_phone() -> None:
+    text = "Assessed at $214-555-0187 and 1,214-555-0187 units."
+
+    assert _clean(text) == text
 
 
 def test_full_width_digits_cannot_hide_a_number() -> None:

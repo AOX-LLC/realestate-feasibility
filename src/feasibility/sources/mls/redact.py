@@ -69,12 +69,16 @@ _AT_DOMAIN_EMAIL = re.compile(
     rf"{_EMAIL_WORD}\s+at\s+(?:{_DOMAIN_LABEL}\.)+[a-z]{{2,}}\b", re.IGNORECASE
 )
 
-# Separators between the groups of digits: a space, dot, hyphen, slash or dash, up to three
-# in a row ("214 - 555 - 0187"). A seven-digit number only counts after a cue word, and the
-# cue rule has already taken those clauses; "555-0187" alone is an exchange and a line.
-_PHONE_SEPARATOR = r"[\s.\-/\u2013\u2014]{0,3}"
+# Separators between the groups of digits: a space, dot, slash, middle dot, minus sign or any
+# of the hyphens and dashes (U+2010 to U+2015, which word processors and PDF copy-paste
+# produce), up to five in a row ("214  -  555  -  0187"). A seven-digit number only counts
+# after a cue word, and the cue rule has already taken those clauses; "555-0187" alone is an
+# exchange and a line number.
+_PHONE_SEPARATOR = r"[\s.\-/\u2010-\u2015\u2212\u00b7]{0,5}"
+# Not inside a longer number or after a currency sign, but fine after punctuation
+# ("Info.214-555-0187", "Lot,214-555-0187").
 _PHONE = re.compile(
-    rf"(?<![\w$,.])(?:\+?1{_PHONE_SEPARATOR})?(?:\(\d{{3}}\)|\d{{3}})"
+    rf"(?<![\w$])(?<!\d[,.])(?:\+?1{_PHONE_SEPARATOR})?(?:\(\d{{3}}\)|\d{{3}})"
     rf"{_PHONE_SEPARATOR}\d{{3}}{_PHONE_SEPARATOR}\d{{4}}(?!\d)"
 )
 
@@ -108,7 +112,8 @@ _BROKERAGE = re.compile(
 )
 
 _LICENSE = re.compile(
-    r"\b(?:TREC|Licen[sc]e|Lic)\b\.?(?:\s*(?:No\.?|Number|#|:))*\s*\d[\w-]{4,}", re.IGNORECASE
+    r"\b(?:TREC|Licen[sc]e|Lic)\b\.?(?:\s*(?:No\.?|Number|#|:|is\b))*\s*\d[\w-]{4,}",
+    re.IGNORECASE,
 )
 
 # The brokerage rule goes first: "Brokerage" is also a cue word, and the cue rule would take
