@@ -1,7 +1,9 @@
 """Check constraints are named once: `ck_<table>_<name>`, never `ck_<table>_ck_<table>_<name>`."""
 
+import pytest
 from alembic import command
 from sqlalchemy import CheckConstraint, Column, Engine, Integer, MetaData, Table, text
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.schema import CreateTable
 
 from feasibility.db import alembic_config, current_schema_version, upgrade_to_head
@@ -44,6 +46,16 @@ def test_a_name_that_only_starts_like_the_prefix_is_still_prefixed() -> None:
 
     assert "CONSTRAINT ck_proforma_ck_listing_status CHECK" in sql
     assert "CONSTRAINT ck_proforma_ck_proformastatus CHECK" in sql
+
+
+def test_an_unnamed_check_constraint_is_still_refused() -> None:
+    with pytest.raises(InvalidRequestError, match="explicit name"):
+        Table(
+            "proforma",
+            MetaData(naming_convention=metadata.naming_convention),
+            Column("a", Integer),
+            CheckConstraint("a > 0"),
+        )
 
 
 def test_a_database_built_from_the_migrations_has_no_doubled_check_name(

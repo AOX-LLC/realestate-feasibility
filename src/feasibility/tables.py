@@ -31,6 +31,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import InvalidRequestError
 
 
 def _check_name(constraint: Any, table: Any) -> str:
@@ -39,6 +40,11 @@ def _check_name(constraint: Any, table: Any) -> str:
     that gives the short one (`status`) therefore both end up as `ck_proforma_status`, never as
     `ck_proforma_ck_proforma_status`, which is what the plain convention made of the first five
     migrations."""
+    if not isinstance(constraint.name, str) or type(constraint.name).__name__ == "_NONE_NAME":
+        # SQLAlchemy's own refusal of an unnamed check constraint; the override would hide it.
+        raise InvalidRequestError(
+            f"a check constraint on {table.name} needs an explicit name for the convention to use"
+        )
     name = str(constraint.name)
     prefix = f"ck_{table.name}_"
     return name[len(prefix) :] if name.startswith(prefix) else name
