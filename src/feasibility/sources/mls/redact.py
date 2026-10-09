@@ -84,7 +84,11 @@ _PHONE = re.compile(
     rf"{_PHONE_SEPARATOR}\d{{3}}{_PHONE_SEPARATOR}\d{{4}}(?!\d)"
 )
 
-_TOP_LEVEL = r"(?:com|net|org|io|co|us|biz|info|realty|homes|app|dev|xyz|tv|me)"
+_TOP_LEVEL = (
+    r"(?:com|net|org|io|co|us|biz|info|realty|homes|app|dev|xyz|tv|me"
+    # Endings agents register for a listing site.
+    r"|realestate|properties|house|estate|land|ca|ly|uk|pro|online|site|link)"
+)
 _LINK_END = r"[^\s]*[^\s.,;:!?)\]]"
 _SCHEME_LINKS = re.compile(rf"(?:\bhttps?://|\bwww\.){_LINK_END}", re.IGNORECASE)
 _BARE_DOMAINS = re.compile(

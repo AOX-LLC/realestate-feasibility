@@ -180,6 +180,13 @@ def test_money_lot_sizes_and_years_are_not_phone_numbers() -> None:
         "www.example.com/plans",
         "example.com",
         "tour.example.net/abc?x=1",
+        "example.realestate",
+        "example.properties/lot-9",
+        "example.house",
+        "example.estate",
+        "example.land",
+        "example.ca",
+        "bit.ly/abc",
     ],
 )
 def test_urls_and_bare_domains_are_removed(link: str) -> None:
