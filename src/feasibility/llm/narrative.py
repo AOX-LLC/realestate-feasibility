@@ -9,6 +9,7 @@ feedback is the list of violations (a kind and a short token each, never a sente
 draft). A second failure rejects the narrative and its text is dropped: only the violations stay.
 """
 
+import json
 from collections.abc import Generator
 from dataclasses import dataclass
 from decimal import Decimal
@@ -17,6 +18,7 @@ from typing import Annotated, Literal, Self
 from aox_agent_core import CallResult, PromptRef
 from pydantic import Field, JsonValue, model_validator
 
+from feasibility.config import REPO_ROOT
 from feasibility.llm.facts import FIGURE_KEYS, Facts
 from feasibility.llm.metered import MeteredClient, input_sha256
 from feasibility.llm.narrative_check import (
@@ -349,3 +351,25 @@ def rejected_result(
         facts=StoredFacts(**facts.stored()),
         model=_model_info(attempt, reused),
     )
+
+
+# --- a debug helper -----------------------------------------------------------------------------
+
+CASES_FILE = REPO_ROOT / "evals" / "narrative" / "cases.json"
+
+
+def check_text(text: str, case: str = "s1") -> str:
+    """The check's verdict on `text` as a summary, over the facts of one eval case (`s1`, `s2`,
+    `s3`, `snap-004`, ...), in a line. A debugging aid: nothing is stored and no model is called."""
+    cases = json.loads(CASES_FILE.read_text(encoding="utf-8"))
+    found = next((entry for entry in cases if entry["id"] == case.lower()), None)
+    if found is None:
+        raise ValueError(f"no case {case!r}; the cases are {', '.join(c['id'] for c in cases)}")
+    checked = check_narrative(
+        NarrativeDraft(summary=text, risks=[], checks_before_offer=[]),
+        Facts.model_validate(found["facts"]),
+    )
+    if checked.passed:
+        figures = ", ".join(f"{figure.key}={figure.text}" for figure in checked.figures_quoted)
+        return f"accepted: {figures or 'no figures'}"
+    return "rejected: " + "; ".join(f"{v.kind}: {v.text}" for v in checked.violations)
