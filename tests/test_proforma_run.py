@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from conftest import empty_database
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import Engine, delete, func, select, update
 from test_api import SENTINEL
 
@@ -26,7 +26,7 @@ from feasibility.logging import REDACTED
 from feasibility.markets.loader import get_pack
 from feasibility.proforma import run as proforma_run
 from feasibility.proforma import store
-from feasibility.proforma.model import ProformaResult
+from feasibility.proforma.model import Comp, ProformaResult
 from feasibility.proforma.store import StoredProforma
 from feasibility.snapshot.load import seed
 from feasibility.sourcing import store as sourcing_store
@@ -486,3 +486,21 @@ def test_a_long_error_is_cut_to_the_length_the_job_queue_keeps(
 
 def test_the_engine_hides_the_values_bound_to_a_failing_statement() -> None:
     assert create_db_engine("postgresql+psycopg://u:p@127.0.0.1:1/x").hide_parameters
+
+
+def test_a_validation_error_is_recorded_without_the_values_that_failed(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        Comp.model_validate({"address": "17 PRIVATE LN", "price": "not a price"})
+
+    patched = SimpleNamespace(**{**vars(sourcing_store), "merge_counts": broken})
+    monkeypatch.setattr(proforma_run, "sourcing_store", patched)
+
+    with pytest.raises(ValidationError):
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
+
+    with seeded.connect() as connection:
+        error = connection.execute(select(sourcing_run.c.error)).scalar_one()
+    assert error.startswith("ValidationError: ")
+    assert "price" in error and "PRIVATE" not in error and "not a price" not in error

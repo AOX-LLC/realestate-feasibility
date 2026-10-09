@@ -15,6 +15,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
@@ -200,8 +201,20 @@ def _price_proformas(
 def _error_message(error: Exception, settings: Settings) -> str:
     """What a failure says on the run: redacted, and cut to the length the job queue keeps (a
     database error can carry the statement and its values)."""
-    text = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+    text = redact(_describe(error), settings.secret_values())
     return text[:ERROR_TEXT_LIMIT]
+
+
+def _describe(error: Exception) -> str:
+    """The error as one line. A validation error is summarised without the values that failed,
+    which can be listing or comparable-sale data."""
+    if isinstance(error, ValidationError):
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in problem['loc'])}: {problem['msg']}"
+            for problem in error.errors(include_input=False, include_url=False)
+        )
+        return f"ValidationError: {error.error_count()} problems in {error.title}: {problems}"
+    return f"{type(error).__name__}: {error}"
 
 
 def _record_stage_error(engine: Engine, settings: Settings, run_id: int, error: Exception) -> None:
