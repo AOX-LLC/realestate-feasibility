@@ -1,6 +1,7 @@
 """The RESO adapter: what it maps, what it drops, and the one path remarks take into a listing."""
 
 import json
+import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,18 @@ def test_an_oversized_input_is_cut_at_whitespace_so_a_number_is_never_split() ->
     assert ingested is not None
     assert "214" not in ingested.text
     assert "-0187" not in ingested.text
+
+
+@pytest.mark.parametrize(
+    "shape", ["\u33c7" * 20_000, "\ufdfa" * 20_000, "Ab-" * 6_000, "A." * 10_000]
+)
+def test_ingestion_time_is_bounded_even_when_normalisation_expands_the_text(shape: str) -> None:
+    """NFKC turns one character into up to eighteen, so a bound applied only before it lets
+    a 20,000-character record reach the redactor at hundreds of thousands."""
+    started = time.perf_counter()
+    ingest_remarks(shape)
+
+    assert time.perf_counter() - started < 1.0
 
 
 def test_ingestion_is_idempotent() -> None:

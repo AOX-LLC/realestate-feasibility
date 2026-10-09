@@ -366,16 +366,19 @@ def test_redacting_twice_changes_nothing_on_random_text() -> None:
         "call " * 8_000,
         "Mr " * 13_000,
         "( " * 20_000,
+        "Ab-" * 13_000,
+        "A." * 20_000,
+        "Ab&" * 13_000,
     ],
 )
 def test_the_redactor_is_linear_on_hostile_input(shape: str) -> None:
     """A run of word characters with no "@" once cost a scan from every character in it:
-    40,000 characters took over a minute. The budget is generous; the quadratic cases are
-    orders of magnitude beyond it."""
+    40,000 characters took over a minute. The shapes take about 0.03 s; the quadratic versions took
+    1 to 12 s."""
     started = time.perf_counter()
     redact_personal(shape)
 
-    assert time.perf_counter() - started < 3.0
+    assert time.perf_counter() - started < 1.0
 
 
 @pytest.mark.parametrize(

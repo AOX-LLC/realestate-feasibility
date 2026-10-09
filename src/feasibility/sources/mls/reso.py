@@ -39,8 +39,8 @@ DROPPED_FIELDS = frozenset(
         "ShowingInstructions",
     }
 )
-# Bound on the work the redactor does for one record. Cut at whitespace, so a number cannot be
-# split in two and left half-redacted.
+# Bound on the work the redactor does for one record, applied before and after normalisation.
+# Cut at whitespace, so a number cannot be split in two and left half-redacted.
 MAX_RAW_REMARKS_CHARS = 20_000
 _WHITESPACE_SEARCH = 64
 
@@ -81,7 +81,9 @@ def ingest_remarks(public_remarks: str | None) -> IngestedRemarks | None:
     if public_remarks is None:
         return None
     normalised = normalise_untrusted(_bounded(public_remarks))
-    redacted = redact_personal(normalised.text)
+    # NFKC can expand text (one character to as many as eighteen), so the bound is applied
+    # again to what the redactor will scan.
+    redacted = redact_personal(_bounded(normalised.text))
     text = finish_untrusted(redacted.text, normalised.removed_invisible).strip()
     if not text:
         return None

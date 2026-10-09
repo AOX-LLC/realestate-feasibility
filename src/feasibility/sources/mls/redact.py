@@ -93,7 +93,9 @@ _HONORIFIC_NAME = re.compile(
     rf"\b(?i:(?:Mr|Mrs|Ms|Miss|Mx)\.?|(?:Dr|Prof)\.)\s+{_NAME_PART}(?:\s+{_NAME_PART})?"
 )
 
-_BROKERAGE_PREFIX = r"(?:(?:[A-Z][\w'\u2019.-]*|&)\s+){1,4}"
+# Each name word starts only where a word starts: without the lookbehind a run like "Ab-Ab-Ab-"
+# is rescanned from every capital in it.
+_BROKERAGE_PREFIX = r"(?:(?<![\w'\u2019.&-])(?:[A-Z][\w'\u2019.-]*|&)\s+){1,4}"
 # "Real Estate" and "Properties" are ordinary words too: "Dallas Real Estate taxes" and
 # "Properties of the lot" stay unless the name ends in "Group".
 _ORDINARY_CONTINUATION = (
