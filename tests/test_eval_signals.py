@@ -351,7 +351,10 @@ def test_a_planted_string_in_the_prompt_sent_is_a_leak() -> None:
 
     leaks = ev.personal_leaks(leaking, make_output())
 
-    assert leaks == ["prompt: 0", "remarks: 0"]
+    assert leaks == [
+        "planted string 1 is in the prompt",
+        "planted string 1 is in the stored remarks",
+    ]
 
 
 def test_a_planted_string_in_the_output_alone_is_a_leak() -> None:
@@ -359,7 +362,7 @@ def test_a_planted_string_in_the_output_alone_is_a_leak() -> None:
 
     leaks = ev.personal_leaks(case, make_output(("as_is_sale", "Dana Whitfield said so")))
 
-    assert leaks == ["output: 0"]
+    assert leaks == ["planted string 1 is in the output"]
 
 
 def test_redacted_remarks_leak_nothing() -> None:
@@ -387,7 +390,9 @@ def test_residual_cases_are_scored_apart_and_do_not_trip_the_hard_check() -> Non
     assert scores_of(scorecard, "R")["personal_data_residual"] is False
     summary = ev.summarise("dev", [residual], scorecard)
     assert summary.personal_leaks == {}
-    assert summary.residual_leaks == {"R": ["prompt: 0", "remarks: 0"]}
+    assert summary.residual_leaks == {
+        "R": ["planted string 1 is in the prompt", "planted string 1 is in the stored remarks"]
+    }
     assert (summary.residual_cases, ev.hard_failures(summary)) == (1, [])
 
 
