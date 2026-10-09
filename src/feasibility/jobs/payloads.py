@@ -32,3 +32,19 @@ class SourcingRunPayload(BaseModel):
     market: str
     # None means today in the market's time zone (live mode); mock mode needs a date.
     as_of: date | None = None
+
+
+class MorningRunPayload(BaseModel):
+    """The morning chain: source the day, then build its brief."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    market: str
+    # None means today in the market's time zone (live mode); mock mode needs a date.
+    as_of: date | None = None
+
+
+class BriefDeliverPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_id: int = Field(ge=1, le=2**63 - 1)

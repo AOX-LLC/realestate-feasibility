@@ -12,10 +12,14 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
+from feasibility.delivery import store as brief_store
+from feasibility.delivery.build import BriefError, build_brief
 from feasibility.jobs import queue
 from feasibility.jobs.payloads import (
+    BriefDeliverPayload,
     CadImportPayload,
     ListingsSyncPayload,
+    MorningRunPayload,
     SourcingRunPayload,
 )
 from feasibility.listings import sync_listings
@@ -29,6 +33,8 @@ from feasibility.sources.rentcast.client import (
     RentCastClient,
     SchemaDriftError,
 )
+from feasibility.sourcing import store as sourcing_store
+from feasibility.sourcing.dates import resolve_run_date
 from feasibility.sourcing.errors import SourcingError
 from feasibility.sourcing.run import run_sourcing
 
@@ -67,6 +73,8 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     SourcingError,
     # A recording that is missing or a model that is misconfigured is the same on every attempt.
     PermanentModelError,
+    # A brief that cannot be built (no such run, a run still running) is the same on every try.
+    BriefError,
 )
 
 
@@ -126,10 +134,49 @@ def run_sourcing_job(payload: SourcingRunPayload, context: JobContext) -> None:
     run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
 
 
+def _queue_brief(context: JobContext, run_id: int) -> None:
+    with context.engine.begin() as connection:
+        queue.enqueue(
+            connection,
+            "brief.deliver",
+            BriefDeliverPayload(run_id=run_id),
+            dedupe_key=f"brief.deliver:{run_id}",
+        )
+
+
+def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
+    """Source the day, then queue its brief.
+
+    A run that ranked but whose model stages could not finish (a missing recording, a model
+    that is misconfigured) still has a ranking and pro-formas: its brief is queued, partial,
+    and the job still ends dead so the failure stays visible. A model provider that is down
+    (retryable) queues nothing: the retry reuses every cached result and briefs when it
+    finishes. Any other failure queues nothing."""
+    try:
+        result = run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
+    except PermanentModelError:
+        run_date, _ = resolve_run_date(context.settings, get_pack(payload.market), payload.as_of)
+        with context.engine.connect() as connection:
+            run_id = sourcing_store.run_id_of(connection, payload.market, run_date)
+        if run_id is not None:
+            _queue_brief(context, run_id)
+        raise
+    _queue_brief(context, result.run_id)
+
+
+def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None:
+    """Build the run's brief and store it. (Delivery to the outside comes in a later session.)"""
+    with context.engine.begin() as connection:
+        brief = build_brief(connection, payload.run_id, context.settings.data_mode)
+        brief_store.write_brief(connection, brief)
+
+
 def build_registry() -> dict[str, JobKind]:
     """Every job kind this application runs."""
     return {
         "cad.import": JobKind(CadImportPayload, run_cad_import),
         "listings.sync": JobKind(ListingsSyncPayload, run_listings_sync),
         "sourcing.run": JobKind(SourcingRunPayload, run_sourcing_job),
+        "morning.run": JobKind(MorningRunPayload, run_morning),
+        "brief.deliver": JobKind(BriefDeliverPayload, run_brief_deliver),
     }

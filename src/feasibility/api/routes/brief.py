@@ -1,0 +1,38 @@
+"""The stored brief of a run. Read-only: it serves what `brief.deliver` built, and nothing here
+builds one, so this module imports the stored shape and one read function."""
+
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, ConfigDict
+
+from feasibility.api.deps import EngineDep
+from feasibility.api.routes.sourcing import RunId, require_run
+from feasibility.delivery.brief import Brief
+from feasibility.delivery.store import read_brief
+
+router = APIRouter(prefix="/sourcing", tags=["brief"])
+
+
+class BriefOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    content_sha256: str
+    built_at: datetime
+    brief: Brief
+
+
+@router.get("/runs/{run_id}/brief")
+def get_run_brief(engine: EngineDep, run_id: RunId) -> BriefOut:
+    """The run's brief: its computed pro-formas in rank order, with the signals that held and
+    the narrative if it passed the figure check. 404 when none has been built."""
+    with engine.connect() as connection:
+        require_run(connection, run_id)
+        stored = read_brief(connection, run_id)
+    if stored is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no brief has been built for this run")
+    return BriefOut(
+        content_sha256=stored.content_sha256,
+        built_at=stored.built_at,
+        brief=Brief.model_validate(stored.content),
+    )

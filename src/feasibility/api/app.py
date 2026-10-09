@@ -16,6 +16,7 @@ from feasibility.api.gate import ApiGate
 from feasibility.api.identity import read_identity
 from feasibility.api.ratelimit import ApiLimits, Clock
 from feasibility.api.routes import (
+    brief,
     budget,
     health,
     jobs,
@@ -25,6 +26,7 @@ from feasibility.api.routes import (
     parcels,
     proforma,
     sourcing,
+    triggers,
 )
 from feasibility.config import Settings
 
@@ -78,6 +80,8 @@ def create_app(settings: Settings, engine: Engine, *, clock: Clock = time.monoto
         sourcing,
         proforma,
         llm,
+        brief,
+        triggers,
     ):
         app.include_router(module.router)
     return app

@@ -229,11 +229,17 @@ def test_every_route_is_get_only(engine: Engine) -> None:
         path
         for path in paths
         if path.startswith("/sourcing")
-        and not path.endswith(("/proformas", "/proforma", "/narratives", "/llm", "/llm/cost"))
+        and not path.endswith(
+            ("/proformas", "/proforma", "/narratives", "/llm", "/llm/cost", "/brief")
+        )
     ]
 
     assert len(sourcing) == 4
-    assert all(set(methods) == {"get"} for methods in paths.values())
+    assert all(
+        set(methods) == {"get"}
+        for path, methods in paths.items()
+        if not path.startswith("/triggers/")
+    )
 
 
 def test_the_router_module_cannot_write_or_spend() -> None:

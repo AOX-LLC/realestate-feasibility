@@ -19,6 +19,10 @@ from sqlalchemy import Connection
 from feasibility.api.app import create_app
 from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
+from feasibility.delivery import render as brief_render
+from feasibility.delivery import store as brief_store
+from feasibility.delivery.brief import Brief
+from feasibility.delivery.build import BriefError, build_brief
 from feasibility.jobs.handlers import build_registry, enqueue_job
 from feasibility.jobs.payloads import SourcingRunPayload
 from feasibility.jobs.worker import Worker
@@ -51,6 +55,8 @@ proforma_app = typer.Typer(no_args_is_help=True, help="Pro-formas of a run (read
 app.add_typer(proforma_app, name="proforma")
 llm_app = typer.Typer(no_args_is_help=True, help="Model results and their cost (read-only).")
 app.add_typer(llm_app, name="llm")
+brief_app = typer.Typer(no_args_is_help=True, help="The brief of a run: build it, read it.")
+app.add_typer(brief_app, name="brief")
 eval_app = typer.Typer(no_args_is_help=True, help="Model evals: replay by default, no live calls.")
 app.add_typer(eval_app, name="eval")
 
@@ -361,6 +367,44 @@ def llm_cost(
         shown_run = _proforma_run(connection, market, run_id)
         cost = llm_store.run_cost(connection, shown_run)
     for line in llm_render.cost_lines(shown_run, cost, settings.llm_run_budget_usd):
+        typer.echo(line)
+
+
+@brief_app.command("build")
+def brief_build(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+) -> None:
+    """Build a run's brief from what it stored and keep it. It makes no model call, and sends
+    nothing anywhere."""
+    settings = get_settings()
+    with get_engine().begin() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        try:
+            built = build_brief(connection, shown_run, settings.data_mode)
+        except BriefError as error:
+            typer.echo(f"brief not built: {error}", err=True)
+            raise typer.Exit(code=2) from None
+        digest = brief_store.write_brief(connection, built)
+    typer.echo(f"run {shown_run}: brief built, {built.completeness}, {built.shown} candidates")
+    typer.echo(f"content sha256 {digest}")
+
+
+@brief_app.command("show")
+def brief_show(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+) -> None:
+    """Print a run's stored brief (read-only)."""
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        stored = brief_store.read_brief(connection, shown_run)
+    if stored is None:
+        typer.echo(
+            f"run {shown_run} has no brief; build one with `feasibility brief build`", err=True
+        )
+        raise typer.Exit(code=2)
+    for line in brief_render.lines(Brief.model_validate(stored.content), stored.content_sha256):
         typer.echo(line)
 
 

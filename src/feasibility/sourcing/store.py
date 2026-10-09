@@ -452,6 +452,16 @@ def run_exists(connection: Connection, run_id: int) -> bool:
     )
 
 
+def run_id_of(connection: Connection, market: str, as_of: date) -> int | None:
+    """The run of a market and date, whatever its status."""
+    run_id: int | None = connection.execute(
+        select(sourcing_run.c.id).where(
+            sourcing_run.c.market == market, sourcing_run.c.as_of == as_of
+        )
+    ).scalar_one_or_none()
+    return run_id
+
+
 def latest_run_id(connection: Connection, market: str) -> int | None:
     run_id: int | None = connection.execute(
         select(sourcing_run.c.id)
