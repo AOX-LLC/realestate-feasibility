@@ -132,13 +132,22 @@ def open_client(
     """The run's metered client, or None when live data has no model configured."""
     if not settings.llm_configured:
         return None
-    return MeteredClient(
-        model if model is not None else default_model(settings),
-        RunSpendGuard(engine, run_id, settings.llm_run_budget_usd, settings.llm_monthly_budget_usd),
-        engine,
-        load_llm_config(settings),
-        run_id=run_id,
-    )
+    try:
+        return MeteredClient(
+            model if model is not None else default_model(settings),
+            RunSpendGuard(
+                engine, run_id, settings.llm_run_budget_usd, settings.llm_monthly_budget_usd
+            ),
+            engine,
+            load_llm_config(settings),
+            run_id=run_id,
+        )
+    except (AgentCoreError, ValueError, OSError) as error:
+        # A missing or malformed config file, a missing per-call budget, a mode the client does not
+        # have: the same on every attempt, so the job is not retried.
+        raise PermanentModelError(
+            f"the model client could not be built: {type(error).__name__}"
+        ) from None
 
 
 # --- what a stage works with --------------------------------------------------------------------

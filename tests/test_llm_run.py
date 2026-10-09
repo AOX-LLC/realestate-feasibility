@@ -1014,3 +1014,19 @@ def test_a_failure_in_recording_the_counts_does_not_replace_the_stages_own_error
                 failures={1: ReplayMissError("no recording", key="k", path="p")}, **FREE
             ),
         )
+
+
+def test_a_model_client_that_cannot_be_built_is_permanent(
+    seeded: Engine, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broken = tmp_path / "agent-core.toml"
+    broken.write_text("this is = not [valid toml")
+    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+
+    with pytest.raises(PermanentModelError, match="could not be built"):
+        run_sourcing(seeded, _settings(AGENT_CORE_CONFIG=str(broken)), "dallas", DAY_ONE)
+
+    assert _rows(seeded, "SELECT count(*) FROM llm_call")[0][0] == 0
+    run = _rows(seeded, "SELECT status, error FROM sourcing_run")[0]
+    assert run.status == "completed"
+    assert run.error.startswith("PermanentModelError: the model client could not be built")
