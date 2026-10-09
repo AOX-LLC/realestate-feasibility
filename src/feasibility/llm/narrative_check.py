@@ -99,7 +99,7 @@ class Check(BaseModel):
 _ALLOWED_MARKS = frozenset(
     chr(point) for point in (0x2018, 0x2019, 0x201C, 0x201D, 0x2013, 0x2014, 0x2026)
 )
-_SIGNS = frozenset("-+") | {chr(0x2212), chr(0x2013), chr(0x2014)}
+_SIGNS = frozenset("-+<>") | {chr(0x2212), chr(0x2013), chr(0x2014)}
 _MASK = chr(0x2588)
 _TOKEN_PUNCTUATION = ".,:;-+/"  # noqa: S105 (punctuation that may trail a number, not a secret)
 _TOKEN_MARKS = frozenset("$%")
@@ -167,6 +167,8 @@ _WHOLE_WORDS = frozenset(
         "twelfth",
         "digit",
         "digits",
+        "bp",
+        "bps",
         "teen",
         "teens",
         "fourscore",
@@ -210,7 +212,7 @@ _WHOLE_WORDS = frozenset(
 _SQUASHED_STEMS = re.compile(
     r"thousand|hundred|illion|dozen|twenty|thirty|fifty|sixty|seventy|ninety"
 )
-_PER_CENT = re.compile(r"\bper[\s-]cent\b", re.IGNORECASE)
+_PER_CENT = re.compile(r"\bper[\s-]cent\b|\bbasis\s+points?\b", re.IGNORECASE)
 _ROMAN = re.compile(r"[MDCLXVI]{2,}")
 _LOOKALIKE_NUMBER = re.compile(r"\$?[lIOS]+(?:[.,][lIOS]+)*%?")
 _APOSTROPHE_IN_WORD = re.compile(r"(?<=[A-Za-z])[\u2018\u2019'](?=[A-Za-z])")
@@ -319,7 +321,10 @@ def _spelled_numbers(masked: str) -> list[str]:
     """The number words in `masked`, as the tokens they were found in, sorted."""
     found = {token.lower() for token in _letter_tokens(masked) if _is_number_word(token)}
     found |= {token for token in _letter_tokens(masked) if _ROMAN.fullmatch(token)}
-    found |= {match.group(0).lower().replace("-", " ") for match in _PER_CENT.finditer(masked)}
+    found |= {
+        " ".join(re.split(r"[\s-]+", match.group(0).lower()))
+        for match in _PER_CENT.finditer(masked)
+    }
     # The same words with the separators taken out, so a split spelling is read whole. A token
     # is reported only for what the plain scan did not already name.
     joined = _JOINED_BY_PUNCTUATION.sub("", _SPACED_LETTERS.sub(_without_space, masked))

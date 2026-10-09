@@ -464,6 +464,10 @@ MEANING_CHANGES = [
     ("apr", "A 33.69% APR."),
     ("currency_prefix", "CAD $420,000.00."),
     ("money_as_area", "A $420,000.00 sq ft lot."),
+    ("less_than", "A margin <7.57% on cost."),
+    ("greater_than", "A margin >7.57% on cost."),
+    ("basis_point", "A basis point of margin."),
+    ("bps", "A few bps of margin."),
 ]
 
 
