@@ -129,7 +129,7 @@ DECOYS: list[tuple[str, str]] = [
 ]
 
 
-# Added after the gatekeeper review: phrasings that passed the first spelled-number rule. All
+# Added after the security review: phrasings that passed the first spelled-number rule. All
 # ASCII. Each must be rejected.
 REVIEW_ATTACKS: list[tuple[str, str]] = [
     ("low_twenties", "The margin is in the low twenties."),
