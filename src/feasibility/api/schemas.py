@@ -275,3 +275,140 @@ class Page[T](ResponseModel):
     items: list[T]
     # Pass as `after` to get the next page; null on the last page.
     next_after: str | None
+
+
+# --- the model stages (read-only) ---------------------------------------------------------------
+# A signal's quote is a stretch of the listing's redacted remarks that code verified, the same
+# text `GET /listings` already serves. A narrative is served as the model wrote it only when it
+# was accepted; a rejected one is its status, its reason and the kinds of rule it broke, never
+# the draft and never the text of a violation (a violation holds a few characters of the draft).
+
+
+class RemarksReadOut(ResponseModel):
+    char_count: int
+    redaction_count: int
+    removed_invisible_count: int
+    suspicious: bool
+    suspicious_rules: list[str]
+
+
+class SignalOut(ResponseModel):
+    code: str
+    polarity: Literal["risk", "opportunity"]
+    source: Literal["remarks", "fields"]
+    quote: str | None
+    field: str | None
+    field_value: str | None
+
+
+class DroppedClaimOut(ResponseModel):
+    code: str
+    reason: str
+
+
+class ExtractionOut(ResponseModel):
+    prompt_id: str
+    prompt_version: int
+    tier: str
+    reused: bool
+    llm_call_id: int | None
+
+
+class SignalsOut(ResponseModel):
+    status: Literal["extracted", "fields_only", "failed", "deferred"]
+    reason: str | None
+    remarks: RemarksReadOut | None
+    signals: list[SignalOut]
+    dropped: list[DroppedClaimOut]
+    model_flagged_injection: bool | None
+    extraction: ExtractionOut | None
+
+
+class RiskPointOut(ResponseModel):
+    basis: list[str]
+    text: str
+
+
+class QuotedFigureOut(ResponseModel):
+    key: str
+    text: str
+
+
+class NarrativeCheckOut(ResponseModel):
+    passed: bool
+    attempts: int
+    # Which rules the draft broke, once per violation. Never what the draft said.
+    violation_kinds: list[str]
+
+
+class NarrativeFactsOut(ResponseModel):
+    figures: dict[str, str]
+    codes: list[str]
+
+
+class NarrativeModelOut(ResponseModel):
+    prompt_id: str
+    prompt_version: int
+    tier: str
+    reused: bool
+    llm_call_ids: list[int]
+
+
+class NarrativeOut(ResponseModel):
+    status: Literal["accepted", "rejected", "failed", "deferred", "not_eligible"]
+    reason: str | None
+    summary: str | None
+    risks: list[RiskPointOut]
+    checks_before_offer: list[str]
+    figures_quoted: list[QuotedFigureOut]
+    check: NarrativeCheckOut | None
+    facts: NarrativeFactsOut
+    model: NarrativeModelOut | None
+
+
+class CandidateLlmOut(ResponseModel):
+    run_id: int
+    candidate_id: int
+    signals: SignalsOut | None
+    narrative: NarrativeOut | None
+
+
+class NarrativeLineOut(ResponseModel):
+    candidate_id: int
+    rank: int
+    status: Literal["accepted", "rejected", "failed", "deferred", "not_eligible"]
+    reason: str | None
+    summary: str | None
+
+
+class CostLineOut(ResponseModel):
+    key: str | None
+    calls: int
+    refused_calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: Decimal
+    reserved_unknown_usd: Decimal
+
+
+class RunCostOut(ResponseModel):
+    run_id: int
+    run_budget_usd: Decimal
+    # What the cap counts: the known costs, plus the reservation held for each call that raised.
+    spent_usd: Decimal
+    remaining_usd: Decimal
+    modes: list[str]
+    total: CostLineOut
+    by_stage: list[CostLineOut]
+    by_model: list[CostLineOut]
+
+
+class MonthSpendOut(ResponseModel):
+    month: str
+    billable_calls: int
+    refused_calls: int
+    cost_usd: Decimal
+    reserved_unknown_usd: Decimal
+    spent_usd: Decimal
+    monthly_budget_usd: Decimal
+    remaining_usd: Decimal

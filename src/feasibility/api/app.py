@@ -17,6 +17,7 @@ from feasibility.api.routes import (
     health,
     jobs,
     listings,
+    llm,
     markets,
     parcels,
     proforma,
@@ -38,7 +39,10 @@ def create_app(settings: Settings, engine: Engine) -> FastAPI:
     app = FastAPI(
         title="Real estate feasibility",
         version=identity.version,
-        summary="Read-only API over parcels, listings, sourcing, pro-formas, jobs and the budget.",
+        summary=(
+            "Read-only API over parcels, listings, sourcing, pro-formas, model results, "
+            "jobs and the budget."
+        ),
     )
     app.state.settings = settings
     app.state.engine = engine
@@ -50,7 +54,7 @@ def create_app(settings: Settings, engine: Engine) -> FastAPI:
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(Exception, _unexpected_error)
 
-    for module in (health, markets, parcels, listings, jobs, budget, sourcing, proforma):
+    for module in (health, markets, parcels, listings, jobs, budget, sourcing, proforma, llm):
         app.include_router(module.router)
     return app
 
