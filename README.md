@@ -15,7 +15,7 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma) and 4 (the LL
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
 | 5 | Delivery: the morning brief, scheduling | Not started |
-| 6 | Evals | Not started |
+| 6 | Evals and the proof kit | Started: the two model evals exist (Phase 4); more suites to come |
 
 ## Quick start
 
