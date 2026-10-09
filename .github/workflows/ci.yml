@@ -24,6 +24,14 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
+      # The check fails on a folder with no recordings, so it runs once there are some.
+      - name: Check recorded model responses
+        run: |
+          if find data/llm/replays -name '*.json' -print -quit | grep -q .; then
+            uv run aox-agent-core cassettes check data/llm/replays
+          else
+            echo "No recordings yet; nothing to check."
+          fi
 
   test:
     runs-on: ubuntu-latest
