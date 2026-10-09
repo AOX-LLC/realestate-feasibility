@@ -57,7 +57,9 @@ def test_the_client_takes_its_mode_from_settings_not_the_process_environment(
 
 def test_record_mode_builds_with_the_settings_key_and_no_network() -> None:
     settings = Settings(  # type: ignore[call-arg]
-        _env_file=None, llm_mode=LlmMode.RECORD, llm_api_key=SecretStr(SENTINEL)
+        _env_file=None,
+        AGENT_CORE_MODE=LlmMode.RECORD,
+        AGENT_CORE_ANTHROPIC_API_KEY=SecretStr(SENTINEL),
     )
 
     client = build_model_client(settings)

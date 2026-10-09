@@ -37,8 +37,8 @@ def _settings(data: DataMode, llm: LlmMode, *, key: str | None = None) -> Settin
     return Settings(  # type: ignore[call-arg]
         _env_file=None,
         data_mode=data,
-        llm_mode=llm,
-        llm_api_key=SecretStr(key) if key is not None else None,
+        AGENT_CORE_MODE=llm,
+        AGENT_CORE_ANTHROPIC_API_KEY=SecretStr(key) if key is not None else None,
         rentcast_api_key=SecretStr("rentcast-sentinel") if data is DataMode.LIVE else None,
     )
 
@@ -161,8 +161,8 @@ def test_both_keys_are_redacted_when_both_are_set() -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         data_mode=DataMode.LIVE,
-        llm_mode=LlmMode.LIVE,
-        llm_api_key=SecretStr(SENTINEL),
+        AGENT_CORE_MODE=LlmMode.LIVE,
+        AGENT_CORE_ANTHROPIC_API_KEY=SecretStr(SENTINEL),
         rentcast_api_key=SecretStr("rentcast-sentinel"),
     )
 
@@ -252,3 +252,18 @@ def test_a_refused_combination_does_not_quote_the_keys_in_its_error(
     assert "needs AGENT_CORE_MODE=live" in str(refused.value)
     assert "input_value" not in str(refused.value)
     assert SENTINEL not in str(refused.value)
+
+
+def test_the_key_and_mode_are_read_from_the_library_names_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_API_KEY", SENTINEL)
+    monkeypatch.setenv("llm_api_key", SENTINEL)
+    monkeypatch.setenv("LLM_MODE", "record")
+    monkeypatch.setenv("LLM_CONFIG_PATH", "/elsewhere.toml")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.llm_api_key is None
+    assert settings.llm_mode is LlmMode.REPLAY
+    assert settings.llm_config_path == DEFAULT_LLM_CONFIG_PATH
