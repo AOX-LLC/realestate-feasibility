@@ -8,11 +8,12 @@ links, honorific names, brokerage names and licence numbers. A bare first name w
 eval set measures it.
 
 Each rule runs on the output of the one before it, in the order of `_RULES` (the plan's
-seven, with the brokerage rule first). Redacting
-already-redacted text changes nothing: the replacement token is never a cue.
+seven, with the brokerage rule first). Redacting already-redacted text changes nothing: the
+replacement token is never a cue.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 REMOVED = "[contact removed]"
@@ -35,10 +36,16 @@ _CLAUSE_CHAR = (
 # The "[" guard keeps the replacement token's own word "contact" from being a cue.
 _CUE_CLAUSE = re.compile(rf"(?<!\[)\b(?:{_CUES})\b{_CLAUSE_CHAR}*", re.IGNORECASE)
 
-_EMAIL_WORD = r"[\w.+-]+"
+# Every pattern that scans a run of word characters starts with a lookbehind, so a match can
+# begin only at the start of a run. Without it a long run with no "@" costs a scan from every
+# character in it: quadratic, and one hostile remark could stall the daily sync.
+_EMAIL_WORD = r"(?<![\w.+-])[\w.+-]+"
 _DOMAIN_LABEL = r"[\w-]+"
 _EMAILS = (
-    re.compile(rf"{_EMAIL_WORD}@{_DOMAIN_LABEL}(?:\.{_DOMAIN_LABEL})+"),
+    # dana@example.com, dana @ example.com
+    re.compile(rf"{_EMAIL_WORD}\s*@\s*{_DOMAIN_LABEL}(?:\s*\.\s*{_DOMAIN_LABEL})*"),
+    # A handle: @whitfieldhomes
+    re.compile(r"(?<![\w@])@[A-Za-z0-9_][\w.]+"),
     # name [at] example [dot] com, name (at) example (dot) com, name{at}example.com
     re.compile(
         rf"{_EMAIL_WORD}\s*[\[({{]\s*at\s*[\])}}]\s*{_DOMAIN_LABEL}"
@@ -48,7 +55,8 @@ _EMAILS = (
     # name at example dot com. A bare "at" needs a "dot" or a real domain after it, so
     # "meet the builder at the lot" is left alone.
     re.compile(
-        rf"{_EMAIL_WORD}\s+at\s+{_DOMAIN_LABEL}(?:\s+dot\s+{_DOMAIN_LABEL})+", re.IGNORECASE
+        rf"{_EMAIL_WORD}\s+at\s+{_DOMAIN_LABEL}(?:\s+(?:dot|\.)\s+{_DOMAIN_LABEL})+",
+        re.IGNORECASE,
     ),
 )
 # "dana at example.com". It runs after the scheme and www links, so "tour at www.example.com"
@@ -57,23 +65,28 @@ _AT_DOMAIN_EMAIL = re.compile(
     rf"{_EMAIL_WORD}\s+at\s+(?:{_DOMAIN_LABEL}\.)+[a-z]{{2,}}\b", re.IGNORECASE
 )
 
+# Separators between the groups of digits: a space, dot, hyphen, slash or dash, up to three
+# in a row ("214 - 555 - 0187"). A seven-digit number only counts after a cue word, and the
+# cue rule has already taken those clauses; "555-0187" alone is an exchange and a line.
+_PHONE_SEPARATOR = r"[\s.\-/\u2013\u2014]{0,3}"
 _PHONE = re.compile(
-    r"(?<![\w$,.])(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)"
-    # A seven-digit number only counts when it follows a cue word, and the cue rule has
-    # already taken those clauses; "555-0187" alone is an exchange and a line number.
+    rf"(?<![\w$,.])(?:\+?1{_PHONE_SEPARATOR})?(?:\(\d{{3}}\)|\d{{3}})"
+    rf"{_PHONE_SEPARATOR}\d{{3}}{_PHONE_SEPARATOR}\d{{4}}(?!\d)"
 )
 
 _TOP_LEVEL = r"(?:com|net|org|io|co|us|biz|info|realty|homes|app|dev|xyz|tv|me)"
 _LINK_END = r"[^\s]*[^\s.,;:!?)\]]"
 _SCHEME_LINKS = re.compile(rf"(?:\bhttps?://|\bwww\.){_LINK_END}", re.IGNORECASE)
 _BARE_DOMAINS = re.compile(
-    rf"\b{_DOMAIN_LABEL}(?:\.{_DOMAIN_LABEL})*\.{_TOP_LEVEL}\b(?:/{_LINK_END}|/)?", re.IGNORECASE
+    rf"(?<![\w.-]){_DOMAIN_LABEL}(?:\.{_DOMAIN_LABEL})*\.{_TOP_LEVEL}\b(?:/{_LINK_END}|/)?",
+    re.IGNORECASE,
 )
 
-_NAME_PART = r"[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?"
+_NAME_PART = r"[A-Z][A-Za-z]+(?:[-'][A-Z][A-Za-z]+)?"
 # "Dr" is also a street suffix, so a doctor needs the full stop; "Elm Dr Lot 4" is an address.
+# The honorific is case-insensitive and the name may be in capitals: "MR. ALVAREZ".
 _HONORIFIC_NAME = re.compile(
-    rf"\b(?:(?:Mr|Mrs|Ms|Miss|Mx)\.?|(?:Dr|Prof)\.)\s+{_NAME_PART}(?:\s+{_NAME_PART})?"
+    rf"\b(?i:(?:Mr|Mrs|Ms|Miss|Mx)\.?|(?:Dr|Prof)\.)\s+{_NAME_PART}(?:\s+{_NAME_PART})?"
 )
 
 _BROKERAGE_PREFIX = r"(?:(?:[A-Z][\w'\u2019.-]*|&)\s+){1,4}"
@@ -84,7 +97,7 @@ _ORDINARY_CONTINUATION = (
     r"|include[sd]?|have|has|can|will"
 )
 _BROKERAGE = re.compile(
-    rf"\b{_BROKERAGE_PREFIX}(?:Realty|Realtors?|Brokerage"
+    rf"\b{_BROKERAGE_PREFIX}(?i:Realty|Realtors?|Brokerage"
     rf"|(?:Real\s+Estate|Properties)(?:\s+Group\b|(?!\s+(?:{_ORDINARY_CONTINUATION})\b)))"
 )
 
@@ -115,7 +128,13 @@ class Redacted:
 
 def redact_personal(text: str) -> Redacted:
     """`text` with every match of the personal-data rules replaced by `[contact removed]`,
-    and how many replacements were made."""
+    and how many replacements were made.
+
+    The text is folded to NFKC first, so full-width digits and letters cannot hide a number.
+    Zero-width characters are the caller's to remove (`llm.untrusted.normalise_untrusted`):
+    `sources.mls.reso.ingest_remarks` does both, in that order, and is the only path remarks
+    take into a listing."""
+    text = unicodedata.normalize("NFKC", text)
     count = 0
     for rule in _RULES:
         text, replaced = rule.subn(REMOVED, text)

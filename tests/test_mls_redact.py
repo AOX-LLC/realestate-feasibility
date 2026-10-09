@@ -2,6 +2,7 @@
 
 import random
 import string
+import time
 
 import pytest
 
@@ -329,10 +330,85 @@ def test_redacting_twice_changes_nothing_on_random_text() -> None:
         assert redact_personal(once).text == once, text
 
 
-def test_the_redactor_is_linear_on_hostile_input() -> None:
-    hostile = ("call " * 5000) + ("a" * 50000) + (" at " * 5000) + ("Mr " * 5000)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "a" * 40_000,
+        "a." * 20_000,
+        "a-" * 20_000,
+        "a " * 20_000,
+        "Ab " * 13_000,
+        "1" * 40_000,
+        "a at " * 8_000,
+        "a [" * 13_000,
+        "call " * 8_000,
+        "Mr " * 13_000,
+        "( " * 20_000,
+    ],
+)
+def test_the_redactor_is_linear_on_hostile_input(shape: str) -> None:
+    """A run of word characters with no "@" once cost a scan from every character in it:
+    40,000 characters took over a minute. The budget is generous; the quadratic cases are
+    orders of magnitude beyond it."""
+    started = time.perf_counter()
+    redact_personal(shape)
 
-    assert redact_personal(hostile).count >= 1
+    assert time.perf_counter() - started < 3.0
+
+
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "214 - 555 - 0187",
+        "214/555/0187",
+        "214\u2013555\u20130187",
+        "214  555  0187",
+        "(214)555-0187",
+    ],
+)
+def test_phone_numbers_with_loose_separators_are_removed(phone: str) -> None:
+    assert (
+        _clean(f"Plans ready, {phone}, survey current.")
+        == f"Plans ready, {REMOVED}, survey current."
+    )
+
+
+def test_full_width_digits_cannot_hide_a_number() -> None:
+    assert _clean(
+        "Plans ready, \uff12\uff11\uff14-\uff15\uff15\uff15-\uff10\uff11\uff18\uff17."
+    ) == (f"Plans ready, {REMOVED}.")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Seller MR. ALVAREZ will review.", f"Seller {REMOVED} will review."),
+        ("Seller mr. Alvarez will review.", f"Seller {REMOVED} will review."),
+        ("Offered by WHITFIELD REALTY exclusively.", f"Offered by {REMOVED} exclusively."),
+        ("Offered by Whitfield REALTY exclusively.", f"Offered by {REMOVED} exclusively."),
+        ("Mail dana @ example.com ok.", f"Mail {REMOVED} ok."),
+        ("Write dana@example ok.", f"Write {REMOVED} ok."),
+        ("On IG @whitfieldhomes today.", f"On {REMOVED} today."),
+        ("Plans: dana at example . com ok.", f"Plans: {REMOVED} ok."),
+    ],
+)
+def test_capitals_spacing_and_handles_do_not_hide_personal_data(text: str, expected: str) -> None:
+    assert _clean(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Questions? Maria will meet you there.",
+        "Plans: dana_at_example_dot_com",
+        "five five five oh one eight seven",
+    ],
+)
+def test_the_known_residual_forms_are_left_alone_and_stated(text: str) -> None:
+    """Pattern-based redaction cannot catch these. The residual eval set measures them and
+    docs/ARCHITECTURE.md states the gap; this test pins today's behaviour so a change to it
+    is deliberate."""
+    assert _clean(text) == text
 
 
 def test_the_corpus_text_has_no_printable_leftovers_of_a_planted_contact() -> None:
