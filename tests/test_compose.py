@@ -49,9 +49,20 @@ def test_the_services_that_call_models_get_the_model_settings(service: str) -> N
     assert "DATABASE_URL" in environment
 
 
-def test_the_api_gets_no_model_settings_and_no_key() -> None:
+API_LLM_VARIABLES = {"LLM_RUN_BUDGET_USD", "LLM_MONTHLY_BUDGET_USD"}
+
+
+def test_the_api_gets_the_spend_caps_it_reports_but_no_mode_and_no_key() -> None:
     environment = _services()["api"]["environment"]
 
-    assert LLM_VARIABLES.isdisjoint(environment)
+    assert set(environment) >= API_LLM_VARIABLES
+    assert (LLM_VARIABLES - API_LLM_VARIABLES).isdisjoint(environment)
     assert not any("ANTHROPIC" in name for name in environment)
     assert "DATABASE_URL" in environment
+
+
+def test_the_api_and_the_worker_read_the_same_caps() -> None:
+    services = _services()
+
+    for name in API_LLM_VARIABLES:
+        assert services["api"]["environment"][name] == services["worker"]["environment"][name]

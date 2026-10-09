@@ -44,6 +44,12 @@ x-llm-environment: &llm-environment
   LLM_RUN_BUDGET_USD: ${LLM_RUN_BUDGET_USD:-1.00}
   LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-10.00}
 
+# The caps the api reports (`/llm/cost`, `/llm/spend`) must be the ones the worker enforces. They
+# are the only model settings the api receives: no mode, no key.
+x-llm-budgets: &llm-budgets
+  LLM_RUN_BUDGET_USD: ${LLM_RUN_BUDGET_USD:-1.00}
+  LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-10.00}
+
 x-app: &app
   build:
     context: .
@@ -91,6 +97,8 @@ services:
 
   api:
     <<: [*app, *hardening]
+    environment:
+      <<: [*app-environment, *llm-budgets]
     ports:
       - "127.0.0.1:4501:4501"
     depends_on:
