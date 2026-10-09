@@ -123,11 +123,20 @@ class MeteredClient:
         reservation = config.routing.budget_usd_per_call
         if reservation is None:
             raise ConfigError("routing.budget_usd_per_call must be set: it is the reservation.")
+        inner_config = getattr(inner, "config", None)
+        if isinstance(inner_config, AgentCoreConfig) and inner_config.mode != config.mode:
+            # The mode decides whether a call is billable, and so which caps apply and how its
+            # row is labelled: it must be the wrapped client's own.
+            raise ValueError(
+                f"config mode {config.mode.value} differs from the client's "
+                f"{inner_config.mode.value}"
+            )
         self._inner = inner
         self._guard = guard
         self._engine = engine
         self._config = config
         self._reservation = reservation
+        self._billable = config.mode.value in BILLABLE_MODES
         self._run_id = run_id
 
     def call_sync(
@@ -212,7 +221,7 @@ class MeteredClient:
 
     def _reserve(self, call: _Call) -> None:
         try:
-            self._guard.reserve(self._reservation)
+            self._guard.reserve(self._reservation, billable=self._billable)
         except LlmBudgetError:
             self._write(call, outcome="budget_refused", reserved=Decimal(0))
             raise
@@ -243,7 +252,7 @@ class MeteredClient:
             return
         outcome = _outcome_of(error)
         if outcome is None:
-            if self._config.mode.value not in BILLABLE_MODES:
+            if not self._billable:
                 return
             outcome = "provider_error"
         attempts = len(error.attempts) if isinstance(error, StructuredOutputError) else 1

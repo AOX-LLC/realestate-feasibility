@@ -28,8 +28,9 @@ def _utc_now() -> datetime:
 
 
 class SpendGuard(Protocol):
-    def reserve(self, reservation: Decimal) -> None:
-        """Raise LlmBudgetError when a call holding `reservation` could pass a cap."""
+    def reserve(self, reservation: Decimal, *, billable: bool) -> None:
+        """Raise LlmBudgetError when a call holding `reservation` could pass a cap. `billable`
+        is the mode of the client making the call, which only that client knows."""
 
     def settle(self, spent: Decimal) -> None:
         """Count a finished call: its cost, or its reservation when the cost is unknown."""
@@ -47,21 +48,19 @@ class RunSpendGuard:
         run_cap: Decimal,
         monthly_cap: Decimal,
         *,
-        billable: bool,
         clock: Clock = _utc_now,
     ) -> None:
         self._engine = engine
         self._run_id = run_id
         self._run_cap = run_cap
         self._monthly_cap = monthly_cap
-        self._billable = billable
         self._clock = clock
 
-    def reserve(self, reservation: Decimal) -> None:
+    def reserve(self, reservation: Decimal, *, billable: bool) -> None:
         run_spent = ledger.run_spend(self._engine, self._run_id)
         if run_spent + reservation > self._run_cap:
             raise LlmBudgetError("run", spent=run_spent, reservation=reservation, cap=self._run_cap)
-        if self._billable:
+        if billable:
             month_spent = ledger.billable_spend_in_month(self._engine, self._clock())
             if month_spent + reservation > self._monthly_cap:
                 raise LlmBudgetError(
@@ -80,7 +79,6 @@ class SessionSpendGuard:
         self,
         max_usd: Decimal,
         *,
-        billable: bool = False,
         engine: Engine | None = None,
         monthly_cap: Decimal | None = None,
         clock: Clock = _utc_now,
@@ -88,7 +86,6 @@ class SessionSpendGuard:
         if (engine is None) != (monthly_cap is None):
             raise ValueError("pass an engine and a monthly cap together, or neither")
         self._max_usd = max_usd
-        self._billable = billable
         self._engine = engine
         self._monthly_cap = monthly_cap
         self._clock = clock
@@ -98,12 +95,12 @@ class SessionSpendGuard:
     def spent(self) -> Decimal:
         return self._spent
 
-    def reserve(self, reservation: Decimal) -> None:
+    def reserve(self, reservation: Decimal, *, billable: bool) -> None:
         if self._spent + reservation > self._max_usd:
             raise LlmBudgetError(
                 "session", spent=self._spent, reservation=reservation, cap=self._max_usd
             )
-        if self._billable and self._engine is not None and self._monthly_cap is not None:
+        if billable and self._engine is not None and self._monthly_cap is not None:
             month_spent = ledger.billable_spend_in_month(self._engine, self._clock())
             if month_spent + reservation > self._monthly_cap:
                 raise LlmBudgetError(

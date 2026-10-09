@@ -56,7 +56,6 @@ def _client(
         run_id,
         Decimal(run_cap),
         Decimal(monthly_cap),
-        billable=config.mode.value in ("record", "live"),
         clock=lambda: NOW,
     )
     return MeteredClient(fake, guard, engine, config, run_id=run_id)

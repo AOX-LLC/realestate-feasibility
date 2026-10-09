@@ -247,3 +247,13 @@ def test_the_real_client_in_replay_with_no_recordings_leaves_a_replay_error_row(
 
     (row,) = _rows(engine)
     assert (row["outcome"], row["mode"], row["billable"]) == ("replay_error", "replay", False)
+
+
+def test_a_config_whose_mode_differs_from_the_wrapped_clients_is_refused(
+    config: AgentCoreConfig,
+) -> None:
+    inner = build_model_client(Settings(_env_file=None))  # type: ignore[call-arg]
+    live_config = config.model_copy(update={"mode": Mode.LIVE})
+
+    with pytest.raises(ValueError, match="differs from the client's replay"):
+        MeteredClient(inner, SessionSpendGuard(Decimal(1)), None, live_config)
