@@ -4,11 +4,14 @@ Listing remarks are untrusted: a seller or agent can write anything into them. T
 the first of three layers (the others are a closed output schema and code that verifies every
 quote). It does three things:
 
-* `normalise_untrusted` (at ingestion): Unicode NFKC, and removal of control, zero-width, bidi,
-  tag and filler characters. Removed characters are counted; when there are
-  `HIDDEN_TEXT_THRESHOLD` or more, each run of them is replaced by a visible marker so that
-  the evidence survives into the stored text and the scan below can see it without any state.
-* `cap_text` (at ingestion, after redaction, so a cut can never leave half a phone number).
+* `normalise_untrusted` (at ingestion, first): Unicode NFKC, and removal of control,
+  zero-width, bidi, tag and filler characters, which are counted.
+* `finish_untrusted` (at ingestion, last, after redaction): the length cap, so a cut can never
+  leave half a phone number, and, when `HIDDEN_TEXT_THRESHOLD` or more characters were
+  removed, a visible marker line. The evidence then survives into the stored text and the
+  scan below sees it without any state. The marker goes in after redaction: placed earlier
+  it would split a number that was hidden among zero-width characters, and the redactor would
+  miss it.
 * `defang_tags` and `scan_injection` (at prompt build): close-tag lookalikes are neutralised
   and a heuristic list of attack phrasings is matched. A hit marks the remarks suspicious;
   the extraction code then drops any quote that overlaps a hit's span.
@@ -53,25 +56,17 @@ def _is_invisible(character: str) -> bool:
 def normalise_untrusted(text: str) -> Normalised:
     """NFKC, line endings as newlines, invisible characters removed and counted."""
     text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
-    kept: list[str | None] = [None if _is_invisible(character) else character for character in text]
-    removed = sum(1 for character in kept if character is None)
-    if removed < HIDDEN_TEXT_THRESHOLD:
-        return Normalised("".join(c for c in kept if c is not None), removed)
-    pieces: list[str] = []
-    in_run = False
-    for character in kept:
-        if character is None:
-            if not in_run:
-                pieces.append(HIDDEN_TEXT_MARKER)
-            in_run = True
-        else:
-            pieces.append(character)
-            in_run = False
-    return Normalised("".join(pieces), removed)
+    kept = [character for character in text if not _is_invisible(character)]
+    return Normalised("".join(kept), len(text) - len(kept))
 
 
-def cap_text(text: str, limit: int = MAX_REMARKS_CHARS) -> str:
-    return text[:limit]
+def finish_untrusted(text: str, removed_invisible: int, limit: int = MAX_REMARKS_CHARS) -> str:
+    """`text` capped to `limit` characters, with the hidden-text marker on its own last line
+    when `removed_invisible` reaches the threshold. The marker counts toward the limit."""
+    if removed_invisible < HIDDEN_TEXT_THRESHOLD:
+        return text[:limit].rstrip()
+    room = limit - len(HIDDEN_TEXT_MARKER) - 1
+    return f"{text[:room].rstrip()}\n{HIDDEN_TEXT_MARKER}".lstrip()
 
 
 _TAG_START = re.compile(r"<(?=[/!?|A-Za-z])")
