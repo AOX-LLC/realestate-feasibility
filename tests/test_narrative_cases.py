@@ -157,3 +157,17 @@ def test_check_text_rejects_a_rounded_figure_and_says_which() -> None:
 def test_check_text_refuses_an_unknown_case() -> None:
     with pytest.raises(ValueError, match="no case 'nope'"):
         check_text("x", "nope")
+
+
+@pytest.mark.parametrize(
+    ("url", "disposable"),
+    [
+        ("postgresql+psycopg://u:p@127.0.0.1:4502/feasibility_scratch", True),
+        ("postgresql+psycopg://u:p@127.0.0.1:4502/feasibility_test", True),
+        ("postgresql+psycopg://u:p@127.0.0.1:4502/feasibility", False),
+        ("postgresql+psycopg://u:p@127.0.0.1:4502/production", False),
+        ("postgresql+psycopg://u:p@127.0.0.1:4502", False),
+    ],
+)
+def test_the_script_only_accepts_a_scratch_or_test_database(url: str, disposable: bool) -> None:
+    assert _script().is_disposable(url) is disposable

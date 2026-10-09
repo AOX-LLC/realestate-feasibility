@@ -24,7 +24,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, make_url, select
 
 from feasibility.config import DataMode, Settings
 from feasibility.db import create_db_engine, upgrade_to_head
@@ -284,10 +284,19 @@ def render(cases: list[dict[str, Any]]) -> str:
     return json.dumps(cases, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def is_disposable(url: str) -> bool:
+    """Whether the database is named as a scratch or test one. The script migrates, seeds and
+    runs sourcing on it, so a dev or production database must never be handed to it."""
+    name = make_url(url).database or ""
+    return "scratch" in name or "test" in name
+
+
 def main() -> None:
     url = os.environ.get("DATABASE_URL")
     if not url:
         sys.exit("set DATABASE_URL to a scratch database (it is migrated and seeded)")
+    if not is_disposable(url):
+        sys.exit("refusing: the database name must contain 'scratch' or 'test'")
     engine = create_db_engine(url)
     upgrade_to_head(engine)
     OUTPUT.write_text(render(build(engine)), encoding="utf-8")
