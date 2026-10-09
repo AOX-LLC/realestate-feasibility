@@ -21,6 +21,7 @@ The scan is a heuristic and is not the guard: the structural defences are.
 
 import re
 import unicodedata
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 
 MAX_REMARKS_CHARS = 4_000
@@ -146,12 +147,13 @@ def scan_injection(text: str) -> list[InjectionHit]:
     hits: list[InjectionHit] = []
     for rule, pattern in _RULES.items():
         for match in pattern.finditer(text):
-            start = (
-                match.start()
-                if rule in _NO_EXPANSION_BACKWARD
-                else max((b for b in boundaries if b <= match.start()), default=0)
-            )
-            end = min((b for b in boundaries if b >= match.end()), default=len(text))
+            if rule in _NO_EXPANSION_BACKWARD:
+                start = match.start()
+            else:
+                before = bisect_right(boundaries, match.start())
+                start = boundaries[before - 1] if before else 0
+            after = bisect_left(boundaries, match.end())
+            end = boundaries[after] if after < len(boundaries) else len(text)
             hits.append(InjectionHit(rule, start, end))
     return sorted(hits, key=lambda hit: (hit.start, hit.end, hit.rule))
 

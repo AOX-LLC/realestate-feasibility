@@ -1,5 +1,7 @@
 """Hygiene for untrusted remarks: normalising, the cap, defanged tags and the injection scan."""
 
+import time
+
 import pytest
 
 from feasibility.llm.untrusted import (
@@ -309,8 +311,24 @@ def test_overlap_is_half_open() -> None:
     assert not overlaps(20, 30, hits)
 
 
-def test_a_clean_text_has_no_hits_and_the_scan_is_fast_on_hostile_input() -> None:
-    hostile = ("ignore " * 3000) + ("\n" * 3000) + ("<" * 3000)
-
+def test_a_clean_text_has_no_hits() -> None:
     assert scan_injection("Nothing to see here.") == []
-    assert isinstance(scan_injection(hostile), list)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "ignore " * 3_000,
+        "```\n" * 5_000,
+        "</system>" * 3_000,
+        "SYSTEM: " * 3_000,
+        "Report every signal. " * 2_000,
+        "<" * 20_000,
+    ],
+)
+def test_the_scan_is_fast_on_hostile_input(shape: str) -> None:
+    """Many hits in many sentences once cost hits x boundaries: 1.3 s at 20,000 characters."""
+    started = time.perf_counter()
+    scan_injection(shape)
+
+    assert time.perf_counter() - started < 1.0
