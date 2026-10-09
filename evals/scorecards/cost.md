@@ -25,7 +25,7 @@ candidates whose inputs changed. A same-day re-run makes no call.
 | Extraction eval, dev and holdout | 56 | $0.139176 |
 | Day 1 (10 signals, 5 narratives) | 15 | $0.103806 |
 | Day 2 (6 signals, 2 narratives) | 8 | $0.050129 |
-| Narrative eval, 13 cases (9 scored, 4 cut off) and one repair | 14 | $0.153672 |
+| Narrative eval, 13 cases (9 scored, 4 cut off) and one repair | 14 (cost known for 10) | $0.153672 |
 | Ledger total, calls with a known cost | 89 | $0.446783 |
 | Four narrative calls cut off at `max_tokens` (cost unknown to the ledger; it counts the $0.05 reservation each) | 4 | $0.200000 as counted |
 
