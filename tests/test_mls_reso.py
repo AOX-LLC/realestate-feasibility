@@ -210,6 +210,19 @@ def test_two_records_for_one_listing_id_are_refused(tmp_path: Path) -> None:
         SnapshotRemarksSource(path)
 
 
+def test_a_validation_error_never_quotes_the_record(tmp_path: Path) -> None:
+    broken = {k: v for k, v in RECORD.items() if k != "ListingKey"}
+    broken["ListPrice"] = "not a price"
+
+    with pytest.raises(ValueError) as caught:
+        load_reso_records(_write(tmp_path, [broken]))
+
+    message = str(caught.value)
+    assert "ListingKey" in message
+    for leaked in ("Dana Whitfield", "214-555-0187", "dana@example.com", "Lockbox", "not a price"):
+        assert leaked not in message
+
+
 def test_a_record_without_a_listing_id_is_refused(tmp_path: Path) -> None:
     without_id = {k: v for k, v in RECORD.items() if k != "ListingId"}
 

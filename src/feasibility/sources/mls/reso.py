@@ -48,7 +48,11 @@ _WHITESPACE_SEARCH = 64
 class ResoProperty(BaseModel):
     """The mapped fields of a RESO Property record. Anything else in a record is ignored."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
+    # A validation error quotes its input by default, and here the input is a whole record:
+    # agent contact details, private notes and remarks. Errors name the field and nothing else.
+    model_config = ConfigDict(
+        frozen=True, extra="ignore", populate_by_name=True, hide_input_in_errors=True
+    )
 
     listing_key: str = Field(alias="ListingKey")
     listing_id: str = Field(alias="ListingId")
