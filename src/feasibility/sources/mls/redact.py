@@ -33,8 +33,12 @@ _CLAUSE_CHAR = (
     + "".join(rf"|(?<=\b{abbreviation})\." for abbreviation in _HONORIFIC_ABBREVIATIONS)
     + ")"
 )
+# A cue followed at once by a colon, a dash or a line break ("Listing agent - Dana Whitfield",
+# "Agent: Dana", "Call:\nDana") has an empty clause of its own: the separator is part of the
+# cue and the clause it introduces follows. A bare full stop is not ("Please call. Thanks!").
+_CUE_LEAD = r"(?:[ \t]*(?:[:\u2013\u2014-]|\n)[\s:\u2013\u2014-]*)?"
 # The "[" guard keeps the replacement token's own word "contact" from being a cue.
-_CUE_CLAUSE = re.compile(rf"(?<!\[)\b(?:{_CUES})\b{_CLAUSE_CHAR}*", re.IGNORECASE)
+_CUE_CLAUSE = re.compile(rf"(?<!\[)\b(?:{_CUES})\b{_CUE_LEAD}{_CLAUSE_CHAR}*", re.IGNORECASE)
 
 # Every pattern that scans a run of word characters starts with a lookbehind, so a match can
 # begin only at the start of a run. Without it a long run with no "@" costs a scan from every

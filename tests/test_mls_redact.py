@@ -88,6 +88,28 @@ def test_cue_words_match_whole_words_only() -> None:
     assert _clean(text) == text
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Listing agent - Dana Whitfield", REMOVED),
+        ("Listing agent \u2013 Dana Whitfield, plans ready", REMOVED),
+        ("Agent\u2014Dana Whitfield", REMOVED),
+        ("Agent: Dana Whitfield", REMOVED),
+        ("Call:\nDana Whitfield", REMOVED),
+        ("Contact -- Dana Whitfield", REMOVED),
+        ("Presented by:  Dana Whitfield. Flat lot.", f"{REMOVED}. Flat lot."),
+    ],
+)
+def test_a_separator_straight_after_the_cue_does_not_leave_the_name_behind(
+    text: str, expected: str
+) -> None:
+    assert _clean(text) == expected
+
+
+def test_a_cue_followed_by_a_full_stop_is_still_ordinary_prose() -> None:
+    assert _clean("Please call. Thanks for looking.") == f"Please {REMOVED}. Thanks for looking."
+
+
 # --- 2. emails ---------------------------------------------------------------------------------
 
 
