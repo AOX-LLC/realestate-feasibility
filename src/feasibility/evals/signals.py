@@ -33,7 +33,7 @@ from aox_agent_core.evals import (
 )
 from pydantic import BaseModel, ConfigDict, JsonValue
 
-from feasibility.evals.client import RUN_ENDING_ERRORS, EvalAbortedError
+from feasibility.evals.client import RUN_ENDING_ERRORS, RunEnd
 from feasibility.llm.catalogue import CODES
 from feasibility.llm.metered import MeteredClient
 from feasibility.llm.signals import (
@@ -118,15 +118,14 @@ class ExtractionTarget:
 
     def __init__(self, client: MeteredClient) -> None:
         self._client = client
-        self._ended_by: str | None = None
+        self._run_end = RunEnd()
 
     @property
     def ended_by(self) -> str | None:
-        return self._ended_by
+        return self._run_end.ended_by
 
     async def __call__(self, case: EvalCase) -> TargetOutput:
-        if self._ended_by is not None:
-            raise EvalAbortedError(f"not tried: case {self._ended_by} ended the run")
+        self._run_end.refuse_if_ended()
         extraction_input = build_extraction_input(_remarks_of(case))
         try:
             result = await self._client.call(
@@ -137,7 +136,7 @@ class ExtractionTarget:
                 task=TASK,
             )
         except RUN_ENDING_ERRORS:
-            self._ended_by = case.id
+            self._run_end.mark(case.id)
             raise
         verified = verify_extraction(result.output, extraction_input)
         output: dict[str, JsonValue] = {

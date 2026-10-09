@@ -28,6 +28,20 @@ class EvalAbortedError(RuntimeError):
     """A case was not tried because an earlier case hit a run-ending error."""
 
 
+class RunEnd:
+    """Remembers the case that ended a run, so that later cases are not tried."""
+
+    def __init__(self) -> None:
+        self.ended_by: str | None = None
+
+    def refuse_if_ended(self) -> None:
+        if self.ended_by is not None:
+            raise EvalAbortedError(f"not tried: case {self.ended_by} ended the run")
+
+    def mark(self, case_id: str) -> None:
+        self.ended_by = case_id
+
+
 @dataclass(frozen=True)
 class EvalSession:
     """The client of one eval run and the mode it serves calls in (the scorecard records it)."""
