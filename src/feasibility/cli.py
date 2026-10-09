@@ -342,6 +342,8 @@ def llm_cost(
     if month is not None:
         try:
             moment = datetime.strptime(month, "%Y-%m").replace(tzinfo=UTC)
+            if not 1970 <= moment.year <= 2199:
+                raise ValueError(month)
         except ValueError:
             raise typer.BadParameter("month must look like 2026-10") from None
         start, end = llm_ledger.month_bounds(moment)

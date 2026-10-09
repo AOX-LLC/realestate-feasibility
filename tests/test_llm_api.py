@@ -190,6 +190,9 @@ def test_a_candidate_the_run_does_not_hold_is_a_404(runs: tuple[TestClient, int,
         "/llm/spend?month=bogus",
         "/llm/spend?month=2026-13",
         "/llm/spend?month=2026-1",
+        "/llm/spend?month=0000-01",
+        "/llm/spend?month=9999-12",
+        "/llm/spend?month=1969-12",
     ],
 )
 def test_bad_input_is_a_422_that_does_not_echo_it(

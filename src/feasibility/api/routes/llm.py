@@ -49,7 +49,8 @@ from feasibility.llm.store import (
 router = APIRouter(tags=["model stages"])
 
 NarrativeStatus = Literal["accepted", "rejected", "failed", "deferred", "not_eligible"]
-MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
+# 1970 to 2199: a year a date can hold with room to spare, so no month overflows or underflows.
+MONTH = r"^(19[7-9]\d|20\d\d|21\d\d)-(0[1-9]|1[0-2])$"
 
 
 def _signals_out(result: SignalsResult) -> SignalsOut:

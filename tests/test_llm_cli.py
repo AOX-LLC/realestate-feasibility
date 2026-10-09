@@ -168,8 +168,12 @@ def test_cost_with_a_month_prints_the_months_billable_spend(day_one: tuple[Engin
     assert "model calls" not in result.output
 
 
-def test_a_bad_month_exits_two(day_one: tuple[Engine, int]) -> None:
-    assert _invoke("cost", "--month", "bogus").exit_code == 2
+@pytest.mark.parametrize("month", ["bogus", "2026-13", "0001-01", "9999-12", "1969-12"])
+def test_a_bad_month_exits_two(day_one: tuple[Engine, int], month: str) -> None:
+    result = _invoke("cost", "--month", month)
+
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
 
 
 def test_the_commands_only_read(day_one: tuple[Engine, int]) -> None:
