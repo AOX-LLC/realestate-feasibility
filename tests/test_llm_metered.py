@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from feasibility.config import Settings
 from feasibility.llm import ledger
 from feasibility.llm.client import build_model_client
+from feasibility.llm.errors import LlmBudgetError
 from feasibility.llm.metered import MeteredClient, input_sha256
 from feasibility.llm.spend import SessionSpendGuard
 from feasibility.tables import llm_call, sourcing_run
@@ -389,3 +390,58 @@ def test_the_check_waits_for_whoever_holds_the_spend_lock(
 
     assert finished.is_set()
     assert len(fake.calls) == 1
+
+
+def test_last_call_id_is_the_ledger_row_of_the_most_recent_call(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    client = _metered(FakeClient(result(), ReplayMissError("miss"), result()), engine, config)
+    assert client.last_call_id is None
+
+    _call(client)
+    first = client.last_call_id
+    with pytest.raises(ReplayMissError):
+        _call(client)
+    second = client.last_call_id
+    _call(client)
+
+    assert [row["id"] for row in _rows(engine)] == [first, second, client.last_call_id]
+    assert len({first, second, client.last_call_id}) == 3
+
+
+def test_last_call_id_is_none_without_a_database(config: AgentCoreConfig) -> None:
+    client = _metered(FakeClient(result()), None, config)
+
+    _call(client)
+
+    assert client.last_call_id is None
+
+
+def test_a_refused_call_leaves_the_id_of_its_budget_refused_row(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    client = MeteredClient(
+        FakeClient(),
+        SessionSpendGuard(Decimal("0.01")),
+        engine,
+        config,
+    )
+
+    with pytest.raises(LlmBudgetError):
+        _call(client)
+
+    (row,) = _rows(engine)
+    assert row["outcome"] == "budget_refused"
+    assert client.last_call_id == row["id"]
+
+
+def test_last_call_id_is_cleared_when_an_unknown_replay_error_discards_the_row(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    client = _metered(FakeClient(RuntimeError("not ours")), engine, config)
+
+    with pytest.raises(RuntimeError):
+        _call(client)
+
+    assert _rows(engine) == []
+    assert client.last_call_id is None

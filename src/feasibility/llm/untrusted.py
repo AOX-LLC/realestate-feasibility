@@ -12,9 +12,11 @@ quote). It does three things:
   scan below sees it without any state. The marker goes in after redaction: placed earlier
   it would split a number that was hidden among zero-width characters, and the redactor would
   miss it.
-* `defang_tags` and `scan_injection` (at prompt build): close-tag lookalikes are neutralised
-  and a heuristic list of attack phrasings is matched. A hit marks the remarks suspicious;
-  the extraction code then drops any quote that overlaps a hit's span.
+* `fold_tag_lookalikes`, `defang_tags` and `scan_injection` (at prompt build): angle-bracket
+  lookalikes (other scripts' brackets and HTML entities) are folded to `<` and `>` first, then
+  close-tag lookalikes are neutralised and a heuristic list of attack phrasings is matched. A
+  hit marks the remarks suspicious; the extraction code then drops any quote that overlaps a
+  hit's span.
 
 The scan is a heuristic and is not the guard: the structural defences are.
 """
@@ -70,12 +72,41 @@ def finish_untrusted(text: str, removed_invisible: int, limit: int = MAX_REMARKS
     return f"{text[:room].rstrip()}\n{HIDDEN_TEXT_MARKER}".lstrip()
 
 
-_TAG_START = re.compile(r"<(?=[/!?|A-Za-z])")
+# Built from code points: the formatter rewrites \u escapes as literal characters, which the
+# ambiguous-character lint then refuses.
+_TAG_BRACKETS = {
+    **dict.fromkeys((0x2039, 0xFF1C, 0x2329, 0x3008), "<"),  # single guillemet, fullwidth, angle
+    **dict.fromkeys((0x203A, 0xFF1E, 0x232A, 0x3009), ">"),
+}
+_ENTITY_BRACKET = re.compile(
+    r"&(?:(?P<opening>lt|#0*60|#x0*3c)|(?P<closing>gt|#0*62|#x0*3e));", re.I
+)
+
+
+def _folded_entity(match: re.Match[str]) -> str:
+    # The bracket keeps its place against the text it touches (`<|im_start|` must stay adjacent),
+    # and the rest of the entity becomes spaces so the length does not change.
+    padding = " " * (len(match.group(0)) - 1)
+    return f"{padding}<" if match.group("opening") else f">{padding}"
+
+
+def fold_tag_lookalikes(text: str) -> str:
+    """Characters and entities that read as `<` or `>` become those characters.
+
+    NFKC at ingestion already folds some (fullwidth, U+2329); this is for text that did not pass
+    through it, and for the entities. Same length, so spans stay valid: an entity such as `&lt;`
+    becomes the bracket with spaces beside it. Entities without a semicolon, and ones written twice
+    over (`&amp;lt;`), are left alone."""
+    return _ENTITY_BRACKET.sub(_folded_entity, text).translate(_TAG_BRACKETS)
+
+
+_TAG_START = re.compile(r"<(?=\s*[/!?|A-Za-z])")
 
 
 def defang_tags(text: str) -> str:
-    """`<` that starts a tag-like sequence becomes `[`. Same length, so spans stay valid."""
-    return _TAG_START.sub("[", text)
+    """`<` that starts a tag-like sequence (a space may follow it: `< /tag>`) becomes `[`, after
+    lookalikes are folded to `<`. Same length, so spans stay valid."""
+    return _TAG_START.sub("[", fold_tag_lookalikes(text))
 
 
 @dataclass(frozen=True)
@@ -121,13 +152,15 @@ _RULES: dict[str, re.Pattern[str]] = {
         r"|summari[sz]e|list)\b"
         r"|\b(?:in|into|to)\s+(?:your|the)\s+(?:output|answer|response|reply|summary|json)\b"
         r"|\byour\s+(?:output|answer|response|reply)\s+(?:must|should|will|has\s+to)\b"
-        r"|\b(?:state|say|write|put|mention|include|insert|add|output)\s+(?:that\s+)?(?:the\s+)?"
-        r"(?:margin|profit|roi|return|arv|price|figure|number|percent(?:age)?)\b[^.!?\n]{0,40}\d",
+        r"|\b(?:state|say|write|put|mention|include|insert|add|output|describe)\s+(?:that\s+)?"
+        r"(?:the\s+)?(?:margin|profit|roi|return|arv|price|figure|number|percent(?:age)?)\b"
+        r"[^.!?\n]{0,40}(?:\d|\b(?:\w*(?:teen|ty|ties)|zero|one|two|three|four|five|six|seven"
+        r"|eight|nine|ten|hundred|thousand|million|percent)\b)",
         _FLAGS,
     ),
     "fence_tag": re.compile(
         r"<\s*/?\s*(?:listing_remarks|remarks|system|instructions?|prompt|assistant|user|human"
-        r"|tool\w*|function\w*|output|json)\b[^>\n]{0,80}>?"
+        r"|facts|feedback|tool\w*|function\w*|output|json)\b[^>\n]{0,80}>?"
         r"|```",
         _FLAGS,
     ),
@@ -142,7 +175,9 @@ def scan_injection(text: str) -> list[InjectionHit]:
     """Every attack phrasing in `text`, as the rule that matched and the sentence it sits in.
 
     Scan the text before `defang_tags`: that rewrites the tags the fence rule looks for. The
-    offsets are valid for both, since the rewrite keeps the length."""
+    bracket lookalikes are folded first, so a tag written with them is seen; the offsets are valid
+    for `text`, the folded text and the defanged text alike, since each rewrite keeps the length."""
+    text = fold_tag_lookalikes(text)
     boundaries = [match.end() for match in _SENTENCE_BOUNDARY.finditer(text)]
     hits: list[InjectionHit] = []
     for rule, pattern in _RULES.items():

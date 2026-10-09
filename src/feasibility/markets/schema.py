@@ -394,11 +394,18 @@ class CostAssumptions(PackModel):
         return self
 
 
+class Signals(PackModel):
+    """Thresholds for the field signals (`llm/field_signals.py`)."""
+
+    long_on_market_days: Annotated[int, Field(ge=1, le=365)]
+
+
 class MarketPack(PackModel):
     market: MarketInfo
     sources: Sources
     buy_box: BuyBox
     sourcing: Sourcing
+    signals: Signals
     cost_assumptions: CostAssumptions
 
     @model_validator(mode="after")

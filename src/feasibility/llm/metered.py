@@ -144,6 +144,13 @@ class MeteredClient:
         self._reservation = reservation
         self._billable = config.mode.value in BILLABLE_MODES
         self._run_id = run_id
+        self._last_call_id: int | None = None
+
+    @property
+    def last_call_id(self) -> int | None:
+        """The ledger row of the most recent call (a refused one included), or None before the
+        first call and when there is no database. Calls are serial, so it is that call's row."""
+        return self._last_call_id
 
     def call_sync(
         self,
@@ -158,6 +165,7 @@ class MeteredClient:
         max_attempts: int = 2,
     ) -> CallResult[OutputT]:
         call = self._prepare(stage, prompt, inputs, tier, task, candidate_id)
+        self._last_call_id = None
         self._begin(call)
         try:
             result = self._inner.call_sync(
@@ -187,6 +195,7 @@ class MeteredClient:
         max_attempts: int = 2,
     ) -> CallResult[OutputT]:
         call = self._prepare(stage, prompt, inputs, tier, task, candidate_id)
+        self._last_call_id = None
         await asyncio.to_thread(self._begin, call)
         try:
             result = await self._inner.call(
@@ -242,7 +251,7 @@ class MeteredClient:
                 self._guard.reserve(self._reservation, billable=self._billable)
             except LlmBudgetError as error:
                 refusal = error
-                ledger.insert_call(
+                self._last_call_id = ledger.insert_call(
                     connection, self._record(call, "budget_refused", reserved=Decimal(0))
                 )
             else:
@@ -250,6 +259,7 @@ class MeteredClient:
                 call.row_id = ledger.insert_call(
                     connection, self._record(call, "provider_error", reserved=self._reservation)
                 )
+                self._last_call_id = call.row_id
         if refusal is not None:
             raise refusal
 
@@ -279,6 +289,7 @@ class MeteredClient:
         if outcome is None and not self._billable:
             if self._engine is not None and call.row_id is not None:
                 ledger.discard_call(self._engine, call.row_id)
+            self._last_call_id = None  # the row is gone: do not point at it
             return
         reserved = (
             self._reservation if self._billable or outcome != "budget_refused" else Decimal(0)

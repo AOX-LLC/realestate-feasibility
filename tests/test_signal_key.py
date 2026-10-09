@@ -9,7 +9,6 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from mls_data import (
-    CATALOGUE,
     DEMO_SIGNALS,
     KEY_FILE,
     NULL_REMARKS,
@@ -19,6 +18,8 @@ from mls_data import (
     redacted_text,
     snapshot_records,
 )
+
+from feasibility.llm.catalogue import CODES as CATALOGUE
 
 HARD_NEGATIVE_TAG = re.compile(r"^hardneg:([a-z_]+)$")
 INJECTION_TAG = re.compile(
