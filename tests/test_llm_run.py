@@ -863,7 +863,8 @@ def test_a_stage_stops_when_a_newer_attempt_has_reset_the_run(seeded: Engine) ->
         llm_run.current_attempt(seeded, result.run_id),
     )
 
-    llm_run.run_narratives(ctx)
+    with pytest.raises(llm_run.SupersededError, match="a newer attempt of this run"):
+        llm_run.run_narratives(ctx)
 
     assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
 
@@ -960,7 +961,36 @@ def test_a_stage_of_a_superseded_attempt_writes_nothing_into_the_rebuilt_run(
         connection.execute(text("DELETE FROM candidate_narrative"))
     counts_before = _rows(seeded, "SELECT counts FROM sourcing_run")[0].counts
 
-    llm_run.run_signals(older, _pack())
+    with pytest.raises(llm_run.SupersededError):
+        llm_run.run_signals(older, _pack())
 
     assert _rows(seeded, "SELECT count(*) FROM candidate_signals")[0][0] == 0
     assert _rows(seeded, "SELECT counts FROM sourcing_run")[0].counts == counts_before
+
+
+def test_a_superseded_attempt_stops_before_the_narratives_and_leaves_no_error_on_the_run(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_signals = llm_run.run_signals
+
+    def rebuilt_midway(ctx: Any, pack: Any) -> Any:
+        """While this attempt is between its build and its signals, a newer one rebuilds the run
+        and finishes it."""
+        monkeypatch.setattr("feasibility.sourcing.run.llm_run.run_signals", real_signals)
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+        return real_signals(ctx, pack)
+
+    monkeypatch.setattr("feasibility.sourcing.run.llm_run.run_signals", rebuilt_midway)
+    older = RunModel(**FREE)
+
+    with pytest.raises(llm_run.SupersededError):
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=older)
+
+    assert older.calls == []
+    run = _rows(seeded, "SELECT status, error FROM sourcing_run")[0]
+    # The newer attempt's run is as it left it: completed, and no error written by the older one.
+    assert (run.status, run.error) == ("completed", None)
+    assert _narratives_by_status(seeded, _rows(seeded, "SELECT id FROM sourcing_run")[0][0]) == {
+        ("accepted", None): 5,
+        ("not_eligible", "proforma_no_arv"): 7,
+    }

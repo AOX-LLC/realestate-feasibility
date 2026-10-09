@@ -115,6 +115,11 @@ class PermanentModelError(ModelStageError):
     """A recording is missing or the model is misconfigured; running the job again cannot help."""
 
 
+class SupersededError(PermanentModelError):
+    """A newer attempt of the run has taken it over, so this attempt stopped without writing
+    more. The job is not retried: the newer attempt owns the run."""
+
+
 def default_model(settings: Settings) -> ModelCaller:
     """The model a run calls when none is passed in: the library's client in the settings' mode.
     Tests replace this name."""
@@ -252,6 +257,10 @@ def _permanent(stage: str, candidate_id: int, error: Exception) -> PermanentMode
         f"{stage} stage stopped at candidate {candidate_id}: {type(error).__name__} "
         "(a recording is missing or the model is misconfigured)"
     )
+
+
+def _superseded(stage: str) -> SupersededError:
+    return SupersededError(f"{stage} stage: a newer attempt of this run has taken over")
 
 
 def _retryable(stage: str) -> RetryableModelError:
@@ -541,7 +550,7 @@ def run_signals(ctx: StageContext, pack: MarketPack) -> dict[str, Any]:
             for source in sources:
                 result = _signals_for(ctx, blocked, source, pack.signals.long_on_market_days)
                 if not _write_signals(ctx, source, result):
-                    break  # a newer attempt has reset the run; its rows are not ours
+                    raise _superseded(SIGNALS_STAGE)
                 tally.add(result)
         if blocked.provider_failed:
             raise _retryable(SIGNALS_STAGE)
@@ -740,7 +749,7 @@ def run_narratives(ctx: StageContext) -> dict[str, Any]:
                     ctx, blocked, source, signals.get(source.candidate_id)
                 )
                 if not _write_narrative(ctx, source, digest, result):
-                    break  # a newer attempt has reset the run; its rows are not ours
+                    raise _superseded(NARRATIVE_STAGE)
                 tally.add(result)
         if blocked.provider_failed:
             raise _retryable(NARRATIVE_STAGE)
