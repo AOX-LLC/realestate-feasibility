@@ -34,8 +34,11 @@ def run_proformas(
 ) -> ProformaCounts:
     """Replace the run's pro-formas and merge their counts into the run, in the caller's
     transaction. Serialised with the market's other runs, so a run that rebuilds this one's
-    rows cannot do so half way through."""
+    rows cannot do so half way through, and a run that is no longer completed is left alone."""
     sourcing_store.lock_market_runs(connection, pack.market.id)
+    if sourcing_store.run_status(connection, run_id) != "completed":
+        # A newer attempt has reset or failed this run since the build; its rows are not ours.
+        return ProformaCounts()
     gathered = gather_inputs(connection, pack.market.id, run_id, as_of)
     ttl_days = pack.sourcing.estimates.ttl_days
     built = [

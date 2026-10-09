@@ -16,11 +16,12 @@ from typing import Any
 import pytest
 from conftest import empty_database
 from pydantic import SecretStr
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, delete, func, select, update
 from test_api import SENTINEL
 
 from feasibility.config import DataMode, Settings
 from feasibility.logging import REDACTED
+from feasibility.markets.loader import get_pack
 from feasibility.proforma import run as proforma_run
 from feasibility.proforma import store
 from feasibility.proforma.model import ProformaResult
@@ -365,7 +366,7 @@ def _fail_after_writing(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
     def broken(*args: object, **kwargs: object) -> None:
         raise RuntimeError(message)
 
-    patched = SimpleNamespace(lock_market_runs=sourcing_store.lock_market_runs, merge_counts=broken)
+    patched = SimpleNamespace(**{**vars(sourcing_store), "merge_counts": broken})
     monkeypatch.setattr(proforma_run, "sourcing_store", patched)
 
 
@@ -448,3 +449,26 @@ def test_comps_priced_absurdly_still_store_and_do_not_fail_the_run(
 
     assert (again.counts.proformas, again.counts.proformas_computed) == (12, 5)
     assert _stored_run(seeded, again.run_id).error is None
+
+
+def test_a_run_that_is_no_longer_completed_gets_no_pro_formas_and_keeps_its_own_error(
+    seeded: Engine,
+) -> None:
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
+    with seeded.begin() as connection:
+        connection.execute(
+            update(sourcing_run)
+            .where(sourcing_run.c.id == result.run_id)
+            .values(status="failed", error="the newer attempt failed")
+        )
+        connection.execute(delete(proforma))
+    pack = get_pack("dallas")
+
+    with seeded.begin() as connection:
+        counts = proforma_run.run_proformas(connection, pack, result.run_id, DAY_ONE)
+        sourcing_store.set_run_error(connection, result.run_id, "the older attempt failed")
+
+    assert counts == proforma_run.ProformaCounts()
+    assert _count(seeded, proforma) == 0
+    stored = _stored_run(seeded, result.run_id)
+    assert (stored.status, stored.error) == ("failed", "the newer attempt failed")
