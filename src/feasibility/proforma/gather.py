@@ -173,7 +173,9 @@ def _parcels(
             parcel.c.lot_size_sqft,
             parcel.c.year_built,
             parcel.c.zoning,
-        ).where(parcel.c.market == market, or_(*wanted))
+        )
+        .where(parcel.c.market == market, or_(*wanted))
+        .order_by(parcel.c.account_id)
     )
     return [_ParcelRow(**row._mapping) for row in rows]
 

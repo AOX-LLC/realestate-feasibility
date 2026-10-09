@@ -264,3 +264,15 @@ def test_stored_comps_become_engine_comps_without_the_fields_the_engine_does_not
         for c in estimate.comps
     ] == [("1 A ST, DALLAS, TX 75218", Decimal("1330000.00"), 3000, Decimal("0.40"), 2021)]
     assert not hasattr(estimate.comps[0], "days_old")
+
+
+def test_the_spelling_kept_for_a_group_s_zoning_does_not_depend_on_row_order(
+    engine: Engine, runs: tuple[SourcingResult, SourcingResult]
+) -> None:
+    # Updating a row moves it in the heap; the first account's spelling is kept either way.
+    _set_zoning(engine, GROUP_ACCOUNTS[0], "r-7.5(a)")
+
+    group = _by_account(engine, _gather(engine, runs[1]), "068").inputs
+
+    assert group.zoning == "r-7.5(a)"
+    assert group.zoning_values_seen == ("r-7.5(a)",)
