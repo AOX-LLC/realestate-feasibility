@@ -37,8 +37,9 @@ from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
 from feasibility.sourcing import store as sourcing_store
+from feasibility.sourcing.dates import resolve_run_date
 from feasibility.sourcing.errors import SourcingError
-from feasibility.sourcing.run import resolve_run_date, run_sourcing
+from feasibility.sourcing.run import run_sourcing
 
 # Uncaught errors go through logging (and its secret redaction), not Typer's printer.
 app = typer.Typer(no_args_is_help=True, add_completion=False, pretty_exceptions_enable=False)
