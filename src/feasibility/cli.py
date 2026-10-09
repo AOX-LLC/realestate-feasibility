@@ -400,3 +400,43 @@ def eval_signals(
         typer.echo(problem, err=True)
     if problems:
         raise typer.Exit(code=1)
+
+
+@eval_app.command("narrative")
+def eval_narrative(
+    out: Annotated[Path | None, typer.Option(help="Write scorecard files here")] = None,
+    max_usd: Annotated[float, typer.Option(min=0, help="Spend cap for the session")] = 1.0,
+    min_acceptance: Annotated[float | None, typer.Option(min=0, max=1)] = None,
+) -> None:
+    """Run the narrative eval. Replay mode needs recordings: a missing one fails the run."""
+    from feasibility.evals import narrative as narrative_eval
+    from feasibility.evals.client import build_eval_client, ended_message
+
+    settings = get_settings()
+    if settings.is_live:
+        typer.echo(
+            "evals use the committed synthetic cases: run them with DATA_MODE=mock", err=True
+        )
+        raise typer.Exit(code=2)
+    session = build_eval_client(settings, Decimal(str(max_usd)))
+    report = asyncio.run(
+        narrative_eval.run_narrative_eval(
+            session.client, session.mode, EVALS_DIR / "narrative" / "cases.json"
+        )
+    )
+    if report.ended_by is not None:
+        typer.echo(ended_message(report.ended_by, report.ended_error), err=True)
+        raise typer.Exit(code=1)
+    summary = report.summary
+    typer.echo(narrative_eval.render_summary_markdown(summary))
+    if out is not None:
+        for path in narrative_eval.write_scorecard(report.scorecard, summary, out):
+            typer.echo(f"wrote {path}")
+    problems = narrative_eval.hard_failures(summary)
+    problems += narrative_eval.floor_problems(summary, min_acceptance)
+    if summary.cases_errored:
+        problems.append(f"{summary.cases_errored} cases errored")
+    for problem in problems:
+        typer.echo(problem, err=True)
+    if problems:
+        raise typer.Exit(code=1)
