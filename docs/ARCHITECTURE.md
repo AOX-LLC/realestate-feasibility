@@ -68,12 +68,27 @@ sourcing/
   store.py           every SQL statement of a run
   estimate_store.py  every SQL statement of value estimates: targets, the stored answer, the billed-call count
   estimates.py       the value-estimate spend: the plan (pure) and the call loop
-  run.py             orchestration: date, sync, diff, match, filter, score, rank, write, price the top
+  run.py             orchestration: date, sync, diff, match, filter, score, rank, write, price the
+                     top, compute the pro-formas
   errors.py          SourcingError and its subclasses
+proforma/            the pro-forma: the engine (pure) and its database edge
+  money.py           the one place rounding modes live
+  model.py           ProformaInputs, ProformaResult and the models inside them
+  sizing.py          the buildable size from the lot and the zoning rule (pure)
+  arv.py             the after-repair value from the estimate's sale comps (pure)
+  chain.py           the cost, finance, hold and sell lines for one price (pure)
+  offer.py           the most that earns the target margin, in closed form (pure)
+  sensitivity.py     the ARV x hard cost x hold grid (pure)
+  engine.py          build_proforma: statuses, reasons and flags (pure)
+  gather.py          reads the database and builds the inputs of a run's ranked candidates
+  store.py           every SQL statement of stored pro-formas
+  run.py             stage 5 of a run: a pro-forma for every ranked candidate
+  render.py          the terminal views behind `proforma list` and `show`
 api/                 app factory, identity, schemas, and routers: health, markets, parcels,
-                     listings, jobs, budget, sourcing
+                     listings, jobs, budget, sourcing, proforma
 cli.py               the feasibility command
-migrations/          Alembic environment and versions/ (0001 initial schema, 0002 sourcing)
+migrations/          Alembic environment and versions/ (0001 initial schema, 0002 sourcing,
+                     0003 per-run match, 0004 candidate estimates, 0005 pro-formas)
 ```
 
 Outside the package: `scripts/generate_snapshot.py`, `scripts/check_rentcast_docs.py`, `data/snapshot/`, `tests/`.
@@ -84,14 +99,13 @@ No empty modules exist. These are the planned locations.
 
 | Phase | Module | Purpose |
 | --- | --- | --- |
-| 3 | `proforma/` | Pro-forma engine |
 | 4 | `llm/` | Signal extraction and risk narratives |
 | 5 | `delivery/` | Brief rendering and delivery |
 | 6 | `evals/` | Eval runner over the snapshot |
 
 ## Schema
 
-Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`) and `0004_candidate_estimate` (the sourcing tables are described under [Sourcing](#sourcing)).
+Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`), `0004_candidate_estimate` and `0005_proforma` (the sourcing tables are described under [Sourcing](#sourcing), the pro-forma table under [Pro-forma](#pro-forma)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
@@ -106,7 +120,7 @@ Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_matc
 
 No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged.
 
-Later phases add their own tables in their own migrations: pro-formas (3), signals and risk narratives (4), briefs and deliveries (5).
+Later phases add their own tables in their own migrations: signals and risk narratives (4), briefs and deliveries (5).
 
 ## Job queue
 
@@ -271,9 +285,9 @@ Each answer is committed the moment it arrives (`candidate_estimate`, one row pe
 
 `sourcing/run.py` turns the stored listings and parcels into a ranked, diffed candidate list for one day. One run is keyed by (market, `as_of`), is idempotent (running the same date again rewrites that run's rows only), and goes forward in time (an earlier date than any run already started is refused). Starting the run, the sync, and recording the sync status are separate transactions; building the run (diff, match, score, rank, write) is one transaction, taken behind an advisory lock per market that re-checks the date order. The sync itself runs outside that lock.
 
-**Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write. Then, outside any transaction, buy value estimates for the top candidates (the spend rule under the RentCast client's budget math).
+**Order of a run.** Resolve the date (live mode: today in the market's time zone only; mock mode: an explicit date listed in `data/snapshot/days.json`). Sync the feed (`sync_listings`; in mock mode through the snapshot overlay of that day, with the response cache bypassed so a later day is not answered with an earlier day's body). Classify listings against the previous completed run with a fresh sync. Apply the listing-level filters. Match what passes. Fold listings into candidates. Apply the parcel-level filters. Score and rank. Write. Then, outside any transaction, buy value estimates for the top candidates (the spend rule under the RentCast client's budget math). Last, compute a [pro-forma](#pro-forma) for every ranked candidate from what is stored.
 
-**A failure after the build.** The build transaction commits the ranking and completes the run before anything is paid for. If the estimate stage then fails, the run stays `completed` with its ranking, `sourcing_run.error` carries the redacted message (a completed run with a non-null `error` means "ranked, but a later stage failed"), the counts record what was bought and `estimates_failed`, and the exception propagates. An unclassified error retries the job; a shape change (`SchemaDriftError`) is permanent for the worker, and the next day's run tries again. A retry rebuilds the run's rows, reuses every stored estimate and finishes; completing the run clears `error`. A failure in the sync or the build still marks the run `failed` and clears its rows.
+**A failure after the build.** The build transaction commits the ranking and completes the run before anything is paid for. If a later stage (the estimate spend, then the pro-formas) fails, the run stays `completed` with its ranking, `sourcing_run.error` carries the redacted message (a completed run with a non-null `error` means "ranked, but a later stage failed"), the counts record what was bought and `estimates_failed`, and the exception propagates. The pro-forma stage is one transaction, so a failure leaves none of its rows or counts behind. The error is cut to 2,000 characters and database errors do not echo the values bound to a statement. An unclassified error retries the job; a shape change (`SchemaDriftError`) is permanent for the worker, and the next day's run tries again. A retry rebuilds the run's rows, reuses every stored estimate and finishes; completing the run clears `error`. A retry buys no new estimate for a target that an earlier attempt answered, but it does retry a target that attempt failed or deferred, within the same cap and reserve. A stage that finds its run no longer `completed` (a newer attempt reset or failed it) writes nothing and leaves that run's own error alone. A failure in the sync or the build still marks the run `failed` and clears its rows.
 
 **Schema (`0002_sourcing` to `0004_candidate_estimate`).**
 
@@ -315,6 +329,52 @@ Ranks run 1..n over the ranked candidates: higher score, then lower price, then 
 
 **API.** `api/routes/sourcing.py` serves runs and their candidates read-only (see the README). The router imports nothing that can write or spend, and a test asserts it.
 
+## Pro-forma
+
+`proforma/engine.py::build_proforma` turns a candidate's facts, its stored value estimate and the pack's `[cost_assumptions]` into a `ProformaResult` (version 1; Phases 4 and 5 read its keys, so they do not change): sizing, ARV, costs, financing, holding, selling, totals, the most that earns the target margin, and a sensitivity grid. The engine is pure `Decimal` arithmetic; rounding modes live only in `proforma/money.py`, and `docs/proforma-reference.xlsx` (live formulas) is the check on its formulas, read only by the tests. Every Dallas cost value is **illustrative**: a labelled default with sources in `docs/proforma-assumptions.md`, not a quote or a builder's actuals.
+
+**Statuses.** `computed`, `no_arv` (costs, financing and holding still computed; profit, margin, ROI, maximum offer and the grid are null) and `unsizable` (nothing but the site and a reason).
+
+| Case | What the engine does |
+| --- | --- |
+| Vacant land (a Land listing with no year built anywhere) | Demolition 0, flag `vacant_lot`; sized from the lot and zoning like a house |
+| House | Demolition is `flat + per_sqft x existing living area`; an unknown area uses `fallback_sqft`, flag `existing_area_assumed` |
+| Two or more accounts on one lot (`gis_group`) | One acquisition, one lot (the largest, counted once), living areas added up, the accounts' zoning when all non-blank values agree (else the default rule, flags `zoning_mixed` and `zoning_rule_assumed`); always flagged `gis_group` |
+| No lot size | `unsizable`, reason `lot_size_missing` |
+| Zoning missing or with no rule | The pack's default (most conservative) rule, flag `zoning_rule_assumed`; the candidate is not dropped |
+| No usable estimate | `no_arv`: reason `no_estimate_yet` (none stored), `estimate_unavailable` (RentCast had none), `estimate_expired` (older than 30 days), `too_few_comps`, or `arv_not_positive`. Nothing substitutes for a missing ARV |
+| An estimate older than `ttl_days` | Used, flag `estimate_stale` (a refresh was deferred) |
+| Loss larger than the cash invested | Computed, flag `loss_exceeds_equity` |
+| Target margin unreachable at any price | `max_offer` null, flag `no_viable_offer` |
+
+The AVM point estimate values the existing property and is stored for context only; the ARV is the median $/sqft of the estimate's **sale comps** times the buildable size.
+
+**Inputs (`gather.py`).** Three set-based queries serve a whole run: the ranked candidates with their primary listing's price and match in *that run*, their parcel rows (the matched account, or every account of the GIS parcel in the zip), and each candidate's newest estimate on or before the run date. The lot is the parcel's, else the listing's. A candidate whose primary listing has no positive price in the run gets no pro-forma. A stored comp is mapped to the engine's `Comp` using only its own fields (`days_old` is dropped) and a comp priced at zero or less is dropped.
+
+**Stage 5 (`run.py`).** After the estimates, `run_proformas` takes the market's advisory lock, checks the run is still `completed`, computes every pro-forma, replaces the run's `proforma` rows and merges the counts (`proformas`, `proformas_computed`, `proformas_no_arv`, `proformas_unsizable`) into `sourcing_run.counts`, in one transaction. It is code only: it is never given a RentCast client and costs no call. It recomputes from stored estimates, so a retry or a same-date re-run rewrites the same figures. Changing the pack's assumptions changes pro-formas on the next run (a same-date re-run included); there is no recompute command.
+
+**`proforma` table (`0005_proforma`).** Primary key (`run_id`, `candidate_id`), a composite foreign key to `run_candidate` with `ON DELETE CASCADE` (rebuilding a run's rows rebuilds its pro-formas). Columns for what a list shows and filters by: `status` (`computed`, `no_arv`, `unsizable`), `reason`, `estimate_fetched_on`, `offer_price` (the price modelled), `arv`, `total_cost`, `profit`, `margin`, `roi`, `annualized_return` (ratios, not percents), `max_offer`, `flags`, and `result` (the whole `ProformaResult`: every input, assumption and intermediate). The money and ratio columns are `numeric(20, ...)` because the engine accepts 15-digit comps and a tiny ARV makes a huge margin. Checks: a row is `computed` exactly when it has an ARV, a total cost, a profit and a margin, and has a `reason` exactly when it is not computed (`roi` and `annualized_return` are null when a loan covers every cost).
+
+**API and CLI.** `GET /sourcing/runs/{run_id}/proformas` and `GET /sourcing/runs/{run_id}/candidates/{candidate_id}/proforma` (see the README), and `feasibility proforma list|show`. All read-only; the router imports nothing that can write or spend.
+
+**What the approximations mean.** All are closed-form averages of cash flows over a 6-12 month build; the sensitivity grid (hold 6/9/12, ARV +-10%, hard cost -10% to +20%) and the maximum offer guard against over-trusting any one.
+
+| Approximation | Why it is reasonable | Direction of the error |
+| --- | --- | --- |
+| Interest-only simple interest on the outstanding balance, no compounding | Spec construction loans are interest-only on drawn funds, billed monthly; monthly compounding over 12 months at 10% adds about 0.4% to the interest line | Slightly under |
+| Land, demolition and soft costs drawn at closing | The lender funds the purchase at closing; permits, design and impact fees are paid up front | Slightly over; conservative |
+| Hard cost and contingency drawn linearly over the build | Milestone draws trace an S-curve whose mean outstanding balance is about half the commitment | Roughly neutral |
+| Draw inspections as a flat fee x draw count | Lenders charge a fixed fee per draw; it does not scale with price | Neutral |
+| Points on the whole commitment | Lenders charge origination on the commitment at closing | Exact in kind |
+| Loan = loan-to-cost x financeable cost, no cap at a share of ARV | The cap only binds when cost is above about 85-90% of ARV, where the margin is already thin | Over-states leverage on thin deals |
+| Closing and holding costs as cash in | ROI is the levered return on the builder's own cash; interest, taxes and insurance are really paid over time | Understates ROI slightly |
+| Property tax = combined rate x purchase price x hold / 12 | Texas taxes accrue by the calendar year; the land basis is what was paid; improvements under construction are ignored | Mixed |
+| Insurance = builder's-risk rate x hard cost x hold / 12 | Priced on the construction value and runs the build | Neutral |
+| Annualized return = ROI x 12 / hold, simple | Compounding would assume the same deal can be repeated at the same return | Under a compounded figure |
+| Selling costs as a percent of ARV, no price drift while marketing | Commission and seller closing are percentages of the price in Texas | Neutral |
+
+**A day, in mock mode and live.** Mock mode serves estimates from the snapshot: day 1 prices five candidates and day 2 one (the other four reuse theirs), `api_budget` stays untouched, and the pro-formas cost nothing. Live mode costs at most `1 + top_n` RentCast calls a day (the listing sync and up to five estimates, typically one or two), never more than the monthly cap and the sync reserve allow; the pro-formas add none.
+
 ## Where agent-core attaches (phase 4)
 
 agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in this repository imports it today.
@@ -337,7 +397,7 @@ agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in th
 | `api` | `127.0.0.1:4501`; starts after `migrate` completes successfully; has a healthcheck |
 | `worker` | `feasibility worker`; starts after `migrate` completes successfully |
 
-All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
+Every service sets `mem_limit`, each at least twice the peak a seeded day-1 run showed in `docker stats` (the measurements are in the compose file's header), and `tests/test_compose.py` fails if one does not. All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
 
 **Container hardening.** Base images are pinned by index digest, with the tag kept in a comment beside it: `python:3.12-slim` and `ghcr.io/astral-sh/uv:0.12.10` in the Dockerfile, `postgres:16-alpine` in compose and in the CI service container. Never use `:latest`. To refresh a digest, request the manifest from the registry and read the `Docker-Content-Digest` response header (for example `curl -sI -H 'Accept: application/vnd.oci.image.index.v1+json' <registry manifest URL for the tag>`), then update every place the image appears.
 
@@ -380,4 +440,17 @@ Pre-commit runs gitleaks and ruff.
 - **The spend and the client can disagree about the billing period near its boundary.** The cap and reserve use the period that contains the run date (the market's time zone); the budget reservation uses the UTC date. When the two differ, before the first call or between two calls, the stage spends nothing more and defers the rest until the next run; the hard budget stop is unaffected.
 - **Estimates are reused for `ttl_days` and a market move inside that window is not seen.**
 - **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
+- **Pro-formas are illustrative.** Every Dallas cost value is a labelled default from aggregator and lender-blog pages, not a quote or a builder's actuals. Contingency, the build/marketing split, the living share and the default zoning rule are unsourced; hard cost is probably low for inner-Dallas spec homes. Quote nothing from a pro-forma to a client without the builder's own figures.
+- **ARV from resale comps.** There is no new-build premium (the pack knob `new_build_premium_pct` is zero because no public source supports a number) and no size adjustment; the sign of the combined error is unknown. The AVM point estimate is not used.
+- **The loan is not capped at a share of ARV**, the draw schedule is a linear approximation, taxes use the purchase price as the land basis and ignore improvements under construction, and setbacks, platted building lines and overlays are ignored in sizing. The maximum offer is a closed form that ignores the rounding of each cost line, so profit at that offer can differ from the target by a couple of cents.
+- **The property tax rate is for Dallas ISD addresses inside the city.** Richardson ISD and other districts differ. Only the City of Dallas component was read from an official page.
+- **Live `/avm/value` has never been called.** Whether comps' `listingType` values match the sale types, how often there are three or more sale comps, and whether an estimate of a vacant lot returns comps are unverified.
+- **Estimates are used for up to 30 days** (reused for `ttl_days`); a market move inside that window is not seen. A ranked candidate below the top N has no estimate by design and shows `no_arv`. On day 2 of the snapshot six candidates compute, not five: the sixth-ranked one still has day 1's estimate.
+- **Retention is undecided for `proforma` and `candidate_estimate`**, like the other run tables. A comp's address is stored twice, in `candidate_estimate.comps` and in `proforma.result`, so any future retention or deletion path must cover both. The API serves the full result, comp addresses included.
+- **A GIS group means more in the pro-forma than in the ranking.** The pro-forma adds up every account on the GIS parcel in the zip; the ranking's aggregate uses only the accounts matched at the listing's street address. On a parcel with two situs addresses the two can differ.
+- **Only the price comes from the run itself.** Lot size, property type and year built come from the listing's current row and the parcel from the current table; a parcel import or a later sync between the build and the pro-forma stage can change them. An out-of-order re-run is refused, which keeps that window small.
+- **A candidate whose price is not positive gets no pro-forma**, so `proformas` can be lower than `ranked`. After a failed pro-forma stage the counts read zero, and only `sourcing_run.error` tells "did not run" from "none".
+- **The pro-forma stage scans the market's parcels once** for a GIS group's accounts (by GIS id and zip). Nothing indexes `gis_parcel_id`; that is unmeasured at county size.
+- **Each stored result carries the whole assumptions block and the 60-cell grid** (about 5 KB a computed row on the demo), so the table grows with every run until retention exists.
+- **The `proforma` and `candidate_estimate` rows of runs written before this phase do not exist**, and runs written before migration 0003 serve `match: null`.
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.
