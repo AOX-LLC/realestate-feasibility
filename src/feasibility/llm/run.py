@@ -584,7 +584,8 @@ class NarrativeTally:
         match result.status:
             case "accepted":
                 self.narratives_accepted += 1
-                if result.check is not None and result.check.attempts == 2:
+                reused = result.model is not None and result.model.reused
+                if not reused and result.check is not None and result.check.attempts == 2:
                     self.narratives_repaired += 1
             case "rejected":
                 self.narratives_rejected += 1

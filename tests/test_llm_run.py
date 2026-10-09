@@ -704,6 +704,26 @@ def test_a_draft_that_fails_the_check_is_repaired_once(seeded: Engine) -> None:
     assert feedback[1].startswith("The previous draft was rejected.")
 
 
+def test_a_repaired_narrative_that_is_reused_is_not_counted_as_repaired_again(
+    seeded: Engine,
+) -> None:
+    sent = []
+
+    def draft(facts: Any, feedback: Any) -> NarrativeDraft:
+        sent.append(feedback)
+        summary = "Profit is about $108k." if len(sent) == 1 else "A plain summary."
+        return NarrativeDraft(summary=summary, risks=[], checks_before_offer=[])
+
+    first = run_sourcing(
+        seeded, _settings(), "dallas", DAY_ONE, model=RunModel(draft=draft, **FREE)
+    )
+    again = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+
+    assert first.counts.narratives_repaired == 1
+    assert again.counts.narratives_reused == 5
+    assert again.counts.narratives_repaired == 0
+
+
 def test_a_rejected_narrative_keeps_its_violations_and_none_of_its_text(seeded: Engine) -> None:
     bad = NarrativeDraft(
         summary="Profit is about $108k and a margin of 7.6 percent.",
