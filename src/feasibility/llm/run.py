@@ -326,17 +326,19 @@ def _without_extraction(
     )
 
 
-def _cached_extraction(
-    engine: Engine, tier: str, digest: str, fingerprint: str
-) -> CachedExtraction | None:
+def _extraction_cache_key(digest: str, fingerprint: str) -> str:
+    """The key an extraction is cached under: the call's input hash and the injection scan it was
+    verified against. Two remarks that differ only in angle brackets send the same text but scan
+    differently, so they are two entries and never evict each other."""
+    return hashlib.sha256(f"{digest}:{fingerprint}".encode()).hexdigest()
+
+
+def _cached_extraction(engine: Engine, tier: str, key: str) -> CachedExtraction | None:
     with engine.connect() as connection:
         found = llm_store.cached_result(
-            connection, SIGNALS_PROMPT_ID, SIGNALS_PROMPT_VERSION, tier, digest
+            connection, SIGNALS_PROMPT_ID, SIGNALS_PROMPT_VERSION, tier, key
         )
-    if found is None:
-        return None
-    cached = CachedExtraction.model_validate(found)
-    return cached if cached.scan_fingerprint == fingerprint else None
+    return None if found is None else CachedExtraction.model_validate(found)
 
 
 def _extracted(
@@ -383,7 +385,8 @@ def _extract_signals(
     digest = input_sha256(EXTRACT_PROMPT, client.tier_for(SIGNALS_TASK), inputs)
     fingerprint = _scan_fingerprint(extraction_input.hits)
 
-    cached = _cached_extraction(ctx.engine, tier, digest, fingerprint)
+    cache_key = _extraction_cache_key(digest, fingerprint)
+    cached = _cached_extraction(ctx.engine, tier, cache_key)
     if cached is not None:
         return _extracted(info, cached, fields, tier=tier, digest=digest, call_id=None)
     if blocked.reason is not None:
@@ -411,7 +414,7 @@ def _extract_signals(
             SIGNALS_PROMPT_ID,
             SIGNALS_PROMPT_VERSION,
             tier,
-            digest,
+            cache_key,
             extraction.model_dump(mode="json"),
             call_id,
         )

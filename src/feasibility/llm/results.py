@@ -134,9 +134,8 @@ class SignalsResult(ResultModel):
 class CachedExtraction(ResultModel):
     """What an extraction call is cached as (`llm_result.result`): the verified remarks signals,
     the dropped claims and the model's flag, never the model's raw answer. `scan_fingerprint`
-    names the injection hits the claims were verified against: two remarks that differ only in
-    angle brackets send the same text but are scanned differently, so a result is reused only when
-    the scan agrees."""
+    names the injection hits the claims were verified against; it is part of the cache key, so a
+    result is only ever read back for remarks that scan the same way."""
 
     version: Literal[1] = 1
     signals: list[StoredSignal]
