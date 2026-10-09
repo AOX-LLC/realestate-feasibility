@@ -227,6 +227,7 @@ NarrativeReason = Literal[
     "proforma_unsizable",
     "figure_check",
     "basis_check",
+    "length_check",
     "budget",
     "llm_not_configured",
     "provider_error",
@@ -339,15 +340,24 @@ def accepted_result(
 def rejected_result(
     attempt: NarrativeAttempt, facts: Facts, *, reused: bool = False
 ) -> NarrativeResult:
-    """The result of an attempt whose second draft also failed: the violations, no text."""
+    """The result of an attempt whose second draft also failed: the violations, no text. The reason
+    is the worst kind found: a figure, then a basis code, then size or emptiness."""
     if attempt.draft is not None:
         raise ValueError("the attempt has an accepted draft")
-    violations = attempt.check.violations
-    figure_problem = any(violation.kind in FIGURE_VIOLATIONS for violation in violations)
+    kinds = {violation.kind for violation in attempt.check.violations}
+    reason: NarrativeReason = (
+        "figure_check"
+        if kinds & FIGURE_VIOLATIONS
+        else "basis_check"
+        if "unknown_basis" in kinds
+        else "length_check"
+    )
     return NarrativeResult(
         status="rejected",
-        reason="figure_check" if figure_problem else "basis_check",
-        check=StoredCheck(passed=False, attempts=attempt.attempts, violations=violations),
+        reason=reason,
+        check=StoredCheck(
+            passed=False, attempts=attempt.attempts, violations=attempt.check.violations
+        ),
         facts=StoredFacts(**facts.stored()),
         model=_model_info(attempt, reused),
     )

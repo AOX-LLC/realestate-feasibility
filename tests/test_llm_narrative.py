@@ -287,6 +287,29 @@ def test_a_basis_only_rejection_is_a_basis_check(config: AgentCoreConfig) -> Non
     assert narrative.rejected_result(attempt, FACTS).reason == "basis_check"
 
 
+def test_a_size_or_emptiness_rejection_is_a_length_check(config: AgentCoreConfig) -> None:
+    long_summary = NarrativeDraft(summary="a" * 701, risks=[], checks_before_offer=[])
+    blank = NarrativeDraft(summary=" ", risks=[], checks_before_offer=[])
+
+    for draft in (long_summary, blank):
+        attempt = write_narrative_sync(
+            metered(Narrator(draft, draft), None, config), FACTS, stage="eval"
+        )
+
+        assert narrative.rejected_result(attempt, FACTS).reason == "length_check"
+
+
+def test_a_figure_outranks_a_basis_problem_in_the_reason(config: AgentCoreConfig) -> None:
+    both = NarrativeDraft(
+        summary="About 108k.",
+        risks=[RiskPoint(basis=["made_up"], text="A risk.")],
+        checks_before_offer=[],
+    )
+    attempt = write_narrative_sync(metered(Narrator(both, both), None, config), FACTS, stage="eval")
+
+    assert narrative.rejected_result(attempt, FACTS).reason == "figure_check"
+
+
 def test_the_result_models_enforce_what_each_status_holds() -> None:
     facts = narrative.StoredFacts(figures={}, codes=[])
     with pytest.raises(ValidationError, match="reason"):
