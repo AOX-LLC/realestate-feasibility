@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from feasibility.proforma.model import ArvDetail, ProformaResult
 from feasibility.sourcing.counts import RunCounts
 from feasibility.sourcing.scoring import ScoreBreakdown
 
@@ -209,6 +210,65 @@ class CandidateDetailOut(RunCandidateOut):
     listings: list[CandidateListingOut]
     # The newest estimate bought on or before the run's date; null when there is none.
     estimate: EstimateOut | None
+
+
+class ProformaSummaryOut(ResponseModel):
+    """The figures of a pro-forma that a list shows. Everything but the ids, rank and address
+    is null when the status says there was nothing to compute it from."""
+
+    candidate_id: int
+    rank: int
+    address: CandidateAddressOut
+    status: Literal["computed", "no_arv", "unsizable"]
+    # Why a pro-forma is not computed; null when it is.
+    reason: str | None
+    flags: list[str]
+    # The price modelled: the primary listing's price in that run.
+    offer_price: Decimal
+    arv: Decimal | None
+    total_cost: Decimal | None
+    profit: Decimal | None
+    # Ratios, not percents: 0.1964 is 19.64%.
+    margin: Decimal | None
+    roi: Decimal | None
+    annualized_return: Decimal | None
+    # The most that earns the target margin; null when no price does.
+    max_offer: Decimal | None
+
+
+class CompLineOut(ResponseModel):
+    """A comparable sale as the API shows it: its price, size and price per square foot, never
+    its address (the addresses stay in the database, like an estimate's comparables)."""
+
+    price: Decimal
+    living_area_sqft: int | None
+    psf: Decimal | None
+    used: bool
+
+
+class ArvDetailOut(ArvDetail):
+    comps: tuple[CompLineOut, ...]  # type: ignore[assignment]
+
+
+class ProformaResultOut(ProformaResult):
+    """The stored result with the comparables' addresses left out."""
+
+    arv: ArvDetailOut | None
+
+    @classmethod
+    def without_addresses(cls, result: ProformaResult) -> "ProformaResultOut":
+        data = result.model_dump(mode="json")
+        if data["arv"] is not None:
+            for comp in data["arv"]["comps"]:
+                del comp["address"]
+        return cls.model_validate(data)
+
+
+class ProformaDetailOut(ProformaSummaryOut):
+    """The summary and the full result: every assumption, input and line, but not the comps'
+    addresses."""
+
+    result: ProformaResultOut
 
 
 class Page[T](ResponseModel):

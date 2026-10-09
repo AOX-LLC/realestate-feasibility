@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 from proforma_cases import (
+    AS_OF,
     ASSUMPTIONS,
     S3_COMPS,
     TTL_DAYS,
@@ -13,8 +14,9 @@ from proforma_cases import (
     s3,
 )
 
+from feasibility.markets.schema import CostAssumptions
 from feasibility.proforma.engine import build_proforma
-from feasibility.proforma.model import ProformaInputs, ProformaResult
+from feasibility.proforma.model import Comp, EstimateInput, ProformaInputs, ProformaResult
 
 
 def run(case: ProformaInputs) -> ProformaResult:
@@ -234,3 +236,56 @@ def test_comps_that_price_the_house_at_nothing_are_no_arv() -> None:
 
     assert (result.status, result.reason) == ("no_arv", "arv_not_positive")
     assert result.financing is not None and result.totals is None
+
+
+def _zero_numerator_case() -> tuple[ProformaInputs, CostAssumptions]:
+    """A deal built so that ARV x (1 - target) equals the fixed part of the cost exactly.
+
+    No interest or points, a flat 2,000 sqft home, a 5% commission and no seller closing: the
+    fixed part is 10,500.04 demolition + 380,000 hard + 19,000 contingency + 45,600 soft
+    + 1,000 draw fees + 4,275 insurance + 5% of the ARV, and the ARV is 2,000 sqft at
+    $287.7344, so 80% of the ARV is exactly 460,375.04.
+    """
+    zero = Decimal(0)
+    assumptions = ASSUMPTIONS.model_copy(
+        update={
+            "demolition": ASSUMPTIONS.demolition.model_copy(update={"flat": Decimal("2500.04")}),
+            "financing": ASSUMPTIONS.financing.model_copy(
+                update={"rate_pct": zero, "points_pct": zero}
+            ),
+            "selling": ASSUMPTIONS.selling.model_copy(
+                update={"commission_pct": Decimal(5), "closing_pct": zero}
+            ),
+            "sizing": ASSUMPTIONS.sizing.model_copy(
+                update={"min_home_sqft": Decimal(2000), "max_home_sqft": Decimal(2000)}
+            ),
+        }
+    )
+    comps = tuple(
+        Comp(
+            address=f"{number} Comp St",
+            price=Decimal("287734.40"),
+            living_area_sqft=1000,
+            distance_miles=None,
+            year_built=None,
+        )
+        for number in range(1, 4)
+    )
+    fetched = EstimateInput(
+        fetched_on=AS_OF - timedelta(days=1), outcome="ok", price=Decimal(400000), comps=comps
+    )
+    return inputs(existing_living_sqft=Decimal(1000), estimate=fetched), assumptions
+
+
+def test_a_zero_numerator_pays_nothing_and_is_not_a_missing_offer() -> None:
+    case, assumptions = _zero_numerator_case()
+
+    result = build_proforma(case, assumptions, estimate_ttl_days=TTL_DAYS)
+
+    assert result.arv is not None and result.arv.arv == Decimal("575468.80")
+    assert result.max_offer is not None
+    assert result.max_offer.fixed_part == Decimal("460375.04") + Decimal("28773.44")
+    # The offer is zero dollars, which is an answer; only a negative numerator has none.
+    assert result.max_offer.max_offer == Decimal("0.00")
+    assert result.max_offer.headroom_vs_offer == -case.price
+    assert "no_viable_offer" not in result.flags

@@ -99,7 +99,7 @@ def test_health_reports_ok_in_mock_mode(client: TestClient) -> None:
     body = response.json()
     assert set(body) == HEALTH_KEYS
     assert body["status"] == "ok"
-    assert body["schema_version"] == "0004"
+    assert body["schema_version"] == "0005"
     assert body["commit_source"] == "process_start"
     assert body["mode"] == "mock"
     assert body["rentcast_key_configured"] is False

@@ -249,8 +249,20 @@ def complete_run(connection: Connection, run_id: int, counts: dict[str, Any]) ->
 
 def set_run_error(connection: Connection, run_id: int, error: str) -> None:
     """Record that a stage after the build failed. The run stays completed: a completed run
-    with an error is ranked, but a later stage did not finish."""
-    connection.execute(update(sourcing_run).where(sourcing_run.c.id == run_id).values(error=error))
+    with an error is ranked, but a later stage did not finish. A run that is no longer
+    completed (a newer attempt has reset or failed it) keeps its own state and message."""
+    connection.execute(
+        update(sourcing_run)
+        .where(sourcing_run.c.id == run_id, sourcing_run.c.status == "completed")
+        .values(error=error)
+    )
+
+
+def run_status(connection: Connection, run_id: int) -> str | None:
+    status: str | None = connection.execute(
+        select(sourcing_run.c.status).where(sourcing_run.c.id == run_id)
+    ).scalar_one_or_none()
+    return status
 
 
 def merge_counts(connection: Connection, run_id: int, patch: dict[str, Any]) -> None:
@@ -417,6 +429,13 @@ class CandidateSummary:
     change_kind: str
     detail: str
     address: str
+
+
+def run_exists(connection: Connection, run_id: int) -> bool:
+    return (
+        connection.execute(select(sourcing_run.c.id).where(sourcing_run.c.id == run_id)).first()
+        is not None
+    )
 
 
 def latest_run_id(connection: Connection, market: str) -> int | None:

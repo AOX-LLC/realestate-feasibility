@@ -13,7 +13,9 @@ MIGRATIONS_LOCATION = "feasibility:migrations"
 
 
 def create_db_engine(database_url: str) -> Engine:
-    return create_engine(database_url, pool_pre_ping=True)
+    # A database error then names the statement but not the values bound to it, which can be
+    # listing or comparable-sale data.
+    return create_engine(database_url, pool_pre_ping=True, hide_parameters=True)
 
 
 @lru_cache

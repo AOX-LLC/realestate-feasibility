@@ -225,7 +225,11 @@ def test_bad_input_is_a_422_that_does_not_echo_it(ran_both_days: TestClient, pat
 def test_every_route_is_get_only(engine: Engine) -> None:
     """Read from the OpenAPI document: included routers are not plain APIRoutes."""
     paths = create_app(MOCK, engine).openapi()["paths"]
-    sourcing = [path for path in paths if path.startswith("/sourcing")]
+    sourcing = [
+        path
+        for path in paths
+        if path.startswith("/sourcing") and not path.endswith(("/proformas", "/proforma"))
+    ]
 
     assert len(sourcing) == 4
     assert all(set(methods) == {"get"} for methods in paths.values())

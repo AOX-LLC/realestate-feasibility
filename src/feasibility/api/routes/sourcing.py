@@ -63,7 +63,8 @@ RUN_COLUMNS = (
 )
 
 
-def _require_run(connection: Connection, run_id: int) -> None:
+def require_run(connection: Connection, run_id: int) -> None:
+    """404 unless the run exists."""
     found = connection.execute(select(sourcing_run.c.id).where(sourcing_run.c.id == run_id)).first()
     if found is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such run")
@@ -174,7 +175,7 @@ def list_run_candidates(
     query = query.order_by(order_column).limit(limit + 1)
 
     with engine.connect() as connection:
-        _require_run(connection, run_id)
+        require_run(connection, run_id)
         rows = connection.execute(query).mappings().all()
     items = [RunCandidateOut.model_validate(_candidate_fields(row)) for row in rows[:limit]]
     next_after = None

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -300,6 +301,49 @@ candidate_estimate = Table(
     PrimaryKeyConstraint("candidate_id", "fetched_on"),
     CheckConstraint(_in_list("outcome", ESTIMATE_OUTCOMES), name="outcome"),
     CheckConstraint("(outcome = 'ok') = (price IS NOT NULL)", name="ok_has_price"),
+)
+
+# Wider than a listing's price: the engine takes 15-digit comps, and a tiny ARV makes a huge margin.
+RESULT_MONEY = Numeric(20, 2)
+RESULT_RATIO = Numeric(20, 4)
+PROFORMA_STATUSES = ("computed", "no_arv", "unsizable")
+
+# One pro-forma per ranked candidate of a run; a re-run clears and rebuilds them through the
+# cascade from run_candidate. The columns are the figures to list and filter by; `result` is
+# the whole ProformaResult (every input and intermediate), which Phases 4 and 5 read.
+proforma = Table(
+    "proforma",
+    metadata,
+    Column("run_id", BigInteger, nullable=False),
+    Column("candidate_id", BigInteger, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("reason", Text),
+    Column("estimate_fetched_on", Date),
+    Column("offer_price", MONEY, nullable=False),
+    Column("arv", RESULT_MONEY),
+    Column("total_cost", RESULT_MONEY),
+    Column("profit", RESULT_MONEY),
+    Column("margin", RESULT_RATIO),
+    Column("roi", RESULT_RATIO),
+    Column("annualized_return", RESULT_RATIO),
+    Column("max_offer", RESULT_MONEY),
+    Column("flags", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("result", JSONB, nullable=False),
+    PrimaryKeyConstraint("run_id", "candidate_id"),
+    ForeignKeyConstraint(
+        ["run_id", "candidate_id"],
+        ["run_candidate.run_id", "run_candidate.candidate_id"],
+        name="fk_proforma_run_candidate",
+        ondelete="CASCADE",
+    ),
+    CheckConstraint(_in_list("status", PROFORMA_STATUSES), name="status"),
+    CheckConstraint(
+        "(status = 'computed') = (arv IS NOT NULL AND total_cost IS NOT NULL "
+        "AND profit IS NOT NULL AND margin IS NOT NULL)",
+        name="computed_has_outputs",
+    ),
+    CheckConstraint("(status = 'computed') = (reason IS NULL)", name="reason_iff_not_computed"),
+    Index(None, "run_id", "status"),
 )
 
 api_cache = Table(

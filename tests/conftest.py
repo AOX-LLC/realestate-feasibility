@@ -27,11 +27,16 @@ def migrated_engine() -> Iterator[Engine]:
     engine.dispose()
 
 
-@pytest.fixture
-def engine(migrated_engine: Engine) -> Engine:
-    """The migrated database with every table emptied. DELETE is far quicker than
-    TRUNCATE on tables this small."""
-    with migrated_engine.begin() as connection:
+def empty_database(engine: Engine) -> None:
+    """Delete every row of every table. DELETE is far quicker than TRUNCATE on tables this
+    small. Modules that build their data once for many tests call this before they do."""
+    with engine.begin() as connection:
         for table in reversed(metadata.sorted_tables):
             connection.execute(table.delete())
+
+
+@pytest.fixture
+def engine(migrated_engine: Engine) -> Engine:
+    """The migrated database with every table emptied."""
+    empty_database(migrated_engine)
     return migrated_engine
