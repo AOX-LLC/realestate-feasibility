@@ -31,12 +31,32 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import InvalidRequestError
+
+
+def _check_name(constraint: Any, table: Any) -> str:
+    """The name to put after `ck_<table>_`: the constraint's own name, less that prefix when it
+    already carries it. A migration that spells the whole name (`ck_proforma_status`) and a table
+    that gives the short one (`status`) therefore both end up as `ck_proforma_status`, never as
+    `ck_proforma_ck_proforma_status`, which is what the plain convention made of the first five
+    migrations."""
+    if not isinstance(constraint.name, str) or type(constraint.name).__name__ == "_NONE_NAME":
+        # SQLAlchemy's own refusal of an unnamed check constraint; the override would hide it.
+        raise InvalidRequestError(
+            f"a check constraint on {table.name} needs an explicit name for the convention to use"
+        )
+    name = str(constraint.name)
+    prefix = f"ck_{table.name}_"
+    return name[len(prefix) :] if name.startswith(prefix) else name
+
 
 metadata = MetaData(
     naming_convention={
         "ix": "ix_%(table_name)s_%(column_0_N_name)s",
         "uq": "uq_%(table_name)s_%(column_0_N_name)s",
         "ck": "ck_%(table_name)s_%(constraint_name)s",
+        # A callable under a token's name replaces the token for every convention above.
+        "constraint_name": _check_name,
         "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
         "pk": "pk_%(table_name)s",
     }
@@ -123,6 +143,8 @@ parcel = Table(
     _timestamp("updated_at"),
     PrimaryKeyConstraint("market", "account_id"),
     Index(None, "market", "zip5"),
+    # The pro-forma reads a GIS group's parcels by this id (with the zip), once per run.
+    Index(None, "market", "gis_parcel_id"),
 )
 
 listing = Table(

@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, Connection, and_, or_, select
 
 from feasibility.markets.schema import normalise_zoning
-from feasibility.proforma.model import Comp, EstimateInput, ProformaInputs
+from feasibility.proforma.model import Comp, EstimateInput, LotSource, ProformaInputs
 from feasibility.sourcing import estimate_store
 from feasibility.sourcing.estimate_store import StoredEstimate
 from feasibility.sourcing.filters import ListingFacts, is_vacant, lot_size_of
@@ -195,10 +195,11 @@ def _inputs_of(
 ) -> ProformaInputs:
     matched = _as_matched(item, parcels)
     zoning, seen = _zoning(parcels)
+    lot = lot_size_of(item.facts, matched)
     return ProformaInputs(
         price=price,
-        lot_sqft=lot_size_of(item.facts, matched),
-        lot_source="parcel" if matched.lot_size_sqft is not None else "listing",
+        lot_sqft=lot,
+        lot_source=_lot_source(lot, matched),
         zoning=zoning,
         zoning_values_seen=seen,
         is_vacant=is_vacant(item.facts, matched),
@@ -207,6 +208,13 @@ def _inputs_of(
         as_of=as_of,
         estimate=None if estimate is None else _estimate_input(estimate),
     )
+
+
+def _lot_source(lot: Decimal | None, matched: MatchedParcel) -> LotSource:
+    """Where the lot size came from: the county, else the listing, else nowhere."""
+    if lot is None:
+        return "missing"
+    return "parcel" if matched.lot_size_sqft is not None else "listing"
 
 
 def _as_matched(item: _RankedCandidate, parcels: Sequence[_ParcelRow]) -> MatchedParcel:

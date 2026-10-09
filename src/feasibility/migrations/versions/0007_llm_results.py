@@ -16,8 +16,9 @@ down_revision: str | None = "0006"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# New constraint names are wrapped in op.f(): the naming convention would otherwise prefix a name
-# that already carries the table (the older migrations show the doubled names that result).
+# New constraint names are wrapped in op.f(), which marks a name as final. Since 0008 the naming
+# convention no longer prefixes a name that already carries the table, so it would not matter, but
+# 0007 was written before that and the explicit marking is harmless.
 SIGNALS_STATUSES = "'extracted', 'fields_only', 'failed', 'deferred'"
 SIGNALS_REASONS = (
     "'no_remarks', 'llm_not_configured', 'budget', 'provider_error', 'structured_error', "

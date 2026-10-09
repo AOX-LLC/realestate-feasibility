@@ -28,7 +28,8 @@ InPrice = Annotated[Dec, Field(gt=0, max_digits=15, decimal_places=2)]
 
 Status = Literal["computed", "no_arv", "unsizable"]
 CappedBy = Literal["max", "min", "none"]
-LotSource = Literal["parcel", "listing"]
+# "missing": neither the parcel nor the listing has a lot size, so nothing was sized.
+LotSource = Literal["parcel", "listing", "missing"]
 ExistingSqftSource = Literal["parcel", "assumed", "vacant"]
 
 

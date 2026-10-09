@@ -240,3 +240,5 @@ Add `src/feasibility/markets/packs/<id>.toml` and run `feasibility market valida
 ## License
 
 MIT, © 2026 AOX LLC. Built by [AOX](https://automatedoperationsexperts.com).
+
+The data sources (DCAD's file layout, RentCast) and the dependencies' licences are credited in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
