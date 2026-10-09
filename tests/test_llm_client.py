@@ -97,6 +97,22 @@ def test_only_the_llm_and_evals_packages_import_the_library_or_its_sdk() -> None
     assert offenders == []
 
 
+def test_nothing_outside_those_packages_imports_by_name_at_run_time() -> None:
+    # importlib.import_module("anthropic") would get round the walk above, so dynamic imports are
+    # not allowed outside the two packages at all.
+    dynamic = []
+    for path in SOURCE_ROOT.rglob("*.py"):
+        if path.relative_to(SOURCE_ROOT).parts[0] in MAY_IMPORT_THE_LIBRARY:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call):
+                called = ast.unparse(node.func)
+                if called in {"__import__", "import_module", "importlib.import_module"}:
+                    dynamic.append(str(path.relative_to(SOURCE_ROOT)))
+
+    assert dynamic == []
+
+
 def test_importing_the_package_in_replay_mode_with_no_key_starts_nothing() -> None:
     program = (
         "import feasibility.llm.client, sys\n"
