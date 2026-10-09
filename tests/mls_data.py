@@ -17,23 +17,6 @@ EXTRA_FILE = REPO / "evals" / "signals" / "extra.json"
 KEY_FILE = REPO / "evals" / "signals" / "answer_key.json"
 SNAPSHOT = REPO / "data" / "snapshot"
 
-# The closed signal set of the plan's section 5.1. Job C moves it to llm/catalogue.py and this
-# constant becomes an import there.
-CATALOGUE = (
-    "teardown_language",
-    "as_is_sale",
-    "environmental_hazard",
-    "flood_or_drainage",
-    "easement_or_encroachment",
-    "deed_restrictions",
-    "conservation_or_historic_district",
-    "protected_trees",
-    "tenant_occupied",
-    "plans_or_permits",
-    "seller_financing",
-    "multiple_lots",
-)
-
 # Snapshot listing ids that the plan names (account = the digits after SYN).
 DEMO_SIGNALS = {
     "SYN000051": {"plans_or_permits", "protected_trees"},

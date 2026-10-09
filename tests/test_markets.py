@@ -335,3 +335,35 @@ def test_unknown_key_inside_cost_assumptions_is_rejected() -> None:
 
     with pytest.raises(ValidationError):
         MarketPack.model_validate(data)
+
+
+def test_dallas_signals_section_loads() -> None:
+    assert get_pack("dallas").signals.long_on_market_days == 60
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [(0, "greater than or equal to 1"), (366, "less than or equal to 365")],
+)
+def test_signals_threshold_rejects_one_wrong_field(value: int, message: str) -> None:
+    data = dallas_dict()
+    data["signals"]["long_on_market_days"] = value
+
+    with pytest.raises(ValidationError, match=message):
+        MarketPack.model_validate(data)
+
+
+def test_the_signals_section_is_required() -> None:
+    data = dallas_dict()
+    del data["signals"]
+
+    with pytest.raises(ValidationError, match="signals"):
+        MarketPack.model_validate(data)
+
+
+def test_unknown_key_inside_signals_is_rejected() -> None:
+    data = dallas_dict()
+    data["signals"]["surprise"] = 1
+
+    with pytest.raises(ValidationError):
+        MarketPack.model_validate(data)
