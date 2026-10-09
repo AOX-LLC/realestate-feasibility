@@ -235,3 +235,20 @@ def test_no_model_id_appears_in_source() -> None:
     ]
 
     assert offenders == []
+
+
+def test_a_refused_combination_does_not_quote_the_keys_in_its_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATA_MODE", "live")
+    monkeypatch.setenv("RENTCAST_API_KEY", "rentcast-" + SENTINEL)
+    monkeypatch.setenv(KEY_VARIABLE, SENTINEL)
+
+    with pytest.raises(ValidationError) as refused:
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+    # pydantic quotes a truncated copy of its input ("input_value=...") unless told not to; the
+    # truncation can show the tail of a key, so assert that nothing is quoted at all.
+    assert "needs AGENT_CORE_MODE=live" in str(refused.value)
+    assert "input_value" not in str(refused.value)
+    assert SENTINEL not in str(refused.value)

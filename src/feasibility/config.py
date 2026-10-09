@@ -35,8 +35,13 @@ class LlmMode(StrEnum):
 
 
 class Settings(BaseSettings):
+    # A validation error quotes its input by default, and here the input includes the keys.
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", populate_by_name=True
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     database_url: str = DEFAULT_DATABASE_URL
