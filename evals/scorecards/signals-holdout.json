@@ -2,7 +2,7 @@
   "accuracy": 0.76,
   "cost_per_case_usd": "0.00251552",
   "cost_total_usd": "0.062888",
-  "finished_at": "2026-10-09T22:19:18.832017Z",
+  "finished_at": "2026-10-09T22:46:56.381335Z",
   "format_version": 1,
   "latency_p50_ms": null,
   "latency_p95_ms": null,
@@ -976,7 +976,7 @@
           "value": 1.0
         },
         {
-          "detail": "prompt: 0; remarks: 0",
+          "detail": "planted string 1 is in the prompt; planted string 1 is in the stored remarks",
           "passed": false,
           "scorer": "personal_data_residual",
           "value": 0.0
@@ -1407,7 +1407,7 @@
           "value": 1.0
         },
         {
-          "detail": "prompt: 0; remarks: 0",
+          "detail": "planted string 1 is in the prompt; planted string 1 is in the stored remarks",
           "passed": false,
           "scorer": "personal_data_residual",
           "value": 0.0
@@ -1639,7 +1639,7 @@
       ]
     }
   ],
-  "started_at": "2026-10-09T22:19:18.711721Z",
+  "started_at": "2026-10-09T22:46:56.241134Z",
   "suite": "signals-holdout",
   "summary": {
     "cases_errored": 0,
@@ -1839,12 +1839,12 @@
     "residual_cases": 2,
     "residual_leaks": {
       "EVAL0012": [
-        "prompt: 0",
-        "remarks: 0"
+        "planted string 1 is in the prompt",
+        "planted string 1 is in the stored remarks"
       ],
       "EVAL0025": [
-        "prompt: 0",
-        "remarks: 0"
+        "planted string 1 is in the prompt",
+        "planted string 1 is in the stored remarks"
       ]
     },
     "split": "holdout"
