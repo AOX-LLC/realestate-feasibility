@@ -1,7 +1,7 @@
 """The SQL of the model stages' results: the cache, the run rows, and the reads of the ledger."""
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -23,6 +23,7 @@ from feasibility.config import DataMode, Settings
 from feasibility.llm import ledger, store
 from feasibility.llm.ledger import LlmCallRecord
 from feasibility.snapshot.load import seed
+from feasibility.sourcing import store as sourcing_store
 from feasibility.sourcing.run import run_sourcing
 from feasibility.tables import sourcing_run
 
@@ -135,25 +136,40 @@ def test_narrative_lines_page_by_rank_and_filter_by_status(engine: Engine) -> No
     assert [line.rank for line in one] == [1]
 
 
-def test_a_candidate_is_current_only_while_the_run_is_completed_and_holds_it(
-    engine: Engine,
-) -> None:
+def test_a_candidate_is_current_only_for_the_attempt_that_built_the_run(engine: Engine) -> None:
     run = ranked_candidates(engine)
     candidate_id = run["candidates"][0]["candidate_id"]
+    with engine.connect() as connection:
+        attempt = sourcing_store.run_started_at(connection, run["run_id"])
+    assert attempt is not None
 
     with engine.connect() as connection:
-        assert store.candidate_is_current(connection, run["run_id"], candidate_id)
-        assert not store.candidate_is_current(connection, run["run_id"], candidate_id + 1)
+        assert store.candidate_is_current(connection, run["run_id"], candidate_id, attempt)
+        assert store.attempt_is_current(connection, run["run_id"], attempt)
+        assert not store.candidate_is_current(connection, run["run_id"], candidate_id + 1, attempt)
         assert store.candidate_in_run(connection, run["run_id"], candidate_id)
         assert not store.candidate_in_run(connection, run["run_id"], candidate_id + 1)
 
+    # A newer attempt, even one that has finished and left the run completed.
     with engine.begin() as connection:
         connection.execute(
-            update(sourcing_run).where(sourcing_run.c.id == run["run_id"]).values(status="running")
+            update(sourcing_run)
+            .where(sourcing_run.c.id == run["run_id"])
+            .values(started_at=attempt + timedelta(seconds=1))
         )
-
     with engine.connect() as connection:
-        assert not store.candidate_is_current(connection, run["run_id"], candidate_id)
+        assert not store.candidate_is_current(connection, run["run_id"], candidate_id, attempt)
+        assert not store.attempt_is_current(connection, run["run_id"], attempt)
+
+    with engine.begin() as connection:
+        connection.execute(
+            update(sourcing_run)
+            .where(sourcing_run.c.id == run["run_id"])
+            .values(started_at=attempt, status="running")
+        )
+    with engine.connect() as connection:
+        assert not store.candidate_is_current(connection, run["run_id"], candidate_id, attempt)
+        assert not store.attempt_is_current(connection, run["run_id"], attempt)
 
 
 # --- what the stages read ----------------------------------------------------------------------

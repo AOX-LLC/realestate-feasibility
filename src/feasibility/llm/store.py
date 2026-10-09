@@ -173,10 +173,23 @@ def signals_results(connection: Connection, run_id: int) -> dict[int, SignalsRes
     return {row.candidate_id: SignalsResult.model_validate(row.result) for row in rows}
 
 
-def candidate_is_current(connection: Connection, run_id: int, candidate_id: int) -> bool:
-    """Whether the run is still completed and still has the candidate. A newer attempt of the
-    run resets it and rebuilds its rows; a row for a candidate it no longer holds cannot be
-    written."""
+def attempt_is_current(connection: Connection, run_id: int, attempt: datetime) -> bool:
+    """Whether the run is still completed and still the attempt that started at `attempt`. A newer
+    attempt resets the run and rebuilds its rows, and an older one must not write into them."""
+    found = connection.execute(
+        select(literal(1)).where(
+            sourcing_run.c.id == run_id,
+            sourcing_run.c.status == "completed",
+            sourcing_run.c.started_at == attempt,
+        )
+    ).first()
+    return found is not None
+
+
+def candidate_is_current(
+    connection: Connection, run_id: int, candidate_id: int, attempt: datetime
+) -> bool:
+    """Whether `attempt` is still the run's and the run still holds the candidate."""
     found = connection.execute(
         select(literal(1))
         .select_from(run_candidate.join(sourcing_run, sourcing_run.c.id == run_candidate.c.run_id))
@@ -184,6 +197,7 @@ def candidate_is_current(connection: Connection, run_id: int, candidate_id: int)
             run_candidate.c.run_id == run_id,
             run_candidate.c.candidate_id == candidate_id,
             sourcing_run.c.status == "completed",
+            sourcing_run.c.started_at == attempt,
         )
     ).first()
     return found is not None

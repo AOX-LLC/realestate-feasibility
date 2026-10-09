@@ -603,7 +603,14 @@ def test_a_stage_with_no_model_configured_stores_field_signals_and_makes_no_call
     seeded: Engine,
 ) -> None:
     result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
-    ctx = llm_run.stage_context(seeded, _pack(), result.run_id, DAY_ONE, None)
+    ctx = llm_run.stage_context(
+        seeded,
+        _pack(),
+        result.run_id,
+        DAY_ONE,
+        None,
+        llm_run.current_attempt(seeded, result.run_id),
+    )
 
     counts = llm_run.run_signals(ctx, _pack())
 
@@ -822,7 +829,14 @@ def test_narratives_with_no_model_configured_are_deferred_and_make_no_call(
     result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
     with seeded.begin() as connection:
         connection.execute(text("DELETE FROM candidate_narrative"))
-    ctx = llm_run.stage_context(seeded, _pack(), result.run_id, DAY_ONE, None)
+    ctx = llm_run.stage_context(
+        seeded,
+        _pack(),
+        result.run_id,
+        DAY_ONE,
+        None,
+        llm_run.current_attempt(seeded, result.run_id),
+    )
 
     counts = llm_run.run_narratives(ctx)
 
@@ -846,6 +860,7 @@ def test_a_stage_stops_when_a_newer_attempt_has_reset_the_run(seeded: Engine) ->
         result.run_id,
         DAY_ONE,
         llm_run.open_client(seeded, _settings(), result.run_id, model),
+        llm_run.current_attempt(seeded, result.run_id),
     )
 
     llm_run.run_narratives(ctx)
@@ -923,3 +938,29 @@ def test_the_command_line_says_a_model_stage_did_not_finish_and_exits_one(
     assert result.exit_code == 1
     assert "run ranked, but a model stage did not finish: signals stage stopped" in result.output
     assert "ReplayMissError" in result.output
+
+
+def test_a_stage_of_a_superseded_attempt_writes_nothing_into_the_rebuilt_run(
+    seeded: Engine,
+) -> None:
+    first = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    older = llm_run.stage_context(
+        seeded,
+        _pack(),
+        first.run_id,
+        DAY_ONE,
+        llm_run.open_client(seeded, _settings(), first.run_id, RunModel(**FREE)),
+        llm_run.current_attempt(seeded, first.run_id),
+    )
+    # A newer attempt rebuilds the run and finishes it, so the run is completed again.
+    newer = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    assert newer.run_id == first.run_id
+    with seeded.begin() as connection:
+        connection.execute(text("DELETE FROM candidate_signals"))
+        connection.execute(text("DELETE FROM candidate_narrative"))
+    counts_before = _rows(seeded, "SELECT counts FROM sourcing_run")[0].counts
+
+    llm_run.run_signals(older, _pack())
+
+    assert _rows(seeded, "SELECT count(*) FROM candidate_signals")[0][0] == 0
+    assert _rows(seeded, "SELECT counts FROM sourcing_run")[0].counts == counts_before

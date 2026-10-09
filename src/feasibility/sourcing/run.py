@@ -149,6 +149,7 @@ def _source(
     model: ModelCaller | None,
 ) -> SourcingResult:
     """The run's stages after it has started, in the order of docs/ARCHITECTURE.md."""
+    attempt = llm_run.current_attempt(engine, run_id)
     try:
         sync_status = _sync(engine, settings, pack, run_id, run_date, client)
         with engine.begin() as connection:
@@ -164,7 +165,7 @@ def _source(
     # place, records its error on the run and propagates so the job retries.
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
     proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
-    model_counts = _read_and_write_up(engine, settings, pack, run_id, run_date, model)
+    model_counts = _read_and_write_up(engine, settings, pack, run_id, run_date, model, attempt)
     late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **model_counts}
     return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
@@ -212,17 +213,18 @@ def _read_and_write_up(
     run_id: int,
     run_date: date,
     model: ModelCaller | None,
+    attempt: datetime,
 ) -> dict[str, Any]:
     """Stages 6 and 7, the signals of every ranked candidate and then its risk narrative. A
     failure leaves the ranked run, its estimates and its pro-formas in place, like a failed
     spend, and propagates; a failed stage 6 means stage 7 does not run."""
     try:
         client = llm_run.open_client(engine, settings, run_id, model)
-        context = llm_run.stage_context(engine, pack, run_id, run_date, client)
+        context = llm_run.stage_context(engine, pack, run_id, run_date, client, attempt)
         signal_counts = llm_run.run_signals(context, pack)
         narrative_counts = llm_run.run_narratives(context)
     except Exception as error:
-        _record_stage_error(engine, settings, run_id, error)
+        _record_stage_error(engine, settings, run_id, error, attempt)
         raise
     # The second stage's call and cost totals already include the first's.
     return {**signal_counts, **narrative_counts}
@@ -247,12 +249,19 @@ def _describe(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"
 
 
-def _record_stage_error(engine: Engine, settings: Settings, run_id: int, error: Exception) -> None:
-    """Note on the completed run that a stage after the build failed (redacted)."""
+def _record_stage_error(
+    engine: Engine,
+    settings: Settings,
+    run_id: int,
+    error: Exception,
+    attempt: datetime | None = None,
+) -> None:
+    """Note on the completed run that a stage after the build failed (redacted). Given the
+    attempt's marker, a run that a newer attempt has rebuilt keeps its own message."""
     message = _error_message(error, settings)
     try:
         with engine.begin() as connection:
-            store.set_run_error(connection, run_id, message)
+            store.set_run_error(connection, run_id, message, attempt)
     except Exception:
         # The stage's own failure must propagate, not this one.
         log.exception("could not record the error of run %s", run_id)

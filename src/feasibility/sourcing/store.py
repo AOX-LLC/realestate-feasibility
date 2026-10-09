@@ -247,15 +247,29 @@ def complete_run(connection: Connection, run_id: int, counts: dict[str, Any]) ->
     )
 
 
-def set_run_error(connection: Connection, run_id: int, error: str) -> None:
+def set_run_error(
+    connection: Connection, run_id: int, error: str, attempt: datetime | None = None
+) -> None:
     """Record that a stage after the build failed. The run stays completed: a completed run
     with an error is ranked, but a later stage did not finish. A run that is no longer
-    completed (a newer attempt has reset or failed it) keeps its own state and message."""
-    connection.execute(
-        update(sourcing_run)
-        .where(sourcing_run.c.id == run_id, sourcing_run.c.status == "completed")
-        .values(error=error)
+    completed (a newer attempt has reset or failed it) keeps its own state and message. Given
+    the attempt's marker (`run_started_at`), the error is also kept off a run that a newer
+    attempt has since rebuilt."""
+    statement = update(sourcing_run).where(
+        sourcing_run.c.id == run_id, sourcing_run.c.status == "completed"
     )
+    if attempt is not None:
+        statement = statement.where(sourcing_run.c.started_at == attempt)
+    connection.execute(statement.values(error=error))
+
+
+def run_started_at(connection: Connection, run_id: int) -> datetime | None:
+    """When the current attempt of the run started: `start_run` resets it on every attempt, so it
+    tells one attempt from the next."""
+    started: datetime | None = connection.execute(
+        select(sourcing_run.c.started_at).where(sourcing_run.c.id == run_id)
+    ).scalar_one_or_none()
+    return started
 
 
 def run_status(connection: Connection, run_id: int) -> str | None:

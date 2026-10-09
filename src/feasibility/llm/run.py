@@ -32,7 +32,7 @@ import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal, assert_never, cast
 
 from aox_agent_core.errors import (
@@ -160,13 +160,30 @@ class StageContext:
     run_date: date
     client: MeteredClient | None
     watermark: int
+    # When the attempt of the run that these stages belong to started. A newer attempt resets it,
+    # and from then on this one writes nothing into the run.
+    attempt: datetime
     # Why no further call is made in this attempt, shared by the stages: a cap that refused a
     # signals call refuses a narrative call too (every call holds the same reservation).
     blocked: Blocked
 
 
+def current_attempt(engine: Engine, run_id: int) -> datetime:
+    """The marker of the run's current attempt, to be read when the attempt starts."""
+    with engine.connect() as connection:
+        attempt = sourcing_store.run_started_at(connection, run_id)
+    if attempt is None:
+        raise ValueError(f"no run {run_id}")
+    return attempt
+
+
 def stage_context(
-    engine: Engine, pack: MarketPack, run_id: int, run_date: date, client: MeteredClient | None
+    engine: Engine,
+    pack: MarketPack,
+    run_id: int,
+    run_date: date,
+    client: MeteredClient | None,
+    attempt: datetime,
 ) -> StageContext:
     return StageContext(
         engine,
@@ -175,6 +192,7 @@ def stage_context(
         run_date,
         client,
         ledger.latest_call_id(engine, run_id),
+        attempt,
         Blocked(),
     )
 
@@ -245,7 +263,7 @@ def _write(ctx: StageContext, candidate_id: int, write: Callable[[Connection], N
     runs. False, and nothing written, when a newer attempt of the run has reset it since."""
     with ctx.engine.begin() as connection:
         sourcing_store.lock_market_runs(connection, ctx.market)
-        if not llm_store.candidate_is_current(connection, ctx.run_id, candidate_id):
+        if not llm_store.candidate_is_current(connection, ctx.run_id, candidate_id, ctx.attempt):
             return False
         write(connection)
     return True
@@ -264,7 +282,7 @@ def _merge_counts(ctx: StageContext, tally: dict[str, int]) -> dict[str, Any]:
     try:
         with ctx.engine.begin() as connection:
             sourcing_store.lock_market_runs(connection, ctx.market)
-            if sourcing_store.run_status(connection, ctx.run_id) == "completed":
+            if llm_store.attempt_is_current(connection, ctx.run_id, ctx.attempt):
                 sourcing_store.merge_counts(connection, ctx.run_id, patch)
     except Exception:
         log.exception("could not record the model counts of run %s", ctx.run_id)
