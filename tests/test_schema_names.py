@@ -69,6 +69,12 @@ def test_a_database_built_from_the_migrations_has_no_doubled_check_name(
         assert not name.removeprefix(f"ck_{table}_").startswith(f"ck_{table}_"), name
 
 
+def _rerun_0008(engine: Engine) -> None:
+    with engine.begin() as connection:
+        command.downgrade(alembic_config(connection), "0007")
+    upgrade_to_head(engine)
+
+
 def test_revision_0008_renames_the_doubled_names_a_database_built_before_it_holds(
     migrated_engine: Engine,
 ) -> None:
@@ -78,27 +84,29 @@ def test_revision_0008_renames_the_doubled_names_a_database_built_before_it_hold
     # ones is that long: the longest is 56): put the legacy spelling on every name that can have it.
     legacy = [(t, n) for t, n in before if len(f"ck_{t}_{n}") <= MAX_NAME_LENGTH]
     assert len(legacy) > 20
-    with migrated_engine.begin() as connection:
-        for table, name in legacy:
-            connection.execute(
-                text(f'ALTER TABLE "{table}" RENAME CONSTRAINT "{name}" TO "ck_{table}_{name}"')
-            )
-    doubled = [n for t, n in _check_names(migrated_engine) if n.startswith(f"ck_{t}_ck_{t}_")]
-    assert len(doubled) == len(legacy)
+    try:
+        with migrated_engine.begin() as connection:
+            for table, name in legacy:
+                connection.execute(
+                    text(f'ALTER TABLE "{table}" RENAME CONSTRAINT "{name}" TO "ck_{table}_{name}"')
+                )
+        doubled = [n for t, n in _check_names(migrated_engine) if n.startswith(f"ck_{t}_ck_{t}_")]
+        assert len(doubled) == len(legacy)
 
-    with migrated_engine.begin() as connection:
-        command.downgrade(alembic_config(connection), "0007")
-    with migrated_engine.begin() as connection:
-        command.upgrade(alembic_config(connection), "head")
+        with migrated_engine.begin() as connection:
+            command.downgrade(alembic_config(connection), "0007")
+        with migrated_engine.begin() as connection:
+            command.upgrade(alembic_config(connection), "head")
 
-    assert _check_names(migrated_engine) == before
-    with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0008"
-    # Running it again changes nothing.
-    with migrated_engine.begin() as connection:
-        command.downgrade(alembic_config(connection), "0007")
-    upgrade_to_head(migrated_engine)
-    assert _check_names(migrated_engine) == before
+        assert _check_names(migrated_engine) == before
+        with migrated_engine.connect() as connection:
+            assert current_schema_version(connection) == "0008"
+        # Running it again changes nothing.
+        _rerun_0008(migrated_engine)
+        assert _check_names(migrated_engine) == before
+    finally:
+        # Whatever happened, leave the shared database with the names 0008 gives.
+        _rerun_0008(migrated_engine)
 
 
 def test_a_gis_group_lookup_can_use_the_gis_parcel_index(migrated_engine: Engine) -> None:
