@@ -12,7 +12,10 @@ number in it is a figure string the facts sheet gave the model, copied exactly:
   `2026`, `50x150`.
 * A spelled quantity left over is a `spelled_number`: two to ninety-nine, hundred, thousand,
   million, billion, dozen, percent, and the fractions (a third, a quarter). "one", "single",
-  "half", "double" and "twice" are prose.
+  "half", "double" and "twice" are prose, except next to a figure:
+* An arithmetic word (half, double, twice, triple, thrice, quarter, third and their plurals)
+  within three words before a figure, in the same sentence, or as "<word> of <figure>", is a
+  `figure_arithmetic`: the digits are exact and the claim ("half of $107,560.14") is not.
 * Text outside plain printable ASCII and a few typographic marks is an `odd_character`: it is how
   a number could hide (a zero-width character inside "two", a look-alike letter, a non-ASCII digit).
 * Every basis code is one the facts sheet names; lengths are capped; the summary is not blank.
@@ -40,7 +43,13 @@ TOKEN_MAX_CHARS = 40
 MAX_VIOLATIONS = 20
 
 ViolationKind = Literal[
-    "unlisted_figure", "spelled_number", "unknown_basis", "too_long", "empty", "odd_character"
+    "unlisted_figure",
+    "spelled_number",
+    "figure_arithmetic",
+    "unknown_basis",
+    "too_long",
+    "empty",
+    "odd_character",
 ]
 
 
@@ -242,6 +251,32 @@ _BEFORE_FIGURE = re.compile(
 )
 
 
+# Words that do arithmetic on a figure placed after them. Only near a figure: elsewhere "half the
+# room" is prose. Some are number words too and are rejected anywhere; they are listed so the
+# violation names the arithmetic as well.
+_ARITHMETIC_WORDS = frozenset(
+    f"{stem}{ending}"
+    for stem, ending in (
+        ("half", ""),
+        ("halves", ""),
+        ("double", ""),
+        ("double", "s"),
+        ("twice", ""),
+        ("triple", ""),
+        ("triple", "s"),
+        ("thrice", ""),
+        ("quarter", ""),
+        ("quarter", "s"),
+        ("third", ""),
+        ("third", "s"),
+    )
+)
+ARITHMETIC_WINDOW_WORDS = 3
+# A bare line break is not a sentence end: "half of" and the figure may sit on two lines.
+_SENTENCE_BREAK = re.compile(r"[.!?]+(?=\s)")
+_LETTER_RUN = re.compile(r"[A-Za-z]+")
+
+
 def _is_odd(character: str) -> bool:
     if character in "\n\t" or character in _ALLOWED_MARKS:
         return False
@@ -275,14 +310,18 @@ def _stands_alone(text: str, start: int, end: int) -> bool:
     return True
 
 
-def _mask_figures(text: str, figures: dict[str, list[str]]) -> tuple[str, list[tuple[str, str]]]:
-    """`text` with each standing-alone figure replaced by a mask, and the (key, text) pairs found.
+def _mask_figures(
+    text: str, figures: dict[str, list[str]]
+) -> tuple[str, list[tuple[str, str]], list[int]]:
+    """`text` with each standing-alone figure replaced by a mask, the (key, text) pairs found, and
+    where each figure starts.
 
     `figures` maps a figure's text to the keys that carry it. Longest strings go first, so a
     figure is never matched inside a longer one."""
     masked = list(text)
     taken = [False] * len(text)
     found: list[tuple[str, str]] = []
+    starts: list[int] = []
     for figure in sorted(figures, key=lambda f: (-len(f), f)):
         position = text.find(figure)
         while position != -1:
@@ -291,8 +330,19 @@ def _mask_figures(text: str, figures: dict[str, list[str]]) -> tuple[str, list[t
                 masked[position:end] = _MASK * len(figure)
                 taken[position:end] = [True] * len(figure)
                 found.extend((key, figure) for key in figures[figure])
+                starts.append(position)
             position = text.find(figure, position + 1)
-    return "".join(masked), found
+    return "".join(masked), found, sorted(starts)
+
+
+def _arithmetic_words(text: str, figure_starts: list[int]) -> list[str]:
+    """The arithmetic words among the last few words before each figure, in its own sentence."""
+    found: set[str] = set()
+    for start in figure_starts:
+        sentence = _SENTENCE_BREAK.split(text[:start])[-1]
+        near = _LETTER_RUN.findall(sentence)[-ARITHMETIC_WINDOW_WORDS:]
+        found |= {word.lower() for word in near if word.lower() in _ARITHMETIC_WORDS}
+    return sorted(found)
 
 
 def _numeric_tokens(masked: str) -> list[str]:
@@ -370,7 +420,7 @@ def _scan_text(
     violations: list[Violation] = []
     if any(_is_odd(character) for character in text):
         violations.append(Violation(kind="odd_character", text=location))
-    masked, quoted = _mask_figures(text, figures)
+    masked, quoted, figure_starts = _mask_figures(text, figures)
     violations += [
         Violation(kind="unlisted_figure", text=token) for token in _numeric_tokens(masked)
     ]
@@ -378,6 +428,10 @@ def _scan_text(
         Violation(kind="unlisted_figure", text=token) for token in _lookalike_numbers(masked)
     ]
     violations += [Violation(kind="spelled_number", text=word) for word in _spelled_numbers(masked)]
+    violations += [
+        Violation(kind="figure_arithmetic", text=word)
+        for word in _arithmetic_words(text, figure_starts)
+    ]
     return violations, quoted
 
 

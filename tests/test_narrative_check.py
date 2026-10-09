@@ -547,3 +547,96 @@ def test_a_figure_wrapped_in_a_parenthesis_in_one_field_fails_only_that_field() 
 )
 def test_parentheses_elsewhere_in_prose_stay_allowed(text: str) -> None:
     assert kinds(draft(text)) == [], text
+
+
+# --- arithmetic on a figure: half of it, twice it (gatekeeper review) ----------------------------
+
+ARITHMETIC_WORDS = [
+    "half",
+    "halves",
+    "double",
+    "doubles",
+    "twice",
+    "triple",
+    "triples",
+    "thrice",
+    "quarter",
+    "quarters",
+    "third",
+    "thirds",
+]
+# Where a word may sit to change what a figure says: up to three words before it, or "<word> of".
+ARITHMETIC_PLACES = [
+    ("directly_before", "Profit is {word} $107,560.14."),
+    ("one_word_between", "Profit is {word} the $107,560.14."),
+    ("two_words_between", "Profit is {word} the expected $107,560.14."),
+    ("of_the_figure", "A margin of {word} of 7.57% is thin."),
+    ("percent_figure", "The margin should be {word} 33.69% soon."),
+    ("area_figure", "The lot is {word} 6,400 sq ft."),
+]
+
+
+@pytest.mark.parametrize("place", ARITHMETIC_PLACES, ids=[place[0] for place in ARITHMETIC_PLACES])
+@pytest.mark.parametrize("word", ARITHMETIC_WORDS)
+def test_an_arithmetic_word_next_to_a_figure_is_rejected(word: str, place: tuple[str, str]) -> None:
+    name, template = place
+
+    assert ("figure_arithmetic", word) in kinds(draft(template.format(word=word))), (word, name)
+
+
+@pytest.mark.parametrize("word", ["half", "double", "twice"])
+def test_the_word_is_reported_without_a_spelled_number_or_a_figure_violation(word: str) -> None:
+    assert kinds(draft(f"Profit is {word} $107,560.14.")) == [("figure_arithmetic", word)]
+
+
+def test_a_figure_next_to_an_arithmetic_word_still_maps_to_its_key() -> None:
+    result = check_narrative(draft("Profit is twice $107,560.14."), FACTS)
+
+    assert result.passed is False
+    assert [f.key for f in result.figures_quoted] == ["profit"]
+
+
+@pytest.mark.parametrize("word", ["Half", "DOUBLE", "Twice"])
+def test_the_arithmetic_word_is_read_in_any_case(word: str) -> None:
+    assert kinds(draft(f"{word} of 7.57% is the target.")) == [("figure_arithmetic", word.lower())]
+
+
+def test_the_window_is_three_words_and_ends_at_the_sentence() -> None:
+    assert kinds(draft("Profit is double the very expected $107,560.14.")) == []
+    assert kinds(draft("It sold twice. $107,560.14 is the profit.")) == []
+    assert kinds(draft("It sold twice!\n$107,560.14 is the profit.")) == []
+    assert kinds(draft("It sold twice\n$107,560.14 is the profit.")) == [
+        ("figure_arithmetic", "twice")
+    ]
+    assert kinds(draft("Profit is half the expected $107,560.14.")) == [
+        ("figure_arithmetic", "half")
+    ]
+
+
+def test_each_figure_has_its_own_window() -> None:
+    found = kinds(draft("Profit is $107,560.14 and twice the 7.57%."))
+
+    assert found == [("figure_arithmetic", "twice")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "One risk stands out; a single lot, half the room, double or twice.",
+        "Profit of $107,560.14 is about half of what the seller hoped for.",
+        "The house is 3,168 sq ft, roughly double a typical starter home.",
+        "The hold is 9 months, twice what the next flip needed.",
+        "Twice the risk shows up when one bad comp meets 9 months on market.",
+        "Rehab of $84,670.08 is half the gap, and -$42,693.55 is the other half.",
+        "It is a double-height garage on a lot of 6,400 sq ft.",
+        "Halving the scope would help; doubling it would not.",
+    ],
+)
+def test_the_words_stay_allowed_elsewhere_in_prose(text: str) -> None:
+    assert kinds(draft(text)) == [], text
+
+
+def test_a_draft_rejected_only_for_arithmetic_is_a_figure_check_rejection() -> None:
+    from feasibility.llm.narrative import FIGURE_VIOLATIONS
+
+    assert "figure_arithmetic" in FIGURE_VIOLATIONS

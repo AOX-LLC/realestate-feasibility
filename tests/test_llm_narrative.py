@@ -185,6 +185,15 @@ def test_the_system_prompt_states_the_figure_rule_and_where_signals_come_from() 
     assert "never compare" in system
 
 
+def test_the_system_prompt_keeps_half_double_and_twice_away_from_a_figure() -> None:
+    system = " ".join((NARRATIVE_PROMPT.system or "").lower().split())
+
+    assert (
+        "half, double and twice are fine in ordinary prose, but never in the three words" in system
+    )
+    assert "a figure is never halved, doubled or multiplied" in system
+
+
 def test_the_system_prompt_has_no_digit_for_the_model_to_echo() -> None:
     assert not re.search(r"[0-9]", NARRATIVE_PROMPT.system or "")
 
@@ -307,6 +316,20 @@ def test_a_figure_outranks_a_basis_problem_in_the_reason(config: AgentCoreConfig
     )
     attempt = write_narrative_sync(metered(Narrator(both, both), None, config), FACTS, stage="eval")
 
+    assert narrative.rejected_result(attempt, FACTS).reason == "figure_check"
+
+
+def test_arithmetic_on_a_figure_is_a_figure_check_rejection(config: AgentCoreConfig) -> None:
+    doubled = NarrativeDraft(
+        summary="Profit is twice $107,560.14.",
+        risks=[RiskPoint(basis=["below_target"], text="A risk.")],
+        checks_before_offer=[],
+    )
+    attempt = write_narrative_sync(
+        metered(Narrator(doubled, doubled), None, config), FACTS, stage="eval"
+    )
+
+    assert [(v.kind, v.text) for v in attempt.check.violations] == [("figure_arithmetic", "twice")]
     assert narrative.rejected_result(attempt, FACTS).reason == "figure_check"
 
 

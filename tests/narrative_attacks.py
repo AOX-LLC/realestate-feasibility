@@ -197,6 +197,22 @@ REVIEW_ATTACKS: list[tuple[str, str]] = [
     ("split_across_newline", "About thou\nsand dollars."),
     ("split_hun_dred", "About hun dred dollars."),
     ("hyphenated_at_a_line_break", "Plans for tw-\no lots."),
+    # Arithmetic on a figure: the digits are exact, the claim is not.
+    ("arith_half_of_profit", "Plan on half of $107,560.14 after the holding costs."),
+    ("arith_half_the_margin", "Expect half the 7.57% margin once the rehab runs over."),
+    ("arith_double_the_arv", "A good agent could double the $1,420,799.85 value."),
+    ("arith_double_expected", "The upside is double the expected $107,560.14."),
+    ("arith_twice_profit", "That is twice $107,560.14 on the same capital."),
+    ("arith_twice_the_return", "Twice the 33.69% return is realistic in a hot market."),
+    ("arith_triple_the_price", "Resale could triple the $420,000.00 purchase price."),
+    ("arith_thrice_margin", "Thrice 7.57% is still thin."),
+    ("arith_quarter_of_lot", "A quarter of 6,400 sq ft is buildable."),
+    ("arith_third_of_profit", "A third of $107,560.14 goes to the lender."),
+    ("arith_halves_of_profit", "The partners take halves of $107,560.14."),
+    ("arith_doubles_the_margin", "A new roof doubles the 7.57% margin, he said."),
+    ("arith_thirds_of_cost", "Costs split in thirds of $1,313,239.71 at closing."),
+    ("arith_upper_case", "HALF of $107,560.14 is realistic."),
+    ("arith_of_across_newline", "Plan on half of\n$107,560.14 here."),
 ]
 
 # Plain English that holds a number word inside it and must still pass.
@@ -209,4 +225,8 @@ REVIEW_DECOYS: list[tuple[str, str]] = [
     ("one_and_double", "One option is to double check; twice is better."),
     ("im_and_dont", "I'm sure they don't mind; it's fine."),
     ("tent_and_tense", "The tent is tense."),
+    ("half_after_the_figure", "Profit is $107,560.14, which is half of the hoped-for amount."),
+    ("double_far_from_the_figure", "Double the effort would not change the margin of 7.57%."),
+    ("twice_in_an_earlier_sentence", "The seller listed it twice. The price is $420,000.00."),
+    ("halving_and_doubling", "Halving the scope helps; doubling it does not."),
 ]

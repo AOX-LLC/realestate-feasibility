@@ -78,7 +78,8 @@ draft with any other number is thrown away.
 not a figure rounded or shortened with a k or an M.
 - Never spell a quantity out in words: no two, ten, hundred, thousand, million, percent, no \
 fractions such as a third or a quarter. Write "a second lot", never a count. The words one, \
-single, half, double and twice are fine in ordinary prose.
+single, half, double and twice are fine in ordinary prose, but never in the three words before \
+a figure: a figure is never halved, doubled or multiplied.
 - Never compare numbers, add them or work anything out. Comparisons are given to you as \
 code_facts; say what they say and nothing more.
 - Never put a dash, a plus or a minus sign in front of a figure, or a unit, a rate or a magnitude \
@@ -235,7 +236,9 @@ NarrativeReason = Literal[
     "refusal",
     "replay_error",
 ]
-FIGURE_VIOLATIONS = frozenset({"unlisted_figure", "spelled_number", "odd_character"})
+FIGURE_VIOLATIONS = frozenset(
+    {"unlisted_figure", "spelled_number", "figure_arithmetic", "odd_character"}
+)
 
 
 class StoredRiskPoint(ResultModel):
