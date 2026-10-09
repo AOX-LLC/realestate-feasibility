@@ -70,11 +70,12 @@ def finish_untrusted(text: str, removed_invisible: int, limit: int = MAX_REMARKS
     return f"{text[:room].rstrip()}\n{HIDDEN_TEXT_MARKER}".lstrip()
 
 
-_TAG_START = re.compile(r"<(?=[/!?|A-Za-z])")
+_TAG_START = re.compile(r"<(?=\s*[/!?|A-Za-z])")
 
 
 def defang_tags(text: str) -> str:
-    """`<` that starts a tag-like sequence becomes `[`. Same length, so spans stay valid."""
+    """`<` that starts a tag-like sequence (a space may follow it: `< /tag>`) becomes `[`.
+    Same length, so spans stay valid."""
     return _TAG_START.sub("[", text)
 
 
@@ -121,13 +122,15 @@ _RULES: dict[str, re.Pattern[str]] = {
         r"|summari[sz]e|list)\b"
         r"|\b(?:in|into|to)\s+(?:your|the)\s+(?:output|answer|response|reply|summary|json)\b"
         r"|\byour\s+(?:output|answer|response|reply)\s+(?:must|should|will|has\s+to)\b"
-        r"|\b(?:state|say|write|put|mention|include|insert|add|output)\s+(?:that\s+)?(?:the\s+)?"
-        r"(?:margin|profit|roi|return|arv|price|figure|number|percent(?:age)?)\b[^.!?\n]{0,40}\d",
+        r"|\b(?:state|say|write|put|mention|include|insert|add|output|describe)\s+(?:that\s+)?"
+        r"(?:the\s+)?(?:margin|profit|roi|return|arv|price|figure|number|percent(?:age)?)\b"
+        r"[^.!?\n]{0,40}(?:\d|\b(?:\w*(?:teen|ty|ties)|zero|one|two|three|four|five|six|seven"
+        r"|eight|nine|ten|hundred|thousand|million|percent)\b)",
         _FLAGS,
     ),
     "fence_tag": re.compile(
         r"<\s*/?\s*(?:listing_remarks|remarks|system|instructions?|prompt|assistant|user|human"
-        r"|tool\w*|function\w*|output|json)\b[^>\n]{0,80}>?"
+        r"|facts|feedback|tool\w*|function\w*|output|json)\b[^>\n]{0,80}>?"
         r"|```",
         _FLAGS,
     ),
