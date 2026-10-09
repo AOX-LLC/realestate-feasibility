@@ -23,7 +23,9 @@ from feasibility.config import DataMode, Settings
 from feasibility.llm import run as llm_run
 from feasibility.llm import store as llm_store
 from feasibility.llm.client import build_model_client
+from feasibility.llm.narrative_check import NarrativeDraft
 from feasibility.llm.run import PermanentModelError, RetryableModelError
+from feasibility.llm.signals import SignalClaim, SignalExtraction
 from feasibility.snapshot.load import seed
 from feasibility.sourcing.run import SourcingResult, run_sourcing
 
@@ -53,6 +55,14 @@ def _signals_by_status(engine: Engine, run_id: int) -> Counter[tuple[str, str | 
         engine, "SELECT status, reason FROM candidate_signals WHERE run_id = :run", run=run_id
     )
     return Counter((row.status, row.reason) for row in rows)
+
+
+def _signal_calls(model: RunModel) -> list[Any]:
+    return [inputs for prompt, inputs in model.calls if prompt == "signals.extract"]
+
+
+def _narrative_calls(model: RunModel) -> list[Any]:
+    return [inputs for prompt, inputs in model.calls if prompt == "narrative.write"]
 
 
 def _ledger(engine: Engine, run_id: int) -> list[Any]:
@@ -139,7 +149,6 @@ def test_day_two_calls_the_model_only_for_remarks_it_has_not_read(
     assert {row.outcome for row in day_two_calls} == {"ok"}
     assert two.counts.signals_reused == 9
     assert two.counts.signals_reused + len(day_two_calls) == two.counts.signals_extracted == 15
-    assert two.counts.llm_calls == 6
 
 
 def test_the_injection_scan_marks_the_remarks_it_flags(
@@ -185,6 +194,75 @@ def test_signals_record_the_primary_listing_that_was_read(
     assert rows[0][0] == 12
 
 
+# --- stage 7 on both days -----------------------------------------------------------------------
+
+
+def _narratives_by_status(engine: Engine, run_id: int) -> Counter[tuple[str, str | None]]:
+    rows = _rows(
+        engine, "SELECT status, reason FROM candidate_narrative WHERE run_id = :run", run=run_id
+    )
+    return Counter((row.status, row.reason) for row in rows)
+
+
+def test_day_one_stores_a_narrative_row_for_every_ranked_candidate(
+    both_days: tuple[Engine, SourcingResult, SourcingResult],
+) -> None:
+    engine, one, _ = both_days
+
+    assert _narratives_by_status(engine, one.run_id) == {
+        ("accepted", None): 5,
+        ("not_eligible", "proforma_no_arv"): 7,
+    }
+    counts = one.counts
+    assert (counts.narratives_accepted, counts.narratives_not_eligible) == (5, 7)
+    assert (counts.narratives_rejected, counts.narratives_failed) == (0, 0)
+    assert (counts.narratives_deferred, counts.narratives_reused) == (0, 0)
+    assert counts.llm_calls == 15  # ten for the signals, five narratives
+
+
+def test_day_two_stores_a_narrative_row_for_every_ranked_candidate(
+    both_days: tuple[Engine, SourcingResult, SourcingResult],
+) -> None:
+    engine, _, two = both_days
+
+    assert _narratives_by_status(engine, two.run_id) == {
+        ("accepted", None): 6,
+        ("not_eligible", "proforma_no_arv"): 11,
+    }
+    assert two.counts.narratives_reused == 4
+
+
+def test_day_two_writes_only_the_narratives_whose_facts_changed(
+    both_days: tuple[Engine, SourcingResult, SourcingResult],
+) -> None:
+    engine, _, two = both_days
+
+    calls = [(row.stage, row.property_key) for row in _ledger(engine, two.run_id)]
+
+    # Six remarks it had not read, then the price cut on 004 and the new property 015.
+    assert calls[6:] == [
+        ("narrative", "acct:99000000000000004"),
+        ("narrative", "acct:99000000000000015"),
+    ]
+    assert len(calls) == 8
+    assert two.counts.llm_calls == 8
+
+
+def test_same_day_rerun_reuses_every_narrative(
+    both_days: tuple[Engine, SourcingResult, SourcingResult],
+) -> None:
+    engine, _, two = both_days
+
+    again = run_sourcing(engine, _settings(), "dallas", DAY_TWO, model=RunModel(**FREE))
+
+    assert again.counts.narratives_reused == again.counts.narratives_accepted == 6
+    assert again.counts.llm_calls == 0
+    assert _narratives_by_status(engine, two.run_id) == {
+        ("accepted", None): 6,
+        ("not_eligible", "proforma_no_arv"): 11,
+    }
+
+
 # --- re-runs and the cache ---------------------------------------------------------------------
 
 
@@ -219,7 +297,7 @@ def test_same_day_rerun_makes_no_calls(
     )
 
 
-def test_clearing_a_runs_rows_clears_its_signals(seeded: Engine) -> None:
+def test_clearing_a_runs_rows_clears_its_signals_and_narratives(seeded: Engine) -> None:
     result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
     from feasibility.sourcing import store
 
@@ -227,8 +305,9 @@ def test_clearing_a_runs_rows_clears_its_signals(seeded: Engine) -> None:
         store.clear_run_rows(connection, result.run_id)
 
     assert _rows(seeded, "SELECT count(*) FROM candidate_signals")[0][0] == 0
+    assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
     # The cache outlives the run: a rebuilt run reads it and spends nothing.
-    assert _rows(seeded, "SELECT count(*) FROM llm_result")[0][0] == 10
+    assert _rows(seeded, "SELECT count(*) FROM llm_result")[0][0] == 15
     model = RunModel(**FREE)
     run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
     assert model.calls == []
@@ -243,7 +322,7 @@ def test_a_run_cap_defers_the_candidates_it_cannot_afford(seeded: Engine) -> Non
 
     result = run_sourcing(seeded, settings, "dallas", DAY_ONE, model=model)
 
-    assert len(model.calls) == 2
+    assert len(_signal_calls(model)) == 2
     assert _signals_by_status(seeded, result.run_id) == {
         ("extracted", None): 2,
         ("deferred", "budget"): 8,
@@ -321,7 +400,7 @@ def test_a_retry_after_a_provider_error_calls_only_from_the_failed_candidate(
     model = RunModel(**FREE)
     retried = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
 
-    assert len(model.calls) == 8
+    assert len(_signal_calls(model)) == 8
     assert retried.counts.signals_extracted == 10
     assert retried.counts.signals_reused == 2
     run = _rows(seeded, "SELECT error FROM sourcing_run")[0]
@@ -347,7 +426,7 @@ def test_a_candidate_the_model_cannot_answer_is_failed_and_the_stage_goes_on(
         ("failed", reason): 1,
         ("fields_only", "no_remarks"): 2,
     }
-    assert len(model.calls) == 10
+    assert len(_signal_calls(model)) == 10
 
 
 def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(seeded: Engine) -> None:
@@ -414,8 +493,9 @@ def test_no_model_call_happens_inside_a_transaction(seeded: Engine) -> None:
     model = RunModel(before_call=probe, **FREE)
     run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
 
-    assert len(open_transactions) == len(model.calls) == 10
-    assert open_transactions == [0] * 10
+    # Ten signals calls and five narratives.
+    assert len(open_transactions) == len(model.calls) == 15
+    assert open_transactions == [0] * 15
 
 
 def test_a_stage_with_no_model_configured_stores_field_signals_and_makes_no_call(
@@ -440,3 +520,233 @@ def _pack() -> Any:
     from feasibility.markets.loader import get_pack
 
     return get_pack("dallas")
+
+
+# --- stage 7 ------------------------------------------------------------------------------------
+
+
+def test_the_model_is_given_the_facts_sheet_and_nothing_from_the_listing(seeded: Engine) -> None:
+    model = RunModel(
+        extractions=lambda remarks: SignalExtraction(
+            signals=[SignalClaim(code="as_is_sale", quote=" ".join(remarks.split())[:60])],
+            injection_suspected=False,
+        ),
+        **FREE,
+    )
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    sent = _narrative_calls(model)
+    assert len(sent) == 5
+    private = [row[0] for row in _rows(seeded, "SELECT address_line FROM listing")] + [
+        row[0] for row in _rows(seeded, "SELECT remarks FROM listing WHERE remarks IS NOT NULL")
+    ]
+    for inputs in sent:
+        assert set(inputs) == {"facts", "feedback"}
+        assert set(inputs["facts"]) == {"figures", "code_facts", "flags", "signals"}  # type: ignore[arg-type]
+        rendered = str(inputs)
+        assert not any(piece[:25] in rendered for piece in private)
+    stored = _rows(seeded, "SELECT result FROM candidate_narrative WHERE status = 'accepted'")
+    assert all("as_is_sale" in row.result["facts"]["codes"] for row in stored)
+    assert result.counts.signals_extracted == 10
+
+
+def test_an_accepted_narrative_maps_each_figure_back_to_its_facts_key(seeded: Engine) -> None:
+    def quoting(facts: Any, feedback: Any) -> NarrativeDraft:
+        figures = facts["figures"]
+        return NarrativeDraft(
+            summary=f"Profit is {figures['profit']} on a margin of {figures['margin']}.",
+            risks=[],
+            checks_before_offer=[],
+        )
+
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(draft=quoting, **FREE))
+
+    rows = _rows(seeded, "SELECT result FROM candidate_narrative WHERE status = 'accepted'")
+    assert len(rows) == 5
+    for row in rows:
+        assert {figure["key"] for figure in row.result["figures_quoted"]} == {"profit", "margin"}
+        assert row.result["check"] == {"passed": True, "attempts": 1, "violations": []}
+
+
+def test_a_draft_that_fails_the_check_is_repaired_once(seeded: Engine) -> None:
+    sent = []
+
+    def draft(facts: Any, feedback: Any) -> NarrativeDraft:
+        """The first call gets a draft with a rounded figure; every other call, a clean one."""
+        sent.append(feedback)
+        text_ = "Profit is about $108k." if len(sent) == 1 else "A plain summary."
+        return NarrativeDraft(summary=text_, risks=[], checks_before_offer=[])
+
+    model = RunModel(draft=draft, **FREE)
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    assert result.counts.narratives_accepted == 5
+    assert result.counts.narratives_repaired == 1
+    narrative_calls = [row for row in _ledger(seeded, result.run_id) if row.stage == "narrative"]
+    assert len(narrative_calls) == 6
+    stored = _rows(
+        seeded,
+        "SELECT result FROM candidate_narrative WHERE status = 'accepted' "
+        "AND result -> 'check' ->> 'attempts' = '2'",
+    )
+    assert len(stored) == 1
+    assert len(stored[0].result["model"]["llm_call_ids"]) == 2
+    feedback = [inputs["feedback"] for inputs in _narrative_calls(model)]
+    assert feedback[0] == ""
+    assert feedback[1].startswith("The previous draft was rejected.")
+
+
+def test_a_rejected_narrative_keeps_its_violations_and_none_of_its_text(seeded: Engine) -> None:
+    bad = NarrativeDraft(
+        summary="Profit is about $108k and a margin of 7.6 percent.",
+        risks=[],
+        checks_before_offer=[],
+    )
+    model = RunModel(draft=lambda facts, feedback: bad, **FREE)
+
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=model)
+
+    assert result.counts.narratives_rejected == 5
+    assert result.counts.narratives_accepted == 0
+    assert _narratives_by_status(seeded, result.run_id)[("rejected", "figure_check")] == 5
+    stored = _rows(seeded, "SELECT result::text AS text FROM candidate_narrative")
+    assert not any("108k" in row.text and "about" in row.text for row in stored)
+    assert not any("Profit is about" in row.text for row in stored)
+    rejected = _rows(
+        seeded, "SELECT result FROM candidate_narrative WHERE status = 'rejected' LIMIT 1"
+    )[0].result
+    assert rejected["summary"] is None
+    assert {v["kind"] for v in rejected["check"]["violations"]} >= {"unlisted_figure"}
+    assert rejected["check"]["attempts"] == 2
+
+    # A rejection is cached too: a retry does not spend again on the same facts.
+    again = RunModel(draft=lambda facts, feedback: bad, **FREE)
+    rerun = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=again)
+    assert _narrative_calls(again) == []
+    assert rerun.counts.narratives_rejected == 5
+    assert rerun.counts.narratives_reused == 5
+
+
+def test_a_run_cap_defers_the_narratives_it_cannot_afford(seeded: Engine) -> None:
+    # Ten signals at 0.004 leave room for three narratives at 0.012 under 0.12 with 0.05 held.
+    settings = _settings(llm_run_budget_usd=Decimal("0.12"))
+    model = RunModel(small_cost="0.004", mid_cost="0.012")
+
+    result = run_sourcing(seeded, settings, "dallas", DAY_ONE, model=model)
+
+    assert result.counts.signals_extracted == 10
+    assert _narratives_by_status(seeded, result.run_id) == {
+        ("accepted", None): 3,
+        ("deferred", "budget"): 2,
+        ("not_eligible", "proforma_no_arv"): 7,
+    }
+    # The deferred ones keep their inputs' hash, so a later run with room finds them.
+    rows = _rows(seeded, "SELECT input_sha256 FROM candidate_narrative WHERE status = 'deferred'")
+    assert all(row.input_sha256 is not None for row in rows)
+    assert result.counts.llm_calls == 13
+    run = _rows(seeded, "SELECT status, error FROM sourcing_run")[0]
+    assert (run.status, run.error) == ("completed", None)
+
+
+def test_a_provider_error_in_the_narratives_fails_one_defers_the_rest_and_a_retry_resumes(
+    seeded: Engine,
+) -> None:
+    # Calls 1-10 are the signals; call 12 is the second narrative.
+    failing = RunModel(failures={12: ProviderUnavailableError("503")}, **FREE)
+
+    with pytest.raises(RetryableModelError):
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=failing)
+
+    run_id = _rows(seeded, "SELECT id FROM sourcing_run")[0][0]
+    assert _signals_by_status(seeded, run_id)[("extracted", None)] == 10
+    narratives = _narratives_by_status(seeded, run_id)
+    assert narratives[("accepted", None)] == 1
+    assert narratives[("failed", "provider_error")] == 1
+    assert narratives[("deferred", "provider_error")] == 3
+    assert narratives[("not_eligible", "proforma_no_arv")] == 7
+
+    retry = RunModel(**FREE)
+    retried = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=retry)
+
+    assert [prompt for prompt, _ in retry.calls] == ["narrative.write"] * 4
+    assert retried.counts.narratives_accepted == 5
+    assert retried.counts.narratives_reused == 1
+
+
+def test_a_failed_signals_stage_writes_no_narratives(seeded: Engine) -> None:
+    with pytest.raises(RetryableModelError):
+        run_sourcing(
+            seeded,
+            _settings(),
+            "dallas",
+            DAY_ONE,
+            model=RunModel(failures={1: ProviderUnavailableError("503")}, **FREE),
+        )
+
+    assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
+
+
+def test_a_failed_narrative_stage_leaves_ranking_and_proformas_intact(seeded: Engine) -> None:
+    clean = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    expected = _phase_three(seeded, clean.run_id)
+    with seeded.begin() as connection:
+        connection.execute(text("DELETE FROM llm_result WHERE prompt_id = 'narrative.write'"))
+
+    with pytest.raises(RetryableModelError):
+        run_sourcing(
+            seeded,
+            _settings(),
+            "dallas",
+            DAY_ONE,
+            model=RunModel(failures={1: RateLimitedError("429")}, **FREE),
+        )
+
+    assert _phase_three(seeded, clean.run_id) == expected
+
+
+def test_a_missing_recording_in_the_narratives_stops_the_stage(seeded: Engine) -> None:
+    missing = RunModel(failures={11: ReplayMissError("no recording", key="k", path="p")}, **FREE)
+
+    with pytest.raises(PermanentModelError, match="narrative stage stopped"):
+        run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=missing)
+
+    run_id = _rows(seeded, "SELECT id FROM sourcing_run")[0][0]
+    assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
+    assert _signals_by_status(seeded, run_id)[("extracted", None)] == 10
+
+
+def test_narratives_with_no_model_configured_are_deferred_and_make_no_call(
+    seeded: Engine,
+) -> None:
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    with seeded.begin() as connection:
+        connection.execute(text("DELETE FROM candidate_narrative"))
+    ctx = llm_run.stage_context(seeded, _pack(), result.run_id, DAY_ONE, None)
+
+    counts = llm_run.run_narratives(ctx)
+
+    assert (counts["narratives_deferred"], counts["narratives_not_eligible"]) == (5, 7)
+    assert _narratives_by_status(seeded, result.run_id) == {
+        ("deferred", "llm_not_configured"): 5,
+        ("not_eligible", "proforma_no_arv"): 7,
+    }
+    assert counts["llm_calls"] == 0
+
+
+def test_a_stage_stops_when_a_newer_attempt_has_reset_the_run(seeded: Engine) -> None:
+    result = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    with seeded.begin() as connection:
+        connection.execute(text("DELETE FROM candidate_narrative"))
+        connection.execute(text("UPDATE sourcing_run SET status = 'running'"))
+    model = RunModel(**FREE)
+    ctx = llm_run.stage_context(
+        seeded,
+        _pack(),
+        result.run_id,
+        DAY_ONE,
+        llm_run.open_client(seeded, _settings(), result.run_id, model),
+    )
+
+    llm_run.run_narratives(ctx)
+
+    assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0

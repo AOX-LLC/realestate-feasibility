@@ -1,6 +1,6 @@
 """A scripted stand-in for the model client: no network, no recordings."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 from typing import Any
 
@@ -182,21 +182,22 @@ class RunModel:
     gets and can fail the nth one.
 
     `extractions` maps the remarks a call was sent to its `SignalExtraction` (any other text gets
-    an empty one). `draft` makes a narrative draft from the facts and the feedback of a call
-    (default: a plain one that passes the check). `failures` maps a 1-based call number to the
-    exception that call raises. `before_call` runs first in every call, with the prompt id."""
+    an empty one), or is a function from the remarks to one. `draft` makes a narrative draft from
+    the facts and the feedback of a call (default: a plain one that passes the check). `failures`
+    maps a 1-based call number to the exception that call raises. `before_call` runs first in
+    every call, with the prompt id."""
 
     def __init__(
         self,
         *,
-        extractions: Mapping[str, Any] | None = None,
+        extractions: Mapping[str, Any] | Callable[[str], Any] | None = None,
         draft: Any = None,
         failures: Mapping[int, BaseException] | None = None,
         before_call: Any = None,
         small_cost: str = "0.004000",
         mid_cost: str = "0.012000",
     ) -> None:
-        self._extractions = dict(extractions or {})
+        self._extractions = extractions if callable(extractions) else dict(extractions or {})
         self._draft = draft
         self._failures = dict(failures or {})
         self._before_call = before_call
@@ -214,7 +215,12 @@ class RunModel:
         if number in self._failures:
             raise self._failures[number]
         if prompt.id == "signals.extract":
-            found = self._extractions.get(str(inputs["remarks"]))
+            remarks = str(inputs["remarks"])
+            found = (
+                self._extractions(remarks)
+                if callable(self._extractions)
+                else self._extractions.get(remarks)
+            )
             if isinstance(found, BaseException):
                 raise found
             output = found or SignalExtraction(signals=[], injection_suspected=False)

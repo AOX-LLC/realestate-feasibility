@@ -50,8 +50,22 @@ from feasibility.llm import ledger
 from feasibility.llm import store as llm_store
 from feasibility.llm.client import build_model_client, load_llm_config
 from feasibility.llm.errors import LlmBudgetError
+from feasibility.llm.facts import Facts, build_facts
 from feasibility.llm.field_signals import FieldSignalInput, field_signals
 from feasibility.llm.metered import MeteredClient, ModelCaller, input_sha256
+from feasibility.llm.narrative import (
+    NARRATIVE_PROMPT,
+    NarrativeReason,
+    NarrativeResult,
+    StoredFacts,
+    accepted_result,
+    narrative_inputs,
+    rejected_result,
+    write_narrative_sync,
+)
+from feasibility.llm.narrative import PROMPT_ID as NARRATIVE_PROMPT_ID
+from feasibility.llm.narrative import PROMPT_VERSION as NARRATIVE_PROMPT_VERSION
+from feasibility.llm.narrative import TASK as NARRATIVE_TASK
 from feasibility.llm.results import (
     CachedExtraction,
     ExtractionInfo,
@@ -62,23 +76,25 @@ from feasibility.llm.results import (
 )
 from feasibility.llm.signals import (
     EXTRACT_PROMPT,
-    PROMPT_ID,
-    PROMPT_VERSION,
-    TASK,
     ExtractionInput,
     SignalExtraction,
     build_extraction_input,
     extraction_inputs,
     verify_extraction,
 )
+from feasibility.llm.signals import PROMPT_ID as SIGNALS_PROMPT_ID
+from feasibility.llm.signals import PROMPT_VERSION as SIGNALS_PROMPT_VERSION
+from feasibility.llm.signals import TASK as SIGNALS_TASK
 from feasibility.llm.spend import RunSpendGuard
 from feasibility.llm.untrusted import HIDDEN_TEXT_MARKER, InjectionHit
 from feasibility.markets.schema import MarketPack
+from feasibility.proforma.model import ProformaResult
 from feasibility.sourcing import store as sourcing_store
 
 log = logging.getLogger(__name__)
 
 SIGNALS_STAGE = "signals"
+NARRATIVE_STAGE = "narrative"
 REDACTION_TOKEN = "[contact removed]"  # noqa: S105 (the redactor's replacement text)
 
 
@@ -118,6 +134,15 @@ def open_client(
 # --- what a stage works with --------------------------------------------------------------------
 
 
+@dataclass
+class Blocked:
+    """Why no further call is made this stage: a cap (`budget`) or a provider failure
+    (`provider_error`). Candidates already in the cache are still served."""
+
+    reason: str | None = None
+    provider_failed: bool = False
+
+
 @dataclass(frozen=True)
 class StageContext:
     """The run a stage works for. `client` is None when no model is configured; `watermark` is
@@ -130,13 +155,22 @@ class StageContext:
     run_date: date
     client: MeteredClient | None
     watermark: int
+    # Why no further call is made in this attempt, shared by the stages: a cap that refused a
+    # signals call refuses a narrative call too (every call holds the same reservation).
+    blocked: Blocked
 
 
 def stage_context(
     engine: Engine, pack: MarketPack, run_id: int, run_date: date, client: MeteredClient | None
 ) -> StageContext:
     return StageContext(
-        engine, pack.market.id, run_id, run_date, client, ledger.latest_call_id(engine, run_id)
+        engine,
+        pack.market.id,
+        run_id,
+        run_date,
+        client,
+        ledger.latest_call_id(engine, run_id),
+        Blocked(),
     )
 
 
@@ -258,14 +292,6 @@ class SignalTally:
             self.signals_reused += 1
 
 
-@dataclass
-class _Blocked:
-    """Why no further call is made this stage: a cap, or a provider failure."""
-
-    reason: SignalsReason | None = None
-    provider_failed: bool = False
-
-
 def _scan_fingerprint(hits: Sequence[InjectionHit]) -> str:
     canonical = json.dumps(sorted((hit.rule, hit.start, hit.end) for hit in hits))
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -286,18 +312,22 @@ def _remarks_info(remarks: str, extraction_input: ExtractionInput) -> RemarksInf
 
 def _without_extraction(
     status: Literal["fields_only", "failed", "deferred"],
-    reason: SignalsReason,
+    reason: str,
     fields: list[StoredSignal],
     remarks: RemarksInfo | None = None,
 ) -> SignalsResult:
-    return SignalsResult(status=status, reason=reason, remarks=remarks, signals=fields)
+    return SignalsResult(
+        status=status, reason=cast(SignalsReason, reason), remarks=remarks, signals=fields
+    )
 
 
 def _cached_extraction(
     engine: Engine, tier: str, digest: str, fingerprint: str
 ) -> CachedExtraction | None:
     with engine.connect() as connection:
-        found = llm_store.cached_result(connection, PROMPT_ID, PROMPT_VERSION, tier, digest)
+        found = llm_store.cached_result(
+            connection, SIGNALS_PROMPT_ID, SIGNALS_PROMPT_VERSION, tier, digest
+        )
     if found is None:
         return None
     cached = CachedExtraction.model_validate(found)
@@ -321,8 +351,8 @@ def _extracted(
         dropped=extraction.dropped,
         model_flagged_injection=extraction.model_flagged_injection,
         extraction=ExtractionInfo(
-            prompt_id=PROMPT_ID,
-            prompt_version=PROMPT_VERSION,
+            prompt_id=SIGNALS_PROMPT_ID,
+            prompt_version=SIGNALS_PROMPT_VERSION,
             tier=tier,
             input_sha256=digest,
             reused=call_id is None,
@@ -334,7 +364,7 @@ def _extracted(
 def _extract_signals(
     ctx: StageContext,
     client: MeteredClient,
-    blocked: _Blocked,
+    blocked: Blocked,
     candidate_id: int,
     remarks: str,
     fields: list[StoredSignal],
@@ -344,8 +374,8 @@ def _extract_signals(
     extraction_input = build_extraction_input(remarks)
     info = _remarks_info(remarks, extraction_input)
     inputs = extraction_inputs(extraction_input)
-    tier = client.tier_for(TASK).value
-    digest = input_sha256(EXTRACT_PROMPT, client.tier_for(TASK), inputs)
+    tier = client.tier_for(SIGNALS_TASK).value
+    digest = input_sha256(EXTRACT_PROMPT, client.tier_for(SIGNALS_TASK), inputs)
     fingerprint = _scan_fingerprint(extraction_input.hits)
 
     cached = _cached_extraction(ctx.engine, tier, digest, fingerprint)
@@ -359,7 +389,7 @@ def _extract_signals(
         inputs=inputs,
         output=SignalExtraction,
         stage=SIGNALS_STAGE,
-        task=TASK,
+        task=SIGNALS_TASK,
         candidate_id=candidate_id,
     )
     call_id = client.last_call_id
@@ -373,8 +403,8 @@ def _extract_signals(
     with ctx.engine.begin() as connection:
         llm_store.cache_result(
             connection,
-            PROMPT_ID,
-            PROMPT_VERSION,
+            SIGNALS_PROMPT_ID,
+            SIGNALS_PROMPT_VERSION,
             tier,
             digest,
             extraction.model_dump(mode="json"),
@@ -384,7 +414,7 @@ def _extract_signals(
 
 
 def _signals_for(
-    ctx: StageContext, blocked: _Blocked, source: llm_store.SignalSource, threshold_days: int
+    ctx: StageContext, blocked: Blocked, source: llm_store.SignalSource, threshold_days: int
 ) -> SignalsResult:
     fields = [
         StoredSignal.from_field(found)
@@ -424,9 +454,7 @@ def _signals_for(
                 blocked.provider_failed = True
                 return _without_extraction("failed", "provider_error", fields, info)
             case "candidate":
-                return _without_extraction(
-                    "failed", cast(SignalsReason, failure.reason), fields, info
-                )
+                return _without_extraction("failed", failure.reason, fields, info)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -448,7 +476,7 @@ def run_signals(ctx: StageContext, pack: MarketPack) -> dict[str, Any]:
 
     The counts are merged into the run also when the stage fails part way, and returned."""
     tally = SignalTally()
-    blocked = _Blocked()
+    blocked = ctx.blocked
     try:
         with _one_spender(ctx.engine, ctx.market):
             with ctx.engine.connect() as connection:
@@ -460,6 +488,183 @@ def run_signals(ctx: StageContext, pack: MarketPack) -> dict[str, Any]:
                 tally.add(result)
         if blocked.provider_failed:
             raise _retryable(SIGNALS_STAGE)
+    finally:
+        counts = _merge_counts(ctx, asdict(tally))
+    return counts
+
+
+# --- stage 7: narratives ------------------------------------------------------------------------
+
+
+@dataclass
+class NarrativeTally:
+    narratives_accepted: int = 0
+    narratives_rejected: int = 0
+    narratives_failed: int = 0
+    narratives_deferred: int = 0
+    narratives_not_eligible: int = 0
+    narratives_reused: int = 0
+    # Accepted narratives whose first draft failed the check and whose repair passed.
+    narratives_repaired: int = 0
+
+    def add(self, result: NarrativeResult) -> None:
+        match result.status:
+            case "accepted":
+                self.narratives_accepted += 1
+                if result.check is not None and result.check.attempts == 2:
+                    self.narratives_repaired += 1
+            case "rejected":
+                self.narratives_rejected += 1
+            case "failed":
+                self.narratives_failed += 1
+            case "deferred":
+                self.narratives_deferred += 1
+            case "not_eligible":
+                self.narratives_not_eligible += 1
+        if result.model is not None and result.model.reused:
+            self.narratives_reused += 1
+
+
+def _unwritten(status: Literal["failed", "deferred"], reason: str, facts: Facts) -> NarrativeResult:
+    """A narrative that was not written: the facts it would have been written from, no text."""
+    return NarrativeResult(
+        status=status, reason=cast(NarrativeReason, reason), facts=StoredFacts(**facts.stored())
+    )
+
+
+def _not_eligible(proforma_status: str) -> NarrativeResult:
+    reason = "proforma_no_arv" if proforma_status == "no_arv" else "proforma_unsizable"
+    return NarrativeResult(
+        status="not_eligible",
+        reason=cast(NarrativeReason, reason),
+        facts=StoredFacts(figures={}, codes=[]),
+    )
+
+
+def _reused(cached: NarrativeResult) -> NarrativeResult:
+    """A cached result for this run: marked as reused and naming no call, as none was made."""
+    if cached.model is None:
+        raise ValueError("a cached narrative has its model record")
+    return cached.model_copy(
+        update={"model": cached.model.model_copy(update={"reused": True, "llm_call_ids": []})}
+    )
+
+
+def _cached_narrative(engine: Engine, tier: str, digest: str) -> NarrativeResult | None:
+    with engine.connect() as connection:
+        found = llm_store.cached_result(
+            connection, NARRATIVE_PROMPT_ID, NARRATIVE_PROMPT_VERSION, tier, digest
+        )
+    return None if found is None else _reused(NarrativeResult.model_validate(found))
+
+
+def _write_new_narrative(
+    ctx: StageContext,
+    client: MeteredClient,
+    candidate_id: int,
+    facts: Facts,
+    tier: str,
+    digest: str,
+) -> NarrativeResult:
+    """One narrative written by the model, checked, and cached. Raises what the call raises."""
+    attempt = write_narrative_sync(client, facts, NARRATIVE_STAGE, candidate_id)
+    result = (
+        accepted_result(attempt, facts)
+        if attempt.draft is not None
+        else rejected_result(attempt, facts)
+    )
+    with ctx.engine.begin() as connection:
+        llm_store.cache_result(
+            connection,
+            NARRATIVE_PROMPT_ID,
+            NARRATIVE_PROMPT_VERSION,
+            tier,
+            digest,
+            result.model_dump(mode="json"),
+            attempt.llm_call_ids[0] if attempt.llm_call_ids else None,
+        )
+    return result
+
+
+def _narrative_for(
+    ctx: StageContext,
+    blocked: Blocked,
+    source: llm_store.NarrativeSource,
+    signals: SignalsResult | None,
+) -> tuple[NarrativeResult, str | None]:
+    """The candidate's narrative and the hash of its inputs (None when it has no inputs)."""
+    if source.proforma_status != "computed":
+        return _not_eligible(source.proforma_status), None
+    facts = build_facts(ProformaResult.model_validate(source.result), signals)
+    if ctx.client is None:
+        return _unwritten("deferred", "llm_not_configured", facts), None
+    client = ctx.client
+    tier = client.tier_for(NARRATIVE_TASK)
+    digest = input_sha256(NARRATIVE_PROMPT, tier, narrative_inputs(facts))
+
+    cached = _cached_narrative(ctx.engine, tier.value, digest)
+    if cached is not None:
+        return cached, digest
+    if blocked.reason is not None:
+        return _unwritten("deferred", blocked.reason, facts), digest
+    try:
+        return (
+            _write_new_narrative(ctx, client, source.candidate_id, facts, tier.value, digest),
+            digest,
+        )
+    except Exception as error:
+        failure = classify(error)
+        if failure is None:
+            raise
+        match failure.action:
+            case "permanent":
+                raise _permanent(NARRATIVE_STAGE, source.candidate_id, error) from None
+            case "budget":
+                blocked.reason = "budget"
+                return _unwritten("deferred", "budget", facts), digest
+            case "provider":
+                blocked.reason = "provider_error"
+                blocked.provider_failed = True
+                return _unwritten("failed", "provider_error", facts), digest
+            case "candidate":
+                return _unwritten("failed", failure.reason, facts), digest
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+def _write_narrative(
+    ctx: StageContext,
+    source: llm_store.NarrativeSource,
+    digest: str | None,
+    result: NarrativeResult,
+) -> bool:
+    def write(connection: Connection) -> None:
+        llm_store.write_narrative(connection, ctx.run_id, source.candidate_id, digest, result)
+
+    return _write(ctx, source.candidate_id, write)
+
+
+def run_narratives(ctx: StageContext) -> dict[str, Any]:
+    """Stage 7: a narrative for every ranked candidate whose pro-forma was computed, and a
+    `not_eligible` row for the others. One row per candidate, committed as it is made.
+
+    The counts are merged into the run also when the stage fails part way, and returned."""
+    tally = NarrativeTally()
+    blocked = ctx.blocked
+    try:
+        with _one_spender(ctx.engine, ctx.market):
+            with ctx.engine.connect() as connection:
+                sources = llm_store.narrative_sources(connection, ctx.run_id)
+                signals = llm_store.signals_results(connection, ctx.run_id)
+            for source in sources:
+                result, digest = _narrative_for(
+                    ctx, blocked, source, signals.get(source.candidate_id)
+                )
+                if not _write_narrative(ctx, source, digest, result):
+                    break  # a newer attempt has reset the run; its rows are not ours
+                tally.add(result)
+        if blocked.provider_failed:
+            raise _retryable(NARRATIVE_STAGE)
     finally:
         counts = _merge_counts(ctx, asdict(tally))
     return counts

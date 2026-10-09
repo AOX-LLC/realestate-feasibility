@@ -164,8 +164,8 @@ def _source(
     # place, records its error on the run and propagates so the job retries.
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
     proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
-    signal_counts = _read_signals(engine, settings, pack, run_id, run_date, model)
-    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **signal_counts}
+    model_counts = _read_and_write_up(engine, settings, pack, run_id, run_date, model)
+    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **model_counts}
     return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
 
@@ -205,7 +205,7 @@ def _price_proformas(
         raise
 
 
-def _read_signals(
+def _read_and_write_up(
     engine: Engine,
     settings: Settings,
     pack: MarketPack,
@@ -213,16 +213,19 @@ def _read_signals(
     run_date: date,
     model: ModelCaller | None,
 ) -> dict[str, Any]:
-    """Stage 6, the signals of every ranked candidate. A failure leaves the ranked run, its
-    estimates and its pro-formas in place, like a failed spend, and propagates."""
+    """Stages 6 and 7, the signals of every ranked candidate and then its risk narrative. A
+    failure leaves the ranked run, its estimates and its pro-formas in place, like a failed
+    spend, and propagates; a failed stage 6 means stage 7 does not run."""
     try:
         client = llm_run.open_client(engine, settings, run_id, model)
-        return llm_run.run_signals(
-            llm_run.stage_context(engine, pack, run_id, run_date, client), pack
-        )
+        context = llm_run.stage_context(engine, pack, run_id, run_date, client)
+        signal_counts = llm_run.run_signals(context, pack)
+        narrative_counts = llm_run.run_narratives(context)
     except Exception as error:
         _record_stage_error(engine, settings, run_id, error)
         raise
+    # The second stage's call and cost totals already include the first's.
+    return {**signal_counts, **narrative_counts}
 
 
 def _error_message(error: Exception, settings: Settings) -> str:
