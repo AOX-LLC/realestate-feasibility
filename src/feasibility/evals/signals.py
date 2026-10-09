@@ -14,6 +14,7 @@ score. A miss against a target is a number to report.
 import json
 import re
 from collections import Counter
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -585,3 +586,73 @@ def write_scorecard(scorecard: Scorecard, summary: SignalsSummary, out_dir: Path
         encoding="utf-8",
     )
     return [json_path, markdown_path]
+
+
+# --- the whole run, for the command line ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SplitReport:
+    split: str
+    scorecard: Scorecard
+    summary: SignalsSummary
+
+
+@dataclass(frozen=True)
+class SignalsEvalReport:
+    """The splits that ran, and, when a case hit a run-ending error, the case and the error."""
+
+    splits: list[SplitReport]
+    ended_by: str | None
+    ended_error: str | None
+
+    @property
+    def complete(self) -> bool:
+        return self.ended_by is None and all(s.summary.cases_errored == 0 for s in self.splits)
+
+
+def splits_for(choice: str) -> list[str]:
+    """`all` is dev then holdout: one run, each split scored once."""
+    if choice == "all":
+        return list(SPLITS)
+    if choice in SPLITS:
+        return [choice]
+    raise ValueError(f"split must be dev, holdout or all, got {choice!r}")
+
+
+async def run_signals_eval(
+    client: MeteredClient, mode: Mode, choice: str, record_files: list[Path], key_file: Path
+) -> SignalsEvalReport:
+    target = ExtractionTarget(client)
+    reports: list[SplitReport] = []
+    for split in splits_for(choice):
+        cases = load_cases(record_files, key_file, split)
+        scorecard = await run_split(split, cases, target, mode)
+        reports.append(SplitReport(split, scorecard, summarise(split, cases, scorecard)))
+        if target.ended_by is not None:
+            break
+    return SignalsEvalReport(reports, target.ended_by, _first_error(reports, target.ended_by))
+
+
+def _first_error(reports: list[SplitReport], ended_by: str | None) -> str | None:
+    if ended_by is None:
+        return None
+    for report in reports:
+        for result in report.scorecard.results:
+            if result.case_id == ended_by:
+                return result.error
+    return None
+
+
+def floor_problems(
+    summary: SignalsSummary, min_precision: float | None, min_recall: float | None
+) -> list[str]:
+    """Micro precision and recall below the floors the caller set."""
+    problems = []
+    if min_precision is not None and (summary.micro_precision or 0) < min_precision:
+        problems.append(
+            f"micro precision {summary.micro_precision} is below the floor {min_precision}"
+        )
+    if min_recall is not None and (summary.micro_recall or 0) < min_recall:
+        problems.append(f"micro recall {summary.micro_recall} is below the floor {min_recall}")
+    return problems

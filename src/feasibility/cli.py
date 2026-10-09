@@ -1,10 +1,12 @@
 """Command-line entry point: `feasibility --help`."""
 
+import asyncio
 import dataclasses
 import json
 import signal
 import threading
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from types import FrameType
 from typing import Annotated
@@ -15,7 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import Connection
 
 from feasibility.api.app import create_app
-from feasibility.config import get_settings
+from feasibility.config import REPO_ROOT, get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
 from feasibility.jobs.worker import Worker
@@ -41,8 +43,11 @@ source_app = typer.Typer(no_args_is_help=True, help="Daily sourcing: run it, rea
 app.add_typer(source_app, name="source")
 proforma_app = typer.Typer(no_args_is_help=True, help="Pro-formas of a run (read-only).")
 app.add_typer(proforma_app, name="proforma")
+eval_app = typer.Typer(no_args_is_help=True, help="Model evals: replay by default, no live calls.")
+app.add_typer(eval_app, name="eval")
 
 TOP_CANDIDATES_SHOWN = 10
+EVALS_DIR = REPO_ROOT / "evals"
 SourcingStatus = Annotated[
     str, typer.Option("--status", help="ranked, filtered or unscored", show_default=True)
 ]
@@ -339,3 +344,59 @@ def serve(
         log_config=None,
         server_header=False,
     )
+
+
+@eval_app.command("signals")
+def eval_signals(
+    split: Annotated[str, typer.Option(help="dev, holdout or all")] = "dev",
+    out: Annotated[Path | None, typer.Option(help="Write scorecard files here")] = None,
+    max_usd: Annotated[float, typer.Option(min=0, help="Spend cap for the session")] = 1.0,
+    min_precision: Annotated[float | None, typer.Option(min=0, max=1)] = None,
+    min_recall: Annotated[float | None, typer.Option(min=0, max=1)] = None,
+) -> None:
+    """Run the extraction eval. Replay mode needs recordings: a missing one fails the run."""
+    # Imported here so the other commands do not load the model library.
+    from feasibility.evals import signals as signals_eval
+    from feasibility.evals.client import build_eval_client, ended_message
+
+    settings = get_settings()
+    if settings.is_live:
+        typer.echo(
+            "evals use the committed synthetic records: run them with DATA_MODE=mock", err=True
+        )
+        raise typer.Exit(code=2)
+    try:
+        signals_eval.splits_for(split)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+    session = build_eval_client(settings, Decimal(str(max_usd)))
+    report = asyncio.run(
+        signals_eval.run_signals_eval(
+            session.client,
+            session.mode,
+            split,
+            [settings.mls_dir / "dallas.json", EVALS_DIR / "signals" / "extra.json"],
+            EVALS_DIR / "signals" / "answer_key.json",
+        )
+    )
+    if report.ended_by is not None:
+        typer.echo(ended_message(report.ended_by, report.ended_error), err=True)
+        raise typer.Exit(code=1)
+    problems: list[str] = []
+    for split_report in report.splits:
+        summary = split_report.summary
+        typer.echo(signals_eval.render_summary_markdown(summary))
+        if out is not None:
+            for path in signals_eval.write_scorecard(split_report.scorecard, summary, out):
+                typer.echo(f"wrote {path}")
+        problems += [f"{summary.split}: {text}" for text in signals_eval.hard_failures(summary)]
+        problems += [
+            f"{summary.split}: {text}"
+            for text in signals_eval.floor_problems(summary, min_precision, min_recall)
+        ]
+        if summary.cases_errored:
+            problems.append(f"{summary.split}: {summary.cases_errored} cases errored")
+    for problem in problems:
+        typer.echo(problem, err=True)
+    if problems:
+        raise typer.Exit(code=1)
