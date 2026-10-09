@@ -109,7 +109,32 @@ def test_figure_exactness_catches_a_stored_text_that_was_edited_after_acceptance
     output = output_for(s1, perfect_draft(s1))
     output["summary"] = output["summary"] + " Profit is $107,560."
 
-    assert ev.figure_failures(s1, output) == ["unlisted_figure: $107,560"]
+    failures = ev.figure_failures(s1, output)
+
+    assert failures[0] == "unlisted_figure: $107,560"  # the check, run again
+    assert failures[1:] == [  # the independent count: the digits of $107,560 left after the cut
+        f"digit outside a figure: {digit}" for digit in "01567"
+    ]
+
+
+def test_the_independent_digit_count_finds_a_digit_outside_every_figure() -> None:
+    s1 = case("s1")
+    output = output_for(s1, perfect_draft(s1))
+    facts = facts_of(s1)
+    assert ev.stray_digits(output, facts) == []
+
+    output["checks_before_offer"] = ["Confirm the $324,271.50 ceiling in 2 weeks."]
+
+    assert ev.stray_digits(output, facts) == ["digit outside a figure: 2"]
+
+
+def test_the_independent_count_cuts_longer_figures_first() -> None:
+    s1 = case("s1")
+    output = output_for(s1, perfect_draft(s1))
+    facts = facts_of(s1)
+    output["summary"] = "The ARV is $1,420,799.85 and nothing else."
+
+    assert ev.stray_digits(output, facts) == []
 
 
 def test_figure_exactness_catches_a_figure_mapped_to_the_wrong_key() -> None:

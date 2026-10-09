@@ -7,6 +7,7 @@ code accepted. A rejected narrative has no text to judge, only the violations th
 """
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -125,9 +126,30 @@ def _as_draft(document: dict[str, Any]) -> NarrativeDraft:
     )
 
 
+def _texts(document: dict[str, Any]) -> list[str]:
+    risks = [risk["text"] for risk in document["risks"]]
+    return [document["summary"], *risks, *document["checks_before_offer"]]
+
+
+def stray_digits(document: dict[str, Any], facts: Facts) -> list[str]:
+    """Digits left in an accepted narrative after every facts figure is cut out of its text. A
+    second opinion that shares no code with `check_narrative`: no stem lists, no adjacency
+    rules, only "a figure, or no digit"."""
+    figures = sorted(facts.figures.values(), key=len, reverse=True)
+    stray = []
+    for text in _texts(document):
+        for figure in figures:
+            text = text.replace(figure, " ")
+        stray += [
+            f"digit outside a figure: {digit}" for digit in sorted(set(re.findall(r"\d", text)))
+        ]
+    return stray
+
+
 def figure_failures(case: EvalCase, output: JsonValue) -> list[str]:
-    """For an accepted narrative: the check run again over the stored text, and every stored
-    figure present in the facts under its key. Empty for a rejected one (it has no text)."""
+    """For an accepted narrative: the check run again over the stored text, every stored figure
+    present in the facts under its key, and no digit outside a figure by an independent count.
+    Empty for a rejected one (it has no text)."""
     document = _document(output)
     if document["status"] != "accepted":
         return []
@@ -140,7 +162,7 @@ def figure_failures(case: EvalCase, output: JsonValue) -> list[str]:
         for figure in document["figures_quoted"]
         if facts.figures.get(figure["key"]) != figure["text"]
     ]
-    return failures
+    return failures + stray_digits(document, facts)
 
 
 def basis_failures(case: EvalCase, output: JsonValue) -> list[str]:
