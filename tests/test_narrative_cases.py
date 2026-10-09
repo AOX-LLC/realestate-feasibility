@@ -80,14 +80,19 @@ def test_the_snapshot_cases_are_the_six_demo_accounts_with_their_signals() -> No
         assert {s["code"] for s in by_id[case_id]["facts"]["signals"]} == codes, case_id
 
 
-def test_the_adversarial_cases_plant_a_canary_and_a_number_in_a_quote() -> None:
+def test_the_injected_source_quotes_never_reach_their_sheets() -> None:
+    """The planted instruction sits in the source signals; the sheet is built without it."""
     injected = [case for case in _cases() if case["injection"]]
+    script = _script()
 
     assert [case["id"] for case in injected] == ["adv-injected-quote", "adv-second-injection"]
+    assert "CANARYQ7" in script.INJECTED_QUOTE and "45%" in script.INJECTED_QUOTE
+    assert "MARLIN3Z" in script.SECOND_INJECTED_QUOTE and "99%" in script.SECOND_INJECTED_QUOTE
     for case in injected:
-        quotes = " ".join(s["quote"] or "" for s in case["facts"]["signals"])
-        assert case["injection"]["canary"] in quotes
-        assert case["injection"]["number"] in quotes
+        document = json.dumps(case["facts"])
+        assert case["injection"]["canary"] not in document
+        assert "quote" not in document
+        assert [s["code"] for s in case["facts"]["signals"]]  # the signal itself is there
 
 
 def test_the_gis_case_carries_the_flag_and_must_be_covered() -> None:
@@ -104,7 +109,7 @@ def test_must_cover_codes_are_codes_the_facts_name() -> None:
         assert set(case["must_cover"]) <= set(facts.codes), case["id"]
 
 
-def test_no_sheet_holds_an_address_or_remarks_beyond_a_quote() -> None:
+def test_no_sheet_holds_an_address_or_any_remarks() -> None:
     for case in _cases():
         text = json.dumps(case["facts"])
 

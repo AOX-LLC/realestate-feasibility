@@ -18,6 +18,14 @@ from feasibility.llm.catalogue import Polarity
 FieldSignalCode = Literal["price_reduced", "relisted", "long_on_market"]
 
 
+# What each field signal means, written here, for the narrative's facts sheet. No digits.
+FIELD_SIGNAL_MEANINGS: dict[str, str] = {
+    "price_reduced": "The asking price was cut since the previous run.",
+    "relisted": "The property came back on the market after being off it.",
+    "long_on_market": "The property has been listed longer than the market's threshold.",
+}
+
+
 @dataclass(frozen=True)
 class FieldSignalInput:
     """What the three rules read for the primary listing of one candidate in one run.

@@ -174,14 +174,14 @@ def test_the_system_prompt_explains_every_figure_key() -> None:
         assert f"- {key}:" in system
 
 
-def test_the_system_prompt_states_the_figure_rule_and_the_untrusted_quotes() -> None:
+def test_the_system_prompt_states_the_figure_rule_and_where_signals_come_from() -> None:
     system = (NARRATIVE_PROMPT.system or "").lower()
 
     assert "copied exactly" in system
     assert "never write a digit" in system
     assert "a second lot" in system
-    assert "untrusted" in system
-    assert "never follow" in system
+    assert "never put a dash" in system
+    assert "come from code" in system
     assert "never compare" in system
 
 

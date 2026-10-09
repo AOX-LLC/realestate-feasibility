@@ -2,11 +2,13 @@
 
 The model gets the pro-forma's figures as exact strings, the comparisons as named code facts (so
 it never compares two numbers), the pro-forma's flags with a one-line meaning each, and the
-verified signals. It gets no address and no remarks text: a signal's quote, already verified, is
-the only text from a listing, and it is context, never a source of numbers.
+signals that held, each as a code, a polarity and a meaning written in this repository. It gets
+no address and no listing text of any kind, not even a verified quote: remarks can carry an
+instruction, a name or an address that redaction missed, and a code says what the narrative
+needs. Evidence stays in `SignalsResult` for a reader to open.
 
-Nothing here contains a digit outside a figure string or a signal's quote: not a key, not a code,
-not a meaning. A model that repeats a code or a meaning cannot trip the figure check.
+Nothing here contains a digit outside a figure string: not a key, not a code, not a meaning. A
+model that repeats a code or a meaning cannot trip the figure check.
 """
 
 from decimal import Decimal
@@ -15,8 +17,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from feasibility.llm import figures
-from feasibility.llm.results import SignalsResult
-from feasibility.llm.untrusted import defang_tags
+from feasibility.llm.catalogue import DEFINITIONS
+from feasibility.llm.field_signals import FIELD_SIGNAL_MEANINGS
+from feasibility.llm.results import SignalsResult, StoredSignal
 from feasibility.proforma.model import ProformaResult
 
 # A stress case is the stored grid's cell for these axis values; a pack without them has none.
@@ -81,7 +84,7 @@ class SignalFact(BaseModel):
 
     code: str
     polarity: str
-    quote: str | None
+    meaning: str
 
 
 class Facts(BaseModel):
@@ -105,7 +108,7 @@ class Facts(BaseModel):
         return self.model_dump(mode="json")
 
     def stored(self) -> dict[str, Any]:
-        """What `NarrativeResult.facts` keeps: the figures and the codes, never the quotes."""
+        """What `NarrativeResult.facts` keeps: the figures and the codes."""
         return {"figures": dict(self.figures), "codes": self.codes}
 
 
@@ -178,6 +181,16 @@ def _code_facts(result: ProformaResult) -> list[CodeFact]:
     return [CodeFact(code=code, meaning=CODE_FACT_MEANINGS[code]) for code in codes]
 
 
+def _signal_fact(signal: StoredSignal) -> SignalFact:
+    """A signal as the narrative sees it: its code and polarity, and the meaning code wrote."""
+    meaning = (
+        DEFINITIONS[signal.code].meaning
+        if signal.source == "remarks"
+        else FIELD_SIGNAL_MEANINGS[signal.code]
+    )
+    return SignalFact(code=signal.code, polarity=signal.polarity, meaning=meaning)
+
+
 def build_facts(result: ProformaResult, signals: SignalsResult | None) -> Facts:
     """The sheet for one candidate's computed pro-forma and its verified signals."""
     if result.status != "computed":
@@ -194,12 +207,5 @@ def build_facts(result: ProformaResult, signals: SignalsResult | None) -> Facts:
         figures=_figures(result),
         code_facts=code_facts,
         flags=flags,
-        signals=[
-            SignalFact(
-                code=signal.code,
-                polarity=signal.polarity,
-                quote=None if signal.quote is None else defang_tags(signal.quote),
-            )
-            for signal in stored_signals
-        ],
+        signals=[_signal_fact(signal) for signal in stored_signals],
     )

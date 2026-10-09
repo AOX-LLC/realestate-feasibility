@@ -265,7 +265,7 @@ def test_a_basis_code_from_the_signals_is_known() -> None:
 def _signal(code: str):  # type: ignore[no-untyped-def]
     from feasibility.llm.facts import SignalFact
 
-    return SignalFact(code=code, polarity="risk", quote="Sold as-is, seller makes no repairs")
+    return SignalFact(code=code, polarity="risk", meaning="Sold as-is; the seller repairs nothing.")
 
 
 def test_a_risk_with_no_basis_is_rejected() -> None:
