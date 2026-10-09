@@ -501,3 +501,100 @@ llm_call = Table(
     Index(None, "run_id"),
     Index("ix_llm_call_billable_called_at", "called_at", postgresql_where=text("billable")),
 )
+
+# Verified model results, never the model's raw output. `llm_result` is a cache keyed by the
+# input hash, not run-scoped: a re-run of the same inputs costs nothing. The two run tables hold
+# one row per ranked candidate, rebuilt through the cascade from run_candidate on a re-run.
+SIGNALS_STATUSES = ("extracted", "fields_only", "failed", "deferred")
+SIGNALS_REASONS = (
+    "no_remarks",
+    "llm_not_configured",
+    "budget",
+    "provider_error",
+    "structured_error",
+    "refusal",
+    "replay_error",
+)
+NARRATIVE_STATUSES = ("accepted", "rejected", "failed", "deferred", "not_eligible")
+NARRATIVE_REASONS = (
+    "proforma_no_arv",
+    "proforma_unsizable",
+    "figure_check",
+    "basis_check",
+    "length_check",
+    "budget",
+    "llm_not_configured",
+    "provider_error",
+    "structured_error",
+    "refusal",
+    "replay_error",
+)
+
+llm_result = Table(
+    "llm_result",
+    metadata,
+    Column("prompt_id", Text, nullable=False),
+    Column("prompt_version", Integer, nullable=False),
+    Column("tier", Text, nullable=False),
+    Column("input_sha256", CHAR(64), nullable=False),
+    Column("result", JSONB, nullable=False),
+    Column("llm_call_id", BigInteger, ForeignKey("llm_call.id", ondelete="SET NULL")),
+    _timestamp("created_at"),
+    PrimaryKeyConstraint("prompt_id", "prompt_version", "tier", "input_sha256"),
+    CheckConstraint("prompt_id ~ '^[a-z][a-z0-9_.-]{0,99}$'", name="prompt_id"),
+    CheckConstraint("prompt_version >= 1", name="prompt_version"),
+    CheckConstraint(_in_list("tier", LLM_TIERS), name="tier"),
+    CheckConstraint("input_sha256 ~ '^[0-9a-f]{64}$'", name="input_sha256"),
+)
+
+candidate_signals = Table(
+    "candidate_signals",
+    metadata,
+    Column("run_id", BigInteger, nullable=False),
+    Column("candidate_id", BigInteger, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("reason", Text),
+    # The primary listing whose remarks were read.
+    Column("listing_id", BigInteger, ForeignKey("listing.id"), nullable=False),
+    Column("result", JSONB, nullable=False),
+    PrimaryKeyConstraint("run_id", "candidate_id"),
+    ForeignKeyConstraint(
+        ["run_id", "candidate_id"],
+        ["run_candidate.run_id", "run_candidate.candidate_id"],
+        name="fk_candidate_signals_run_candidate",
+        ondelete="CASCADE",
+    ),
+    CheckConstraint(_in_list("status", SIGNALS_STATUSES), name="status"),
+    CheckConstraint(
+        f"reason IS NULL OR {_in_list('reason', SIGNALS_REASONS)}", name="reason_known"
+    ),
+    CheckConstraint("(status = 'extracted') = (reason IS NULL)", name="reason"),
+)
+
+candidate_narrative = Table(
+    "candidate_narrative",
+    metadata,
+    Column("run_id", BigInteger, nullable=False),
+    Column("candidate_id", BigInteger, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("reason", Text),
+    Column("input_sha256", CHAR(64)),
+    Column("result", JSONB, nullable=False),
+    PrimaryKeyConstraint("run_id", "candidate_id"),
+    ForeignKeyConstraint(
+        ["run_id", "candidate_id"],
+        ["run_candidate.run_id", "run_candidate.candidate_id"],
+        name="fk_candidate_narrative_run_candidate",
+        ondelete="CASCADE",
+    ),
+    CheckConstraint(_in_list("status", NARRATIVE_STATUSES), name="status"),
+    CheckConstraint(
+        f"reason IS NULL OR {_in_list('reason', NARRATIVE_REASONS)}", name="reason_known"
+    ),
+    CheckConstraint("(status = 'accepted') = (reason IS NULL)", name="reason"),
+    CheckConstraint("input_sha256 IS NULL OR input_sha256 ~ '^[0-9a-f]{64}$'", name="input_sha256"),
+    CheckConstraint(
+        "status <> 'not_eligible' OR input_sha256 IS NULL", name="not_eligible_no_digest"
+    ),
+    Index(None, "run_id", "status"),
+)
