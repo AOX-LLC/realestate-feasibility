@@ -34,6 +34,9 @@ BASIS_MAX = 3
 CHECKS_MAX = 4
 CHECK_TEXT_MAX_CHARS = 200
 TOKEN_MAX_CHARS = 40
+# A rejected result keeps its violations, and each holds a few characters of model text, so how
+# many are kept is bounded; whether the draft passed does not depend on the cut.
+MAX_VIOLATIONS = 20
 
 ViolationKind = Literal[
     "unlisted_figure", "spelled_number", "unknown_basis", "too_long", "empty", "odd_character"
@@ -430,6 +433,6 @@ def check_narrative(draft: NarrativeDraft, facts: Facts) -> Check:
         quoted += found_figures
     return Check(
         passed=not violations,
-        violations=violations,
+        violations=violations[:MAX_VIOLATIONS],
         figures_quoted=[QuotedFigure(key=key, text=text) for key, text in sorted(set(quoted))],
     )

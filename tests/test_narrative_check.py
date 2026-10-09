@@ -482,3 +482,14 @@ def test_dashes_and_words_away_from_a_figure_are_still_prose() -> None:
         "The ceiling is $324,271.50; plus the comps are fresh.",
     ):
         assert kinds(draft(text)) == [], text
+
+
+def test_the_violations_kept_are_bounded_and_the_verdict_does_not_depend_on_the_cut() -> None:
+    from feasibility.llm.narrative_check import MAX_VIOLATIONS
+
+    flood = " ".join(f"{n}00x" for n in range(1, 200))
+
+    result = check_narrative(draft(flood), FACTS)
+
+    assert result.passed is False
+    assert len(result.violations) == MAX_VIOLATIONS
