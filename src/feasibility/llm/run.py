@@ -62,6 +62,7 @@ from feasibility.llm.narrative import (
     NarrativeResult,
     StoredFacts,
     accepted_result,
+    draft_of,
     narrative_inputs,
     rejected_result,
     write_narrative_sync,
@@ -69,7 +70,7 @@ from feasibility.llm.narrative import (
 from feasibility.llm.narrative import PROMPT_ID as NARRATIVE_PROMPT_ID
 from feasibility.llm.narrative import PROMPT_VERSION as NARRATIVE_PROMPT_VERSION
 from feasibility.llm.narrative import TASK as NARRATIVE_TASK
-from feasibility.llm.narrative_check import NarrativeDraft, RiskPoint, check_narrative
+from feasibility.llm.narrative_check import check_narrative
 from feasibility.llm.results import (
     CachedExtraction,
     ExtractionInfo,
@@ -640,18 +641,9 @@ def _cached_narrative(
         cached = NarrativeResult.model_validate(found)
     except ValidationError:
         return None  # written under another shape of the model: treat it as absent
-    if cached.status == "accepted" and not check_narrative(_draft_of(cached), facts).passed:
+    if cached.status == "accepted" and not check_narrative(draft_of(cached), facts).passed:
         return None
     return _reused(cached)
-
-
-def _draft_of(accepted: NarrativeResult) -> NarrativeDraft:
-    """The draft an accepted result was made from, to check it again."""
-    return NarrativeDraft(
-        summary=accepted.summary or "",
-        risks=[RiskPoint(basis=list(risk.basis), text=risk.text) for risk in accepted.risks],
-        checks_before_offer=list(accepted.checks_before_offer),
-    )
 
 
 def _write_new_narrative(
