@@ -13,7 +13,7 @@ from feasibility.proforma.gather import CandidateInputs, gather_inputs
 from feasibility.snapshot.load import seed
 from feasibility.sourcing.estimate_store import EstimateWrite, save_estimate
 from feasibility.sourcing.run import SourcingResult, run_sourcing
-from feasibility.tables import candidate, parcel, run_listing
+from feasibility.tables import candidate, listing, parcel, run_listing
 
 DAY_ONE = date(2026, 10, 1)
 DAY_TWO = date(2026, 10, 2)
@@ -166,6 +166,23 @@ def test_blank_or_respelled_zoning_among_the_accounts_is_still_one_zoning(
 
     assert group.zoning == "R-7.5(A)"
     assert group.zoning_values_seen == ("R-7.5(A)",)
+
+
+def test_a_lot_that_neither_the_parcel_nor_the_listing_has_is_reported_missing(
+    engine: Engine, runs: tuple[SourcingResult, SourcingResult]
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            update(parcel)
+            .where(parcel.c.account_id == "99000000000000004")
+            .values(lot_size_sqft=None)
+        )
+        connection.execute(update(listing).values(lot_size_sqft=None))
+
+    inputs = _by_account(engine, _gather(engine, runs[0]), "004").inputs
+
+    assert inputs.lot_source == "missing"
+    assert inputs.lot_sqft is None
 
 
 def test_a_parcel_that_is_gone_leaves_the_listing_s_facts(

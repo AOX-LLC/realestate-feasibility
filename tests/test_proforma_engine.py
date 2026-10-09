@@ -215,6 +215,13 @@ def test_the_listing_lot_source_is_carried_to_the_site() -> None:
     assert run(inputs(lot_source="listing")).site.lot_source == "listing"
 
 
+def test_a_lot_that_is_missing_is_reported_as_missing_on_the_unsizable_result() -> None:
+    result = run(inputs(lot_sqft=None, lot_source="missing"))
+
+    assert (result.status, result.reason) == ("unsizable", "lot_size_missing")
+    assert result.site.lot_source == "missing"
+
+
 def test_a_loss_smaller_than_the_cash_invested_is_not_flagged_as_exceeding_equity() -> None:
     result = run(inputs(price=Decimal("600000")))
 
