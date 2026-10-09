@@ -433,3 +433,15 @@ def test_a_refused_call_leaves_the_id_of_its_budget_refused_row(
     (row,) = _rows(engine)
     assert row["outcome"] == "budget_refused"
     assert client.last_call_id == row["id"]
+
+
+def test_last_call_id_is_cleared_when_an_unknown_replay_error_discards_the_row(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    client = _metered(FakeClient(RuntimeError("not ours")), engine, config)
+
+    with pytest.raises(RuntimeError):
+        _call(client)
+
+    assert _rows(engine) == []
+    assert client.last_call_id is None

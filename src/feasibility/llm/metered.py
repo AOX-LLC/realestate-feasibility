@@ -289,6 +289,7 @@ class MeteredClient:
         if outcome is None and not self._billable:
             if self._engine is not None and call.row_id is not None:
                 ledger.discard_call(self._engine, call.row_id)
+            self._last_call_id = None  # the row is gone: do not point at it
             return
         reserved = (
             self._reservation if self._billable or outcome != "budget_refused" else Decimal(0)
