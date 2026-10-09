@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from feasibility.proforma.model import ProformaResult
+from feasibility.proforma.model import ArvDetail, ProformaResult
 from feasibility.sourcing.counts import RunCounts
 from feasibility.sourcing.scoring import ScoreBreakdown
 
@@ -236,10 +236,39 @@ class ProformaSummaryOut(ResponseModel):
     max_offer: Decimal | None
 
 
-class ProformaDetailOut(ProformaSummaryOut):
-    """The summary and the full result: every input, assumption and intermediate line."""
+class CompLineOut(ResponseModel):
+    """A comparable sale as the API shows it: its price, size and price per square foot, never
+    its address (the addresses stay in the database, like an estimate's comparables)."""
 
-    result: ProformaResult
+    price: Decimal
+    living_area_sqft: int | None
+    psf: Decimal | None
+    used: bool
+
+
+class ArvDetailOut(ArvDetail):
+    comps: tuple[CompLineOut, ...]  # type: ignore[assignment]
+
+
+class ProformaResultOut(ProformaResult):
+    """The stored result with the comparables' addresses left out."""
+
+    arv: ArvDetailOut | None
+
+    @classmethod
+    def without_addresses(cls, result: ProformaResult) -> "ProformaResultOut":
+        data = result.model_dump(mode="json")
+        if data["arv"] is not None:
+            for comp in data["arv"]["comps"]:
+                del comp["address"]
+        return cls.model_validate(data)
+
+
+class ProformaDetailOut(ProformaSummaryOut):
+    """The summary and the full result: every assumption, input and line, but not the comps'
+    addresses."""
+
+    result: ProformaResultOut
 
 
 class Page[T](ResponseModel):

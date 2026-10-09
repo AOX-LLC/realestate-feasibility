@@ -15,6 +15,7 @@ from feasibility.api.schemas import (
     CandidateAddressOut,
     Page,
     ProformaDetailOut,
+    ProformaResultOut,
     ProformaSummaryOut,
 )
 from feasibility.proforma import store
@@ -77,5 +78,10 @@ def get_candidate_proforma(
             status.HTTP_404_NOT_FOUND, "no pro-forma for this candidate in this run"
         )
     return ProformaDetailOut.model_validate(
-        {**_summary(found), "result": ProformaResult.model_validate(found.result)}
+        {
+            **_summary(found),
+            "result": ProformaResultOut.without_addresses(
+                ProformaResult.model_validate(found.result)
+            ),
+        }
     )

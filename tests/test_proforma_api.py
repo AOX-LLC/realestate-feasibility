@@ -17,7 +17,7 @@ from feasibility.api.routes import proforma as proforma_routes
 from feasibility.config import DataMode, Settings
 from feasibility.snapshot.load import seed
 from feasibility.sourcing.run import run_sourcing
-from feasibility.tables import run_candidate
+from feasibility.tables import proforma, run_candidate
 
 DAY_ONE = date(2026, 10, 1)
 DAY_TWO = date(2026, 10, 2)
@@ -285,3 +285,28 @@ def test_no_response_carries_owner_contact_raw_fields_or_the_key(
         keys = set(_keys(response.json()))
         assert [key for key in keys if PERSONAL_DATA_KEY.search(key)] == []
         assert "raw" not in keys  # the stored listing never leaves the database
+
+
+def test_the_detail_shows_the_comps_figures_but_not_their_addresses(
+    run_two: tuple[TestClient, int], migrated_engine: Engine
+) -> None:
+    client, run_id = run_two
+    detail = _detail(client, run_id, 1)
+    comps = detail["result"]["arv"]["comps"]
+    with migrated_engine.connect() as connection:
+        stored = connection.execute(
+            select(proforma.c.result).where(
+                proforma.c.run_id == run_id, proforma.c.candidate_id == detail["candidate_id"]
+            )
+        ).scalar_one()
+
+    assert len(comps) == 5
+    assert all(set(comp) == {"price", "living_area_sqft", "psf", "used"} for comp in comps)
+    assert detail["result"]["arv"]["median_psf"] == "479.4479"
+    # The database keeps the addresses, for audit; the response carries none of them.
+    addresses = [comp["address"] for comp in stored["arv"]["comps"]]
+    assert len(addresses) == 5
+    response_text = client.get(
+        f"/sourcing/runs/{run_id}/candidates/{detail['candidate_id']}/proforma"
+    ).text
+    assert not any(address in response_text for address in addresses)
