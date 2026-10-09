@@ -10,18 +10,23 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from conftest import empty_database
+from pydantic import SecretStr
 from sqlalchemy import Engine, func, select, update
+from test_api import SENTINEL
 
 from feasibility.config import DataMode, Settings
+from feasibility.logging import REDACTED
+from feasibility.proforma import run as proforma_run
 from feasibility.proforma import store
 from feasibility.proforma.model import ProformaResult
 from feasibility.proforma.store import StoredProforma
 from feasibility.snapshot.load import seed
-from feasibility.sourcing import run as run_module
+from feasibility.sourcing import store as sourcing_store
 from feasibility.sourcing.run import SourcingResult, run_sourcing
 from feasibility.tables import (
     api_budget,
@@ -354,14 +359,21 @@ def test_mock_mode_leaves_the_budget_alone(seeded: Engine) -> None:
     assert used == 0
 
 
-def test_a_failed_pro_forma_stage_keeps_the_ranking_and_the_estimates_and_a_retry_finishes(
+def _fail_after_writing(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
+    """Make stage 5 raise once its rows are written: the last thing it does is merge counts."""
+
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError(message)
+
+    patched = SimpleNamespace(lock_market_runs=sourcing_store.lock_market_runs, merge_counts=broken)
+    monkeypatch.setattr(proforma_run, "sourcing_store", patched)
+
+
+def test_a_failed_pro_forma_stage_rolls_back_keeps_the_ranking_and_a_retry_finishes(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def broken(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("the engine fell over")
-
     with monkeypatch.context() as patch:
-        patch.setattr(run_module, "run_proformas", broken)
+        _fail_after_writing(patch, "the engine fell over")
         with pytest.raises(RuntimeError, match="fell over"):
             run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
 
@@ -373,7 +385,14 @@ def test_a_failed_pro_forma_stage_keeps_the_ranking_and_the_estimates_and_a_retr
     assert failed.counts["estimates_called"] == 5  # the paid answers were committed
     assert _ranked_count(seeded) == 12  # the ranking is intact
     assert _count(seeded, candidate_estimate) == 5
+    # Stage 5 wrote its rows and its counts' merge failed: all of it is rolled back together.
     assert _count(seeded, proforma) == 0
+    assert {n: v for n, v in failed.counts.items() if n.startswith("proformas")} == {
+        "proformas": 0,
+        "proformas_computed": 0,
+        "proformas_no_arv": 0,
+        "proformas_unsizable": 0,
+    }
 
     retry = run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
 
@@ -382,6 +401,22 @@ def test_a_failed_pro_forma_stage_keeps_the_ranking_and_the_estimates_and_a_retr
     assert (retry.counts.proformas, retry.counts.proformas_computed) == (12, 5)
     assert _stored_run(seeded, run_id).error is None
     assert _count(seeded, proforma) == 12
+
+
+def test_the_error_a_failed_pro_forma_stage_records_has_the_api_key_redacted(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Mock mode drops a configured key, so put it back after validation: the stage's redaction
+    # reads whatever secrets the settings hold.
+    settings = _settings().model_copy(update={"rentcast_api_key": SecretStr(SENTINEL)})
+    _fail_after_writing(monkeypatch, f"connection string had {SENTINEL} in it")
+
+    with pytest.raises(RuntimeError):
+        run_sourcing(seeded, settings, "dallas", DAY_ONE)
+
+    with seeded.connect() as connection:
+        error = connection.execute(select(sourcing_run.c.error)).scalar_one()
+    assert SENTINEL not in error and REDACTED in error
 
 
 @pytest.mark.parametrize(
