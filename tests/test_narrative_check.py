@@ -39,7 +39,7 @@ ACCEPTED = [
     ("exact_figures", "Profit is $107,560.14 at a 7.57% margin.", {"profit", "margin"}),
     ("figure_ends_the_sentence", "The ceiling is $324,271.50.", {"max_offer"}),
     ("negative_money", "The offer is -$95,728.50 from the ceiling.", {"headroom_vs_offer"}),
-    ("in_parentheses", "The value ($1,420,799.85) rests on comps.", {"arv"}),
+    ("parentheses_elsewhere", "The value (per comps) is $1,420,799.85, as noted.", {"arv"}),
     ("before_a_comma", "At $420,000.00, the offer is high.", {"offer_price"}),
     ("area_and_months", "A 3,168 sq ft home held for 9 months.", {"buildable_sqft", "hold_months"}),
     ("count", "Priced from 7 comps on a 6,400 sq ft lot.", {"comp_count_used", "lot_sqft"}),
@@ -497,3 +497,53 @@ def test_the_violations_kept_are_bounded_and_the_verdict_does_not_depend_on_the_
 
     assert result.passed is False
     assert len(result.violations) == MAX_VIOLATIONS
+
+
+# --- accounting parentheses: a figure inside (...) reads as a negative (gatekeeper review) -------
+
+PARENTHESISED = [
+    ("tight", "Profit ($107,560.14) is thin."),
+    ("spaced", "Profit ( $107,560.14 ) is thin."),
+    ("opening_only", "Profit is ($107,560.14 and thin."),
+    ("closing_only", "Profit is $107,560.14) and thin."),
+    ("closing_after_spaces", "Profit is $107,560.14   ) and thin."),
+    ("opening_across_a_newline", "Profit is (\n$107,560.14 and thin."),
+    ("percent", "A margin of (7.57%) on cost."),
+    ("area", "A lot of (6,400 sq ft) is small."),
+    ("signed", "The gap is (-$95,728.50) at best."),
+]
+
+
+@pytest.mark.parametrize(("name", "text"), PARENTHESISED, ids=[r[0] for r in PARENTHESISED])
+def test_a_figure_directly_inside_a_parenthesis_is_rejected(name: str, text: str) -> None:
+    result = check_narrative(draft(text), FACTS)
+
+    assert result.passed is False, name
+    assert result.figures_quoted == [], name
+    assert {kind for kind, _ in kinds(draft(text))} == {"unlisted_figure"}, name
+
+
+def test_the_rejection_names_the_figure_that_was_wrapped() -> None:
+    assert kinds(draft("Profit ( $107,560.14 ) is thin.")) == [("unlisted_figure", "$107,560.14")]
+
+
+def test_a_figure_wrapped_in_a_parenthesis_in_one_field_fails_only_that_field() -> None:
+    result = check_narrative(
+        draft("Profit is $107,560.14.", checks=["Confirm the margin ($107,560.14)."]), FACTS
+    )
+
+    assert [v.text for v in result.violations] == ["$107,560.14"]
+    assert [f.key for f in result.figures_quoted] == ["profit"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Profit is $107,560.14 (thin) and the lot (a corner) is 6,400 sq ft.",
+        "Costs rose (see note) to $107,560.14 (before fees).",
+        "Comps (all recent) support $1,420,799.85.",
+        "The ceiling (a soft one) is $324,271.50; (the offer is lower).",
+    ],
+)
+def test_parentheses_elsewhere_in_prose_stay_allowed(text: str) -> None:
+    assert kinds(draft(text)) == [], text

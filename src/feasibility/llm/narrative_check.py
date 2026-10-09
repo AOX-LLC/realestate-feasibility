@@ -5,8 +5,9 @@ number in it is a figure string the facts sheet gave the model, copied exactly:
 
 * Each allowed figure string is found in each text field, longest first, and masked. An
   occurrence counts only when it stands alone: not touching a letter or digit, not inside a longer
-  number (`1,420,799.85` does not contain `420,799.85`), and not signed differently than code
-  wrote it (`-7.57%` is not `7.57%`).
+  number (`1,420,799.85` does not contain `420,799.85`), not signed differently than code
+  wrote it (`-7.57%` is not `7.57%`), and not wrapped in a parenthesis on either side, which
+  accountants read as a negative (`($107,560.14)`, `( 7.57% )`).
 * Any digit left over is an `unlisted_figure`: `$107,560` (rounded), `7.6%`, `108k`, `$1.4M`,
   `2026`, `50x150`.
 * A spelled quantity left over is a `spelled_number`: two to ninety-nine, hundred, thousand,
@@ -231,6 +232,10 @@ _AFTER_FIGURE = re.compile(
     r"|per\s+(?:month|mo|year|yr|annum|sq|sf|square|unit|comp|lot|day|week|acre|foot|ft)\b)",
     re.IGNORECASE,
 )
+# An accounting negative is a figure in parentheses: an opening one just before it, or a closing
+# one just after it, with whitespace allowed between. Parentheses elsewhere are prose.
+_OPENING_BEFORE = re.compile(r"\(\s*$")
+_CLOSING_AFTER = re.compile(r"\s*\)")
 # Words that, just before a figure, change what it says.
 _BEFORE_FIGURE = re.compile(
     r"\b(?:minus|negative|neg|plus|cad|usd|eur|gbp|mxn|aud)\s*$", re.IGNORECASE
@@ -256,12 +261,14 @@ def _stands_alone(text: str, start: int, end: int) -> bool:
         gap = text[:start].rstrip()
         if gap and (gap[-1] in _SIGNS or _BEFORE_FIGURE.search(gap)):
             return False
+        if _OPENING_BEFORE.search(text, 0, start):
+            return False
     if end < len(text):
         after = text[end]
         # A percent sign after a figure changes its unit: $420,000.00%.
         if after.isalnum() or after == "%":
             return False
-        if _AFTER_FIGURE.match(text, end):
+        if _AFTER_FIGURE.match(text, end) or _CLOSING_AFTER.match(text, end):
             return False
         if after in ",." and end + 1 < len(text) and text[end + 1].isdigit():
             return False
