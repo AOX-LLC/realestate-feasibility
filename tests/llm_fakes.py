@@ -72,3 +72,58 @@ class FakeClient:
         self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **kwargs: Any
     ) -> CallResult[Verdict]:
         return self._next(prompt, inputs=inputs, **kwargs)
+
+
+class Extractor:
+    """A stand-in for the model that answers an extraction by the remarks text it was sent.
+
+    `answers` maps the remarks (the prompt's input) to a `SignalExtraction`, or to an exception
+    to raise. A text with no answer raises ReplayMissError, as replay mode does."""
+
+    def __init__(self, answers: Mapping[str, Any], *, cost: str = "0.004000") -> None:
+        self._answers = dict(answers)
+        self._cost = cost
+        self.sent: list[str] = []
+
+    def _answer(self, prompt: PromptRef, inputs: Mapping[str, JsonValue], tier: Tier | None) -> Any:
+        from aox_agent_core.errors import ReplayMissError
+
+        remarks = str(inputs["remarks"])
+        self.sent.append(remarks)
+        if remarks not in self._answers:
+            raise ReplayMissError("No recording for this request.", key="k", path="p")
+        answer = self._answers[remarks]
+        if isinstance(answer, BaseException):
+            raise answer
+        return CallResult(
+            output=answer,
+            tier=tier or Tier.SMALL,
+            task="signals_extract",
+            provider=Provider.ANTHROPIC,
+            model="a-model",
+            mode=Mode.REPLAY,
+            usage=Usage(input_tokens=900, output_tokens=120),
+            cost_usd=Decimal(self._cost),
+            latency_ms=1.0,
+            stop_reason="end_turn",
+        )
+
+    def call_sync(
+        self,
+        prompt: PromptRef,
+        *,
+        inputs: Mapping[str, JsonValue],
+        tier: Tier | None = None,
+        **_: Any,
+    ) -> Any:
+        return self._answer(prompt, inputs, tier)
+
+    async def call(
+        self,
+        prompt: PromptRef,
+        *,
+        inputs: Mapping[str, JsonValue],
+        tier: Tier | None = None,
+        **_: Any,
+    ) -> Any:
+        return self._answer(prompt, inputs, tier)
