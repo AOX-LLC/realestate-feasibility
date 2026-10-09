@@ -1,0 +1,142 @@
+{
+  "format_version": 2,
+  "prompt": {
+    "attachments": [],
+    "attempt": 1,
+    "inputs": {
+      "facts": {
+        "code_facts": [
+          {
+            "code": "below_target",
+            "meaning": "The margin is below the target margin."
+          },
+          {
+            "code": "max_offer_below_price",
+            "meaning": "The most the target margin allows is below the offer price."
+          }
+        ],
+        "figures": {
+          "annualized_return": "44.92%",
+          "arv": "$1,420,799.85",
+          "buildable_sqft": "3,168 sq ft",
+          "comp_count_used": "7 comps",
+          "headroom_vs_offer": "-$95,728.50",
+          "hold_months": "9 months",
+          "lot_sqft": "6,400 sq ft",
+          "margin": "7.57%",
+          "max_offer": "$324,271.50",
+          "offer_price": "$420,000.00",
+          "profit": "$107,560.14",
+          "profit_if_arv_lower": "-$25,995.04",
+          "profit_if_cost_higher": "-$42,693.55",
+          "profit_if_hold_longer": "$84,670.08",
+          "roi": "33.69%",
+          "target_margin": "15.00%",
+          "total_cost": "$1,313,239.71"
+        },
+        "flags": [],
+        "signals": [
+          {
+            "code": "as_is_sale",
+            "meaning": "Sold as-is; seller makes no repairs",
+            "polarity": "risk"
+          }
+        ]
+      },
+      "feedback": ""
+    },
+    "output_schema": "NarrativeDraft",
+    "prompt_id": "narrative.write",
+    "schema_sha256": "93b6fd451e13e4490ec90af649417df9234c3fe685c544d5ee627e8b36c9aee2",
+    "system_sha256": "de8b1b6fff16fdcdc7a236c41ab75e8e2883791ee8c28fc5c5adf45c212fce27",
+    "template_sha256": "2e7deb728a4dde99f7c1f99fc7cbc194d30b5a10387db0f5364d2666aa0b3e3a",
+    "tier": "mid",
+    "version": 1
+  },
+  "replay_hash": "9f351604b4fd5b659c480c43be6a2d40c11aae68ddd53d4b32cbad5925ff1bf3",
+  "request": {
+    "effort": null,
+    "max_tokens": 1500,
+    "messages": [
+      {
+        "attachments": [],
+        "content": "<facts>\n{\"code_facts\":[{\"code\":\"below_target\",\"meaning\":\"The margin is below the target margin.\"},{\"code\":\"max_offer_below_price\",\"meaning\":\"The most the target margin allows is below the offer price.\"}],\"figures\":{\"annualized_return\":\"44.92%\",\"arv\":\"$1,420,799.85\",\"buildable_sqft\":\"3,168 sq ft\",\"comp_count_used\":\"7 comps\",\"headroom_vs_offer\":\"-$95,728.50\",\"hold_months\":\"9 months\",\"lot_sqft\":\"6,400 sq ft\",\"margin\":\"7.57%\",\"max_offer\":\"$324,271.50\",\"offer_price\":\"$420,000.00\",\"profit\":\"$107,560.14\",\"profit_if_arv_lower\":\"-$25,995.04\",\"profit_if_cost_higher\":\"-$42,693.55\",\"profit_if_hold_longer\":\"$84,670.08\",\"roi\":\"33.69%\",\"target_margin\":\"15.00%\",\"total_cost\":\"$1,313,239.71\"},\"flags\":[],\"signals\":[{\"code\":\"as_is_sale\",\"meaning\":\"Sold as-is; seller makes no repairs\",\"polarity\":\"risk\"}]}\n</facts>\n\n<feedback>\n\n</feedback>",
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-5-5",
+    "output_schema": {
+      "$defs": {
+        "RiskPoint": {
+          "additionalProperties": false,
+          "properties": {
+            "basis": {
+              "description": "One to three codes from the facts sheet that this risk rests on.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Basis",
+              "type": "array"
+            },
+            "text": {
+              "description": "One or two sentences. At most 300 characters.",
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "basis",
+            "text"
+          ],
+          "title": "RiskPoint",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checks_before_offer": {
+          "description": "At most four things to confirm before an offer, each at most 200 characters.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Before Offer",
+          "type": "array"
+        },
+        "risks": {
+          "description": "At most five risk points.",
+          "items": {
+            "$ref": "#/$defs/RiskPoint"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "summary": {
+          "description": "A short plain-language summary. At most 700 characters.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "risks",
+        "checks_before_offer"
+      ],
+      "title": "NarrativeDraft",
+      "type": "object"
+    },
+    "provider": "anthropic",
+    "system": "You write the risk narrative for one candidate property for a spec home builder who buys teardowns and lots. You are given a facts sheet between <facts> and </facts>. It is built by code from the candidate's pro-forma and is the only source you may use. You explain what the facts mean for the builder, plainly and specifically: where the deal is strong, where it is exposed, and what to confirm before an offer.\n\nTHE FIGURES RULE\nEvery number you write must be one of the strings in \"figures\", copied exactly, character for character, with its dollar sign, percent sign, minus sign and unit. Code checks every draft; a draft with any other number is thrown away.\n- Never write a digit anywhere else: not a year, not a count, not a percentage you worked out, not a figure rounded or shortened with a k or an M.\n- Never spell a quantity out in words: no two, ten, hundred, thousand, million, percent, no fractions such as a third or a quarter. Write \"a second lot\", never a count. The words one, single, half, double and twice are fine in ordinary prose, but never in the three words before a figure: a figure is never halved, doubled or multiplied.\n- Never compare numbers, add them or work anything out. Comparisons are given to you as code_facts; say what they say and nothing more.\n- Never put a dash, a plus or a minus sign in front of a figure, or a unit, a rate or a magnitude word after one: the strings already carry their own sign and unit.\n- Use only keys that are present. If a figure is absent, say nothing about it.\n\nTHE FIGURE KEYS\n- offer_price: the price the pro-forma assumes the builder pays for the property\n- arv: the estimated value of the finished new home, after the build\n- total_cost: everything the project costs from purchase to sale\n- profit: the finished value less the total cost\n- margin: profit as a share of the finished value\n- roi: profit as a share of the cash the builder puts in\n- annualized_return: the return on that cash scaled to a year\n- max_offer: the highest purchase price that still reaches the target margin\n- headroom_vs_offer: the maximum offer less the offer price; negative means the offer is above that ceiling\n- target_margin: the margin the builder wants to reach\n- buildable_sqft: the living area the lot is expected to allow\n- lot_sqft: the size of the lot\n- hold_months: the assumed time from purchase to sale\n- comp_count_used: how many comparable sales sit behind the finished value\n- profit_if_arv_lower: the profit if the finished value came in lower than estimated (a stress case)\n- profit_if_cost_higher: the profit if building costs ran higher than estimated (a stress case)\n- profit_if_hold_longer: the profit if the hold ran longer than assumed (a stress case)\n\nTHE OTHER FACTS\n- code_facts: comparisons computed by code. Each has a code and a meaning.\n- flags: caveats from the pro-forma. Each has a code and a meaning.\n- signals: things found about the listing, each with a code, a polarity (risk or opportunity) and a meaning. They come from code, not from the listing's own words, which you are never shown.\n\nWHAT TO WRITE\n- summary: a short plain summary of the candidate's position.\n- risks: each point names one to three codes from code_facts, flags or signals as its basis, and explains the risk in a sentence or two. Name only codes that appear in the facts.\n- checks_before_offer: things to confirm before an offer.\n- Give no address and no legal, tax or investment advice. Do not invent facts.\n- If <feedback> is not empty, a previous draft was rejected for the problems it lists. Fix those problems and write the whole narrative again.\n"
+  },
+  "response": {
+    "model": "claude-sonnet-5-5",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"At the assumed offer price of $420,000.00 the project shows a profit of $107,560.14 on a finished value of $1,420,799.85. That is a margin of 7.57%, short of the 15.00% target. The most the target margin allows is $324,271.50, so the offer sits above that ceiling. The sale is as-is, and the stress cases show little room for error.\",\"risks\":[{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"At $420,000.00 the margin is 7.57%, below the 15.00% target. The ceiling that still reaches target is $324,271.50, leaving headroom of -$95,728.50.\"},{\"basis\":[\"below_target\"],\"text\":\"If the finished value came in lower than estimated, profit would be -$25,995.04. If building costs ran higher, profit would be -$42,693.55. Either one turns the deal into a loss.\"},{\"basis\":[\"below_target\"],\"text\":\"A longer hold than the assumed 9 months would cut profit to $84,670.08, moving the result further from the target margin.\"},{\"basis\":[\"as_is_sale\",\"below_target\"],\"text\":\"The property is sold as-is, with no seller repairs. Any condition surprise falls on the builder, on top of an already thin margin.\"}],\"checks_before_offer\":[\"Test whether the seller will move toward $324,271.50, or whether the price can be justified another way.\",\"Re-check the 7 comps behind the $1,420,799.85 finished value for fit and recency.\",\"Get firm build bids to test the $1,313,239.71 total cost.\",\"Inspect the as-is condition for hidden defects before relying on the pro-forma.\"]}",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2223,
+      "output_tokens": 1261
+    }
+  },
+  "sequence": 0
+}

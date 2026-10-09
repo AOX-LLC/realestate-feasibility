@@ -1,0 +1,181 @@
+{
+  "format_version": 2,
+  "prompt": {
+    "attachments": [],
+    "attempt": 1,
+    "inputs": {
+      "facts": {
+        "code_facts": [
+          {
+            "code": "clears_target",
+            "meaning": "The margin meets or beats the target margin."
+          },
+          {
+            "code": "max_offer_above_price",
+            "meaning": "The most the target margin allows is above the offer price."
+          }
+        ],
+        "figures": {
+          "annualized_return": "106.10%",
+          "arv": "$1,489,400.50",
+          "buildable_sqft": "3,500 sq ft",
+          "comp_count_used": "4 comps",
+          "headroom_vs_offer": "$13,436.54",
+          "hold_months": "9 months",
+          "lot_sqft": "10,134 sq ft",
+          "margin": "15.99%",
+          "max_offer": "$313,436.54",
+          "offer_price": "$300,000.00",
+          "profit": "$238,226.56",
+          "profit_if_arv_lower": "$98,222.93",
+          "profit_if_cost_higher": "$72,226.60",
+          "profit_if_hold_longer": "$217,389.53",
+          "roi": "79.58%",
+          "target_margin": "15.00%",
+          "total_cost": "$1,251,173.94"
+        },
+        "flags": [
+          {
+            "code": "size_capped_max",
+            "meaning": "The buildable size was cut to the market's largest home size."
+          },
+          {
+            "code": "vacant_lot",
+            "meaning": "The site has no existing house, so there is no demolition cost."
+          }
+        ],
+        "signals": [
+          {
+            "code": "teardown_language",
+            "meaning": "Remarks present the property as a teardown, lot value, or builder/investor special for new construction",
+            "polarity": "opportunity"
+          },
+          {
+            "code": "plans_or_permits",
+            "meaning": "Plans, survey, engineering or permits available or approved",
+            "polarity": "opportunity"
+          },
+          {
+            "code": "seller_financing",
+            "meaning": "Seller will finance or carry a note",
+            "polarity": "opportunity"
+          },
+          {
+            "code": "as_is_sale",
+            "meaning": "Sold as-is; seller makes no repairs",
+            "polarity": "risk"
+          },
+          {
+            "code": "flood_or_drainage",
+            "meaning": "Floodplain, flood zone, drainage or standing-water problems (not 'not in a flood zone')",
+            "polarity": "risk"
+          },
+          {
+            "code": "price_reduced",
+            "meaning": "The asking price was cut since the previous run.",
+            "polarity": "opportunity"
+          },
+          {
+            "code": "long_on_market",
+            "meaning": "The property has been listed longer than the market's threshold.",
+            "polarity": "opportunity"
+          }
+        ]
+      },
+      "feedback": ""
+    },
+    "output_schema": "NarrativeDraft",
+    "prompt_id": "narrative.write",
+    "schema_sha256": "93b6fd451e13e4490ec90af649417df9234c3fe685c544d5ee627e8b36c9aee2",
+    "system_sha256": "de8b1b6fff16fdcdc7a236c41ab75e8e2883791ee8c28fc5c5adf45c212fce27",
+    "template_sha256": "2e7deb728a4dde99f7c1f99fc7cbc194d30b5a10387db0f5364d2666aa0b3e3a",
+    "tier": "mid",
+    "version": 1
+  },
+  "replay_hash": "09c44fe0000d6eb439d141cdaa5af8338705434ded75c3f9cd7e6944144531c2",
+  "request": {
+    "effort": null,
+    "max_tokens": 1500,
+    "messages": [
+      {
+        "attachments": [],
+        "content": "<facts>\n{\"code_facts\":[{\"code\":\"clears_target\",\"meaning\":\"The margin meets or beats the target margin.\"},{\"code\":\"max_offer_above_price\",\"meaning\":\"The most the target margin allows is above the offer price.\"}],\"figures\":{\"annualized_return\":\"106.10%\",\"arv\":\"$1,489,400.50\",\"buildable_sqft\":\"3,500 sq ft\",\"comp_count_used\":\"4 comps\",\"headroom_vs_offer\":\"$13,436.54\",\"hold_months\":\"9 months\",\"lot_sqft\":\"10,134 sq ft\",\"margin\":\"15.99%\",\"max_offer\":\"$313,436.54\",\"offer_price\":\"$300,000.00\",\"profit\":\"$238,226.56\",\"profit_if_arv_lower\":\"$98,222.93\",\"profit_if_cost_higher\":\"$72,226.60\",\"profit_if_hold_longer\":\"$217,389.53\",\"roi\":\"79.58%\",\"target_margin\":\"15.00%\",\"total_cost\":\"$1,251,173.94\"},\"flags\":[{\"code\":\"size_capped_max\",\"meaning\":\"The buildable size was cut to the market's largest home size.\"},{\"code\":\"vacant_lot\",\"meaning\":\"The site has no existing house, so there is no demolition cost.\"}],\"signals\":[{\"code\":\"teardown_language\",\"meaning\":\"Remarks present the property as a teardown, lot value, or builder/investor special for new construction\",\"polarity\":\"opportunity\"},{\"code\":\"plans_or_permits\",\"meaning\":\"Plans, survey, engineering or permits available or approved\",\"polarity\":\"opportunity\"},{\"code\":\"seller_financing\",\"meaning\":\"Seller will finance or carry a note\",\"polarity\":\"opportunity\"},{\"code\":\"as_is_sale\",\"meaning\":\"Sold as-is; seller makes no repairs\",\"polarity\":\"risk\"},{\"code\":\"flood_or_drainage\",\"meaning\":\"Floodplain, flood zone, drainage or standing-water problems (not 'not in a flood zone')\",\"polarity\":\"risk\"},{\"code\":\"price_reduced\",\"meaning\":\"The asking price was cut since the previous run.\",\"polarity\":\"opportunity\"},{\"code\":\"long_on_market\",\"meaning\":\"The property has been listed longer than the market's threshold.\",\"polarity\":\"opportunity\"}]}\n</facts>\n\n<feedback>\n\n</feedback>",
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-5-5",
+    "output_schema": {
+      "$defs": {
+        "RiskPoint": {
+          "additionalProperties": false,
+          "properties": {
+            "basis": {
+              "description": "One to three codes from the facts sheet that this risk rests on.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Basis",
+              "type": "array"
+            },
+            "text": {
+              "description": "One or two sentences. At most 300 characters.",
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "basis",
+            "text"
+          ],
+          "title": "RiskPoint",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checks_before_offer": {
+          "description": "At most four things to confirm before an offer, each at most 200 characters.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Before Offer",
+          "type": "array"
+        },
+        "risks": {
+          "description": "At most five risk points.",
+          "items": {
+            "$ref": "#/$defs/RiskPoint"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "summary": {
+          "description": "A short plain-language summary. At most 700 characters.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "risks",
+        "checks_before_offer"
+      ],
+      "title": "NarrativeDraft",
+      "type": "object"
+    },
+    "provider": "anthropic",
+    "system": "You write the risk narrative for one candidate property for a spec home builder who buys teardowns and lots. You are given a facts sheet between <facts> and </facts>. It is built by code from the candidate's pro-forma and is the only source you may use. You explain what the facts mean for the builder, plainly and specifically: where the deal is strong, where it is exposed, and what to confirm before an offer.\n\nTHE FIGURES RULE\nEvery number you write must be one of the strings in \"figures\", copied exactly, character for character, with its dollar sign, percent sign, minus sign and unit. Code checks every draft; a draft with any other number is thrown away.\n- Never write a digit anywhere else: not a year, not a count, not a percentage you worked out, not a figure rounded or shortened with a k or an M.\n- Never spell a quantity out in words: no two, ten, hundred, thousand, million, percent, no fractions such as a third or a quarter. Write \"a second lot\", never a count. The words one, single, half, double and twice are fine in ordinary prose, but never in the three words before a figure: a figure is never halved, doubled or multiplied.\n- Never compare numbers, add them or work anything out. Comparisons are given to you as code_facts; say what they say and nothing more.\n- Never put a dash, a plus or a minus sign in front of a figure, or a unit, a rate or a magnitude word after one: the strings already carry their own sign and unit.\n- Use only keys that are present. If a figure is absent, say nothing about it.\n\nTHE FIGURE KEYS\n- offer_price: the price the pro-forma assumes the builder pays for the property\n- arv: the estimated value of the finished new home, after the build\n- total_cost: everything the project costs from purchase to sale\n- profit: the finished value less the total cost\n- margin: profit as a share of the finished value\n- roi: profit as a share of the cash the builder puts in\n- annualized_return: the return on that cash scaled to a year\n- max_offer: the highest purchase price that still reaches the target margin\n- headroom_vs_offer: the maximum offer less the offer price; negative means the offer is above that ceiling\n- target_margin: the margin the builder wants to reach\n- buildable_sqft: the living area the lot is expected to allow\n- lot_sqft: the size of the lot\n- hold_months: the assumed time from purchase to sale\n- comp_count_used: how many comparable sales sit behind the finished value\n- profit_if_arv_lower: the profit if the finished value came in lower than estimated (a stress case)\n- profit_if_cost_higher: the profit if building costs ran higher than estimated (a stress case)\n- profit_if_hold_longer: the profit if the hold ran longer than assumed (a stress case)\n\nTHE OTHER FACTS\n- code_facts: comparisons computed by code. Each has a code and a meaning.\n- flags: caveats from the pro-forma. Each has a code and a meaning.\n- signals: things found about the listing, each with a code, a polarity (risk or opportunity) and a meaning. They come from code, not from the listing's own words, which you are never shown.\n\nWHAT TO WRITE\n- summary: a short plain summary of the candidate's position.\n- risks: each point names one to three codes from code_facts, flags or signals as its basis, and explains the risk in a sentence or two. Name only codes that appear in the facts.\n- checks_before_offer: things to confirm before an offer.\n- Give no address and no legal, tax or investment advice. Do not invent facts.\n- If <feedback> is not empty, a previous draft was rejected for the problems it lists. Fix those problems and write the whole narrative again.\n"
+  },
+  "response": {
+    "model": "claude-sonnet-5-5",
+    "stop_reason": "max_tokens",
+    "text": "{\"summary\":\"At an offer price of $300,000.00 and a finished value of $1,489,400.50, the pro-forma shows a profit of $238,226.56 and a margin of 15.99%, which clears the target of 15.00%. The maximum offer of $313,436.54 sits above the price, but the cushion is modest. The site is a vacant lot, so there is no demolition cost. Flood or drainage and as-is terms are the main exposures.\",\"risks\":[{\"basis\":[\"clears_target\"],\"text\":\"The margin of 15.99% only just clears the target of 15.00%. If the finished value came in lower, profit would fall to $98,222.93.\"},{\"basis\":[\"flood_or_drainage\",\"as_is_sale\"],\"text\":\"Flood or drainage concerns on an as-is sale could add site or building cost. With higher building costs, profit would drop to $72,226.60.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was capped at the market's largest home size. The finished value of $1,489,400.50 rests on 4 comps, so a weak comp would hit the whole deal.\"},{\"basis\":[\"max_offer_above_price\"],\"text\":\"The maximum offer of $313,436.54 leaves headroom of $13,436.54 over the price, so there is little room to bid up. A longer hold than 9 months would cut profit to $217,389.53.\"}],\"checks_before_offer\":[\"Confirm flood zone status, drainage conditions and the cost of any mitigation before relying on the pro-forma costs.\",\"Verify that the plans or permits are real, transferable and usable for the home you intend to build",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2584,
+      "output_tokens": 1500
+    }
+  },
+  "sequence": 0
+}

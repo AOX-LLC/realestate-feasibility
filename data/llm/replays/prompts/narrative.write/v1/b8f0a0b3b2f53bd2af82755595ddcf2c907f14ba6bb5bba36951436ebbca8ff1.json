@@ -1,0 +1,156 @@
+{
+  "format_version": 2,
+  "prompt": {
+    "attachments": [],
+    "attempt": 1,
+    "inputs": {
+      "facts": {
+        "code_facts": [
+          {
+            "code": "below_target",
+            "meaning": "The margin is below the target margin."
+          },
+          {
+            "code": "negative_profit",
+            "meaning": "The pro-forma loses money at the offer price."
+          },
+          {
+            "code": "max_offer_below_price",
+            "meaning": "The most the target margin allows is below the offer price."
+          }
+        ],
+        "figures": {
+          "annualized_return": "-17.22%",
+          "arv": "$1,445,125.85",
+          "buildable_sqft": "3,500 sq ft",
+          "comp_count_used": "5 comps",
+          "headroom_vs_offer": "-$239,459.12",
+          "hold_months": "9 months",
+          "lot_sqft": "13,382 sq ft",
+          "margin": "-3.27%",
+          "max_offer": "$272,540.88",
+          "offer_price": "$512,000.00",
+          "profit": "-$47,282.77",
+          "profit_if_arv_lower": "-$183,124.59",
+          "profit_if_cost_higher": "-$213,282.73",
+          "profit_if_hold_longer": "-$73,728.04",
+          "roi": "-12.91%",
+          "target_margin": "15.00%",
+          "total_cost": "$1,492,408.62"
+        },
+        "flags": [
+          {
+            "code": "size_capped_max",
+            "meaning": "The buildable size was cut to the market's largest home size."
+          }
+        ],
+        "signals": [
+          {
+            "code": "tenant_occupied",
+            "meaning": "Occupied by a tenant; possession subject to a lease",
+            "polarity": "risk"
+          },
+          {
+            "code": "conservation_or_historic_district",
+            "meaning": "Conservation district, historic overlay, demolition review or delay",
+            "polarity": "risk"
+          }
+        ]
+      },
+      "feedback": ""
+    },
+    "output_schema": "NarrativeDraft",
+    "prompt_id": "narrative.write",
+    "schema_sha256": "93b6fd451e13e4490ec90af649417df9234c3fe685c544d5ee627e8b36c9aee2",
+    "system_sha256": "de8b1b6fff16fdcdc7a236c41ab75e8e2883791ee8c28fc5c5adf45c212fce27",
+    "template_sha256": "2e7deb728a4dde99f7c1f99fc7cbc194d30b5a10387db0f5364d2666aa0b3e3a",
+    "tier": "mid",
+    "version": 1
+  },
+  "replay_hash": "b8f0a0b3b2f53bd2af82755595ddcf2c907f14ba6bb5bba36951436ebbca8ff1",
+  "request": {
+    "effort": null,
+    "max_tokens": 1500,
+    "messages": [
+      {
+        "attachments": [],
+        "content": "<facts>\n{\"code_facts\":[{\"code\":\"below_target\",\"meaning\":\"The margin is below the target margin.\"},{\"code\":\"negative_profit\",\"meaning\":\"The pro-forma loses money at the offer price.\"},{\"code\":\"max_offer_below_price\",\"meaning\":\"The most the target margin allows is below the offer price.\"}],\"figures\":{\"annualized_return\":\"-17.22%\",\"arv\":\"$1,445,125.85\",\"buildable_sqft\":\"3,500 sq ft\",\"comp_count_used\":\"5 comps\",\"headroom_vs_offer\":\"-$239,459.12\",\"hold_months\":\"9 months\",\"lot_sqft\":\"13,382 sq ft\",\"margin\":\"-3.27%\",\"max_offer\":\"$272,540.88\",\"offer_price\":\"$512,000.00\",\"profit\":\"-$47,282.77\",\"profit_if_arv_lower\":\"-$183,124.59\",\"profit_if_cost_higher\":\"-$213,282.73\",\"profit_if_hold_longer\":\"-$73,728.04\",\"roi\":\"-12.91%\",\"target_margin\":\"15.00%\",\"total_cost\":\"$1,492,408.62\"},\"flags\":[{\"code\":\"size_capped_max\",\"meaning\":\"The buildable size was cut to the market's largest home size.\"}],\"signals\":[{\"code\":\"tenant_occupied\",\"meaning\":\"Occupied by a tenant; possession subject to a lease\",\"polarity\":\"risk\"},{\"code\":\"conservation_or_historic_district\",\"meaning\":\"Conservation district, historic overlay, demolition review or delay\",\"polarity\":\"risk\"}]}\n</facts>\n\n<feedback>\n\n</feedback>",
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-5-5",
+    "output_schema": {
+      "$defs": {
+        "RiskPoint": {
+          "additionalProperties": false,
+          "properties": {
+            "basis": {
+              "description": "One to three codes from the facts sheet that this risk rests on.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Basis",
+              "type": "array"
+            },
+            "text": {
+              "description": "One or two sentences. At most 300 characters.",
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "basis",
+            "text"
+          ],
+          "title": "RiskPoint",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checks_before_offer": {
+          "description": "At most four things to confirm before an offer, each at most 200 characters.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Before Offer",
+          "type": "array"
+        },
+        "risks": {
+          "description": "At most five risk points.",
+          "items": {
+            "$ref": "#/$defs/RiskPoint"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "summary": {
+          "description": "A short plain-language summary. At most 700 characters.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "risks",
+        "checks_before_offer"
+      ],
+      "title": "NarrativeDraft",
+      "type": "object"
+    },
+    "provider": "anthropic",
+    "system": "You write the risk narrative for one candidate property for a spec home builder who buys teardowns and lots. You are given a facts sheet between <facts> and </facts>. It is built by code from the candidate's pro-forma and is the only source you may use. You explain what the facts mean for the builder, plainly and specifically: where the deal is strong, where it is exposed, and what to confirm before an offer.\n\nTHE FIGURES RULE\nEvery number you write must be one of the strings in \"figures\", copied exactly, character for character, with its dollar sign, percent sign, minus sign and unit. Code checks every draft; a draft with any other number is thrown away.\n- Never write a digit anywhere else: not a year, not a count, not a percentage you worked out, not a figure rounded or shortened with a k or an M.\n- Never spell a quantity out in words: no two, ten, hundred, thousand, million, percent, no fractions such as a third or a quarter. Write \"a second lot\", never a count. The words one, single, half, double and twice are fine in ordinary prose, but never in the three words before a figure: a figure is never halved, doubled or multiplied.\n- Never compare numbers, add them or work anything out. Comparisons are given to you as code_facts; say what they say and nothing more.\n- Never put a dash, a plus or a minus sign in front of a figure, or a unit, a rate or a magnitude word after one: the strings already carry their own sign and unit.\n- Use only keys that are present. If a figure is absent, say nothing about it.\n\nTHE FIGURE KEYS\n- offer_price: the price the pro-forma assumes the builder pays for the property\n- arv: the estimated value of the finished new home, after the build\n- total_cost: everything the project costs from purchase to sale\n- profit: the finished value less the total cost\n- margin: profit as a share of the finished value\n- roi: profit as a share of the cash the builder puts in\n- annualized_return: the return on that cash scaled to a year\n- max_offer: the highest purchase price that still reaches the target margin\n- headroom_vs_offer: the maximum offer less the offer price; negative means the offer is above that ceiling\n- target_margin: the margin the builder wants to reach\n- buildable_sqft: the living area the lot is expected to allow\n- lot_sqft: the size of the lot\n- hold_months: the assumed time from purchase to sale\n- comp_count_used: how many comparable sales sit behind the finished value\n- profit_if_arv_lower: the profit if the finished value came in lower than estimated (a stress case)\n- profit_if_cost_higher: the profit if building costs ran higher than estimated (a stress case)\n- profit_if_hold_longer: the profit if the hold ran longer than assumed (a stress case)\n\nTHE OTHER FACTS\n- code_facts: comparisons computed by code. Each has a code and a meaning.\n- flags: caveats from the pro-forma. Each has a code and a meaning.\n- signals: things found about the listing, each with a code, a polarity (risk or opportunity) and a meaning. They come from code, not from the listing's own words, which you are never shown.\n\nWHAT TO WRITE\n- summary: a short plain summary of the candidate's position.\n- risks: each point names one to three codes from code_facts, flags or signals as its basis, and explains the risk in a sentence or two. Name only codes that appear in the facts.\n- checks_before_offer: things to confirm before an offer.\n- Give no address and no legal, tax or investment advice. Do not invent facts.\n- If <feedback> is not empty, a previous draft was rejected for the problems it lists. Fix those problems and write the whole narrative again.\n"
+  },
+  "response": {
+    "model": "claude-sonnet-5-5",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"At the assumed offer price of $512,000.00 this deal loses money: profit is -$47,282.77 and margin is -3.27%, well short of the 15.00% target. The most the target margin allows is $272,540.88, so the offer sits far above the ceiling. Possession and demolition constraints add further exposure.\",\"risks\":[{\"basis\":[\"negative_profit\",\"below_target\"],\"text\":\"The pro-forma shows a loss of -$47,282.77 and a margin of -3.27% against a 15.00% target, so the deal does not work at the current offer.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The maximum offer that reaches the target is $272,540.88, with headroom of -$239,459.12. The price would need to fall a long way for the numbers to work.\"},{\"basis\":[\"negative_profit\"],\"text\":\"Stress cases deepen the loss: -$183,124.59 if the finished value is lower, -$213,282.73 if costs run higher, and -$73,728.04 if the hold runs longer than 9 months.\"},{\"basis\":[\"tenant_occupied\"],\"text\":\"A tenant occupies the property and possession is subject to a lease. That could delay the start of demolition and lengthen the hold beyond the assumed 9 months.\"},{\"basis\":[\"conservation_or_historic_district\",\"size_capped_max\"],\"text\":\"Conservation or historic review may restrict or delay demolition. The buildable size was also capped to the market's largest home size, so the 3,500 sq ft assumption may be generous.\"}],\"checks_before_offer\":[\"Confirm the lease terms and whether the tenant can be vacated, and by when.\",\"Check the demolition review rules and approval timeline for the district overlay.\",\"Verify the permitted home size on the 13,382 sq ft lot against the 3,500 sq ft assumed.\",\"Re-test the $1,445,125.85 finished value against the 5 comps used.\"]}",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2349,
+      "output_tokens": 628
+    }
+  },
+  "sequence": 0
+}
