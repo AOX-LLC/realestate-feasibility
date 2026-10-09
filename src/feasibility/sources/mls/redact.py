@@ -100,9 +100,11 @@ _HONORIFIC_NAME = re.compile(
     rf"\b(?i:(?:Mr|Mrs|Ms|Miss|Mx)\.?|(?:Dr|Prof)\.)\s+{_NAME_PART}(?:\s+{_NAME_PART})?"
 )
 
-# Each name word starts only where a word starts: without the lookbehind a run like "Ab-Ab-Ab-"
-# is rescanned from every capital in it.
-_BROKERAGE_PREFIX = r"(?:(?<![\w'\u2019.&-])(?:[A-Z][\w'\u2019.-]*|&)\s+){1,4}"
+# A name word is at most 31 characters, so a match attempt costs a constant however long the run
+# of capitals and hyphens around it is. (An unbounded word is rescanned from every capital in
+# "Ab-Ab-Ab-...": quadratic. A lookbehind that stops a match starting after "-" or "." would
+# fix that and let "Offered.Prairie Realty" through.)
+_BROKERAGE_PREFIX = r"(?:(?:[A-Z][\w'\u2019.-]{0,30}|&)\s+){1,4}"
 # "Real Estate" and "Properties" are ordinary words too: "Dallas Real Estate taxes" and
 # "Properties of the lot" stay unless the name ends in "Group".
 _ORDINARY_CONTINUATION = (

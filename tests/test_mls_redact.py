@@ -471,6 +471,13 @@ def test_a_single_capitalised_word_before_a_contact_is_kept(text: str) -> None:
     assert _clean(text).startswith(first_word)
 
 
+def test_a_brokerage_name_glued_to_the_sentence_before_it_is_still_removed() -> None:
+    result = _clean("Offered.Prairie Realty exclusively.")
+
+    assert "Prairie" not in result
+    assert result.endswith(f"{REMOVED} exclusively.")
+
+
 def test_a_name_next_to_a_removed_contact_is_the_only_thing_that_goes() -> None:
     text = "Plans ready. Survey on file, call 214-555-0187 - flat lot."
 
