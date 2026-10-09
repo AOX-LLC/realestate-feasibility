@@ -15,6 +15,7 @@ from sqlalchemy import Connection, Engine
 from feasibility.config import Settings
 from feasibility.jobs import queue
 from feasibility.listings import sync_listings
+from feasibility.llm.run import PermanentModelError
 from feasibility.markets.loader import PackError, get_pack
 from feasibility.markets.schema import FileKind
 from feasibility.sources.base import ImportRequest, NotConfiguredError
@@ -61,6 +62,8 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     SchemaDriftError,
     BudgetExhaustedError,
     SourcingError,
+    # A recording that is missing or a model that is misconfigured is the same on every attempt.
+    PermanentModelError,
 )
 
 

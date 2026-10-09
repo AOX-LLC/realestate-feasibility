@@ -21,6 +21,7 @@ from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
 from feasibility.jobs.worker import Worker
+from feasibility.llm.run import ModelStageError
 from feasibility.logging import configure_logging
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
@@ -168,6 +169,10 @@ def source_run(
         result = run_sourcing(get_engine(), settings, market_id, run_date)
     except (SourcingError, PackError, ValueError) as error:
         typer.echo(f"sourcing refused: {error}", err=True)
+    except ModelStageError as error:
+        # The ranking, the estimates and the pro-formas are stored; the model stages are not done.
+        typer.echo(f"run ranked, but a model stage did not finish: {error}", err=True)
+        raise typer.Exit(code=1) from None
         raise typer.Exit(code=2) from None
     typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")
     for name, value in result.counts.model_dump().items():

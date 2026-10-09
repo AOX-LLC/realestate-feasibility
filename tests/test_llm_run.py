@@ -18,8 +18,12 @@ from aox_agent_core.errors import (
 from conftest import empty_database
 from llm_fakes import RunModel
 from sqlalchemy import Engine, text
+from typer.testing import CliRunner
 
+from feasibility import cli
 from feasibility.config import DataMode, Settings
+from feasibility.jobs.handlers import PERMANENT_ERRORS, build_registry
+from feasibility.jobs.worker import Worker
 from feasibility.llm import run as llm_run
 from feasibility.llm import store as llm_store
 from feasibility.llm.client import build_model_client
@@ -750,3 +754,75 @@ def test_a_stage_stops_when_a_newer_attempt_has_reset_the_run(seeded: Engine) ->
     llm_run.run_narratives(ctx)
 
     assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
+
+
+# --- at the job and the command line -------------------------------------------------------------
+
+
+def _queue_the_run(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO job (kind, payload) VALUES ('sourcing.run', CAST(:payload AS jsonb))"
+            ),
+            {"payload": '{"market": "dallas", "as_of": "2026-10-01"}'},
+        )
+
+
+def _job(engine: Engine) -> Any:
+    return _rows(engine, "SELECT status, attempts, last_error FROM job")[0]
+
+
+def test_only_a_stage_that_cannot_succeed_on_retry_is_permanent() -> None:
+    assert PermanentModelError in PERMANENT_ERRORS
+    assert RetryableModelError not in PERMANENT_ERRORS
+    assert not issubclass(RetryableModelError, PermanentModelError)
+
+
+def test_a_missing_recording_sends_the_job_straight_to_dead(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _queue_the_run(seeded)
+
+    assert Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
+
+    job = _job(seeded)
+    assert (job.status, job.attempts) == ("dead", 1)
+    assert job.last_error.startswith("PermanentModelError")
+
+
+def test_a_provider_error_leaves_the_job_to_be_tried_again(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failing = RunModel(failures={3: ProviderUnavailableError("503")}, **FREE)
+    monkeypatch.setattr("feasibility.llm.run.default_model", lambda settings: failing)
+    _queue_the_run(seeded)
+
+    assert Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
+
+    job = _job(seeded)
+    assert (job.status, job.attempts) == ("queued", 1)
+    assert job.last_error.startswith("RetryableModelError")
+    run = _rows(seeded, "SELECT status, error FROM sourcing_run")[0]
+    assert run.status == "completed"
+    assert run.error.startswith("RetryableModelError")
+
+
+@pytest.fixture
+def cli_engine(seeded: Engine, monkeypatch: pytest.MonkeyPatch) -> Engine:
+    monkeypatch.setattr(cli, "get_engine", lambda: seeded)
+    monkeypatch.setattr(cli, "get_settings", _settings)
+    return seeded
+
+
+def test_the_command_line_says_a_model_stage_did_not_finish_and_exits_one(
+    cli_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+
+    result = CliRunner().invoke(cli.app, ["source", "run", "--as-of", "2026-10-01"])
+
+    assert result.exit_code == 1
+    assert "run ranked, but a model stage did not finish: signals stage stopped" in result.output
+    assert "ReplayMissError" in result.output
