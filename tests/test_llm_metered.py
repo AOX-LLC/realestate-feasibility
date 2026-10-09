@@ -445,3 +445,10 @@ def test_last_call_id_is_cleared_when_an_unknown_replay_error_discards_the_row(
 
     assert _rows(engine) == []
     assert client.last_call_id is None
+
+
+def test_tier_for_reports_the_tier_a_task_routes_to(config: AgentCoreConfig) -> None:
+    client = _metered(FakeClient(), None, config)
+
+    assert client.tier_for("signals_extract") == Tier.SMALL
+    assert client.tier_for("narrative_write") == Tier.MID

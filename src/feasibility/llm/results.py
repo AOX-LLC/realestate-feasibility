@@ -129,3 +129,23 @@ class SignalsResult(ResultModel):
         if self.model_flagged_injection is None:
             raise ValueError("an extracted result needs model_flagged_injection")
         return self
+
+
+class CachedExtraction(ResultModel):
+    """What an extraction call is cached as (`llm_result.result`): the verified remarks signals,
+    the dropped claims and the model's flag, never the model's raw answer. `scan_fingerprint`
+    names the injection hits the claims were verified against: two remarks that differ only in
+    angle brackets send the same text but are scanned differently, so a result is reused only when
+    the scan agrees."""
+
+    version: Literal[1] = 1
+    signals: list[StoredSignal]
+    dropped: list[DroppedClaim]
+    model_flagged_injection: bool
+    scan_fingerprint: Sha256Hex
+
+    @model_validator(mode="after")
+    def _only_remarks_signals(self) -> Self:
+        if any(signal.source != "remarks" for signal in self.signals):
+            raise ValueError("a cached extraction holds remarks signals only")
+        return self

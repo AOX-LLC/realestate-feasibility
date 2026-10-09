@@ -175,3 +175,78 @@ class Narrator:
         **_: Any,
     ) -> Any:
         return self._next(inputs, tier)
+
+
+class RunModel:
+    """A stand-in for the model that answers both of the run's prompts, keeps every call it
+    gets and can fail the nth one.
+
+    `extractions` maps the remarks a call was sent to its `SignalExtraction` (any other text gets
+    an empty one). `draft` makes a narrative draft from the facts and the feedback of a call
+    (default: a plain one that passes the check). `failures` maps a 1-based call number to the
+    exception that call raises. `before_call` runs first in every call, with the prompt id."""
+
+    def __init__(
+        self,
+        *,
+        extractions: Mapping[str, Any] | None = None,
+        draft: Any = None,
+        failures: Mapping[int, BaseException] | None = None,
+        before_call: Any = None,
+        small_cost: str = "0.004000",
+        mid_cost: str = "0.012000",
+    ) -> None:
+        self._extractions = dict(extractions or {})
+        self._draft = draft
+        self._failures = dict(failures or {})
+        self._before_call = before_call
+        self._costs = {"signals.extract": small_cost, "narrative.write": mid_cost}
+        self.calls: list[tuple[str, Mapping[str, JsonValue]]] = []
+
+    def _answer(self, prompt: PromptRef, inputs: Mapping[str, JsonValue]) -> Any:
+        from feasibility.llm.narrative_check import NarrativeDraft
+        from feasibility.llm.signals import SignalExtraction
+
+        if self._before_call is not None:
+            self._before_call(prompt.id)
+        self.calls.append((prompt.id, inputs))
+        number = len(self.calls)
+        if number in self._failures:
+            raise self._failures[number]
+        if prompt.id == "signals.extract":
+            found = self._extractions.get(str(inputs["remarks"]))
+            if isinstance(found, BaseException):
+                raise found
+            output = found or SignalExtraction(signals=[], injection_suspected=False)
+            tier, task = Tier.SMALL, "signals_extract"
+        else:
+            output = (
+                self._draft(inputs["facts"], inputs["feedback"])
+                if self._draft is not None
+                else NarrativeDraft(
+                    summary="A plain summary of where this candidate stands.",
+                    risks=[],
+                    checks_before_offer=[],
+                )
+            )
+            if isinstance(output, BaseException):
+                raise output
+            tier, task = Tier.MID, "narrative_write"
+        return CallResult(
+            output=output,
+            tier=tier,
+            task=task,
+            provider=Provider.ANTHROPIC,
+            model="a-model",
+            mode=Mode.REPLAY,
+            usage=Usage(input_tokens=900, output_tokens=120),
+            cost_usd=Decimal(self._costs[prompt.id]),
+            latency_ms=1.0,
+            stop_reason="end_turn",
+        )
+
+    def call_sync(self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **_: Any) -> Any:
+        return self._answer(prompt, inputs)
+
+    async def call(self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **_: Any) -> Any:
+        return self._answer(prompt, inputs)

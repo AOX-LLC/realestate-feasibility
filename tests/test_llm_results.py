@@ -219,3 +219,30 @@ def test_hashes_must_be_sha256_hex() -> None:
             suspicious=False,
             suspicious_rules=[],
         )
+
+
+def test_a_cached_extraction_holds_remarks_signals_only() -> None:
+    from pydantic import ValidationError
+
+    from feasibility.llm.results import CachedExtraction, StoredSignal
+
+    quote = StoredSignal(
+        code="as_is_sale", polarity="risk", source="remarks", quote="Sold as-is....."
+    )
+    field = StoredSignal(
+        code="relisted",
+        polarity="risk",
+        source="fields",
+        field="change_kind",
+        field_value="relisted",
+    )
+    digest = "c" * 64
+
+    kept = CachedExtraction(
+        signals=[quote], dropped=[], model_flagged_injection=False, scan_fingerprint=digest
+    )
+    assert CachedExtraction.model_validate(kept.model_dump(mode="json")) == kept
+    with pytest.raises(ValidationError, match="remarks signals only"):
+        CachedExtraction(
+            signals=[field], dropped=[], model_flagged_injection=False, scan_fingerprint=digest
+        )

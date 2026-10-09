@@ -12,7 +12,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -21,6 +21,8 @@ from sqlalchemy import Connection, Engine
 from feasibility.config import Settings
 from feasibility.jobs.queue import ERROR_TEXT_LIMIT
 from feasibility.listings import sync_listings
+from feasibility.llm import run as llm_run
+from feasibility.llm.metered import ModelCaller
 from feasibility.logging import redact
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
@@ -116,21 +118,23 @@ def run_sourcing(
     as_of: date | None,
     *,
     client: RentCastClient | None = None,
+    model: ModelCaller | None = None,
 ) -> SourcingResult:
     """Source one day. A failure in the sync or the build marks the run failed and propagates.
-    A failure after the build (the estimate spend, the pro-formas) leaves the ranked run
-    completed with its error recorded, and also propagates."""
+    A failure after the build (the estimate spend, the pro-formas, the signals and narratives)
+    leaves the ranked run completed with its error recorded, and also propagates. `model` is the
+    client the model stages call; by default the library's, in the settings' mode."""
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
     run_id = _start_run(engine, market, run_date)
     if client is not None:
-        return _source(engine, settings, pack, run_id, run_date, client)
+        return _source(engine, settings, pack, run_id, run_date, client, model)
     # The response cache would answer a later snapshot day with the earlier day's body.
     own_client = RentCastClient.from_settings(
         engine, settings, use_cache=settings.is_live, snapshot_day=overlay
     )
     try:
-        return _source(engine, settings, pack, run_id, run_date, own_client)
+        return _source(engine, settings, pack, run_id, run_date, own_client, model)
     finally:
         own_client.close()
 
@@ -142,6 +146,7 @@ def _source(
     run_id: int,
     run_date: date,
     client: RentCastClient,
+    model: ModelCaller | None,
 ) -> SourcingResult:
     """The run's stages after it has started, in the order of docs/ARCHITECTURE.md."""
     try:
@@ -159,7 +164,8 @@ def _source(
     # place, records its error on the run and propagates so the job retries.
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
     proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
-    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts)}
+    signal_counts = _read_signals(engine, settings, pack, run_id, run_date, model)
+    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **signal_counts}
     return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
 
@@ -194,6 +200,26 @@ def _price_proformas(
     try:
         with engine.begin() as connection:
             return run_proformas(connection, pack, run_id, run_date)
+    except Exception as error:
+        _record_stage_error(engine, settings, run_id, error)
+        raise
+
+
+def _read_signals(
+    engine: Engine,
+    settings: Settings,
+    pack: MarketPack,
+    run_id: int,
+    run_date: date,
+    model: ModelCaller | None,
+) -> dict[str, Any]:
+    """Stage 6, the signals of every ranked candidate. A failure leaves the ranked run, its
+    estimates and its pro-formas in place, like a failed spend, and propagates."""
+    try:
+        client = llm_run.open_client(engine, settings, run_id, model)
+        return llm_run.run_signals(
+            llm_run.stage_context(engine, pack, run_id, run_date, client), pack
+        )
     except Exception as error:
         _record_stage_error(engine, settings, run_id, error)
         raise
