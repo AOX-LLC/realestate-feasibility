@@ -2,12 +2,15 @@
 key is redacted wherever it could be logged."""
 
 import logging
+import tomllib
 from decimal import Decimal
 
 import pytest
+from aox_agent_core import Tier, load_config
 from pydantic import SecretStr, ValidationError
 
-from feasibility.config import DataMode, LlmMode, Settings
+from feasibility.config import DEFAULT_LLM_CONFIG_PATH, REPO_ROOT, DataMode, LlmMode, Settings
+from feasibility.llm.client import build_model_client
 from feasibility.logging import REDACTED, SecretRedactingFilter
 
 SENTINEL = "sentinel-llm-key-8d21e7"
@@ -169,3 +172,66 @@ def test_both_keys_are_redacted_when_both_are_set() -> None:
 def test_a_negative_budget_is_refused() -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, llm_run_budget_usd=Decimal("-1"))  # type: ignore[call-arg]
+
+
+# --- the TOML file and the routing it produces ---
+
+
+def test_the_default_config_path_is_the_committed_file() -> None:
+    assert DEFAULT_LLM_CONFIG_PATH == REPO_ROOT / "data" / "llm" / "agent-core.toml"
+    assert DEFAULT_LLM_CONFIG_PATH.is_file()
+
+
+def test_tasks_route_extraction_to_small_and_narratives_to_mid() -> None:
+    config = build_model_client(Settings(_env_file=None)).config  # type: ignore[call-arg]
+
+    assert config.routing.tier_for_task("signals_extract") is Tier.SMALL
+    assert config.routing.tier_for_task("narrative_write") is Tier.MID
+    assert config.routing.default_tier is Tier.SMALL
+
+
+def test_restating_only_max_tokens_keeps_the_packaged_model_of_each_tier() -> None:
+    packaged = load_config(environ={})
+    config = build_model_client(Settings(_env_file=None)).config  # type: ignore[call-arg]
+
+    for tier in Tier:
+        assert config.routing.tiers[tier].model == packaged.routing.tiers[tier].model
+        assert config.routing.tiers[tier].provider == packaged.routing.tiers[tier].provider
+    assert config.routing.tiers[Tier.SMALL].max_tokens == 1200
+    assert config.routing.tiers[Tier.MID].max_tokens == 1500
+    assert (
+        config.routing.tiers[Tier.LARGE].max_tokens == packaged.routing.tiers[Tier.LARGE].max_tokens
+    )
+
+
+def test_the_per_call_cap_is_five_cents_and_a_normal_call_does_not_raise_it() -> None:
+    config = build_model_client(Settings(_env_file=None)).config  # type: ignore[call-arg]
+
+    assert config.routing.budget_usd_per_call == Decimal("0.05")
+    assert config.routing.on_budget_exceeded.value == "raise"
+    assert not config.routing.escalate_on_structured_failure
+
+
+def test_the_recordings_folder_is_anchored_to_the_config_file_not_the_working_directory() -> None:
+    config = build_model_client(Settings(_env_file=None)).config  # type: ignore[call-arg]
+
+    assert config.replay.cassette_dir == DEFAULT_LLM_CONFIG_PATH.parent / "replays"
+    assert config.replay.on_secret.value == "refuse"
+    assert not config.tracing.capture_content
+
+
+def test_prices_and_model_ids_come_from_the_library_not_from_this_project() -> None:
+    document = tomllib.loads(DEFAULT_LLM_CONFIG_PATH.read_text())
+
+    assert "pricing" not in document
+    assert all("model" not in tier for tier in document["routing"]["tiers"].values())
+
+
+def test_no_model_id_appears_in_source() -> None:
+    offenders = [
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "src").rglob("*.py")
+        if "claude-" in path.read_text()
+    ]
+
+    assert offenders == []

@@ -36,6 +36,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY data/snapshot/ ./data/snapshot/
+COPY data/llm/ ./data/llm/
 
 # Build provenance reported by /health; empty means unknown.
 ARG GIT_COMMIT=""
@@ -43,6 +44,7 @@ ARG GIT_BRANCH=""
 ENV GIT_COMMIT=${GIT_COMMIT} \
     GIT_BRANCH=${GIT_BRANCH} \
     SNAPSHOT_DIR=/app/data/snapshot \
+    AGENT_CORE_CONFIG=/app/data/llm/agent-core.toml \
     LOCAL_DIR=/app/local \
     PATH="/app/.venv/bin:$PATH"
 
