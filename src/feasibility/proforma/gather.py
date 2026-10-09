@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Connection, and_, or_, select
+from sqlalchemy import ColumnElement, Connection, and_, or_, select
 
 from feasibility.markets.schema import normalise_zoning
 from feasibility.proforma.model import Comp, EstimateInput, ProformaInputs
@@ -155,11 +155,13 @@ def _parcels(
         {c.match_account_id for c in ranked if c.match_account_id and not _is_group(c)}
     )
     groups = sorted({c.gis_parcel_id for c in ranked if c.gis_parcel_id and _is_group(c)})
-    wanted = []
+    group_zips = sorted({c.zip5 for c in ranked if c.zip5 and _is_group(c)})
+    wanted: list[ColumnElement[bool]] = []
     if accounts:
         wanted.append(parcel.c.account_id.in_(accounts))
     if groups:
-        wanted.append(parcel.c.gis_parcel_id.in_(groups))
+        # The zip lets the query use the (market, zip5) index instead of scanning the market.
+        wanted.append(and_(parcel.c.gis_parcel_id.in_(groups), parcel.c.zip5.in_(group_zips)))
     if not wanted:
         return []
     rows = connection.execute(
