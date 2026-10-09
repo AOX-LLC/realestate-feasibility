@@ -1,0 +1,74 @@
+"""A scripted stand-in for the model client: no network, no recordings."""
+
+from collections.abc import Mapping
+from decimal import Decimal
+from typing import Any
+
+from aox_agent_core import CallResult, Mode, PromptRef, Provider, Tier, Usage
+from pydantic import BaseModel, JsonValue
+
+
+class Verdict(BaseModel):
+    label: str
+
+
+PROMPT = PromptRef(
+    id="signals.extract",
+    version=1,
+    system="s",
+    template="<listing_remarks>${remarks}</listing_remarks>",
+)
+INPUTS: dict[str, JsonValue] = {"remarks": "Sold as-is."}
+
+
+def result(
+    cost: str = "0.004000",
+    *,
+    mode: Mode = Mode.REPLAY,
+    tier: Tier = Tier.SMALL,
+    attempts: int = 1,
+    latency_ms: float = 812.4,
+) -> CallResult[Verdict]:
+    return CallResult(
+        output=Verdict(label="x"),
+        tier=tier,
+        task="signals_extract",
+        provider=Provider.ANTHROPIC,
+        model="a-model",
+        mode=mode,
+        usage=Usage(
+            input_tokens=900,
+            output_tokens=120,
+            cache_creation_input_tokens=3,
+            cache_read_input_tokens=4,
+        ),
+        cost_usd=Decimal(cost),
+        latency_ms=latency_ms,
+        stop_reason="end_turn",
+        attempts=attempts,
+    )
+
+
+class FakeClient:
+    """Plays a script, one item per call: a CallResult is returned, an exception is raised."""
+
+    def __init__(self, *script: CallResult[Verdict] | BaseException) -> None:
+        self._script = list(script)
+        self.calls: list[dict[str, Any]] = []
+
+    def _next(self, prompt: PromptRef, **kwargs: Any) -> CallResult[Verdict]:
+        self.calls.append({"prompt": prompt, **kwargs})
+        item = self._script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def call_sync(
+        self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **kwargs: Any
+    ) -> CallResult[Verdict]:
+        return self._next(prompt, inputs=inputs, **kwargs)
+
+    async def call(
+        self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **kwargs: Any
+    ) -> CallResult[Verdict]:
+        return self._next(prompt, inputs=inputs, **kwargs)

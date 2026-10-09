@@ -8,6 +8,7 @@ from the sources has nowhere to land.
 from typing import Any
 
 from sqlalchemy import (
+    CHAR,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -436,4 +437,67 @@ job = Table(
         unique=True,
         postgresql_where=text("status IN ('queued', 'running')"),
     ),
+)
+
+# The ledger of model calls: one row per call in every outcome, never cleared by a re-run (it
+# is spend, like api_request_log). No prompt text, remarks, model output or replay key is
+# stored here. A call that raised has no known cost, so spend counts its reservation instead.
+LLM_STAGES = ("signals", "narrative", "eval")
+LLM_TIERS = ("small", "mid", "large")
+LLM_MODES = ("replay", "record", "live")
+LLM_OUTCOMES = (
+    "ok",
+    "structured_error",
+    "refusal",
+    "provider_error",
+    "budget_refused",
+    "replay_error",
+)
+LLM_USD = Numeric(12, 6)
+
+llm_call = Table(
+    "llm_call",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="SET NULL")),
+    Column("candidate_id", BigInteger, ForeignKey("candidate.id", ondelete="SET NULL")),
+    Column("stage", Text, nullable=False),
+    Column("prompt_id", Text, nullable=False),
+    Column("prompt_version", Integer, nullable=False),
+    Column("input_sha256", CHAR(64), nullable=False),
+    Column("tier", Text, nullable=False),
+    Column("model", Text),
+    Column("mode", Text, nullable=False),
+    Column("billable", Boolean, nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("attempts", SmallInteger, nullable=False, server_default="1"),
+    Column("input_tokens", Integer),
+    Column("output_tokens", Integer),
+    Column("cache_creation_input_tokens", Integer),
+    Column("cache_read_input_tokens", Integer),
+    Column("cost_usd", LLM_USD),
+    Column("reserved_usd", LLM_USD, nullable=False),
+    Column("latency_ms", Integer),
+    _timestamp("called_at"),
+    CheckConstraint(_in_list("stage", LLM_STAGES), name="stage"),
+    CheckConstraint("prompt_id ~ '^[a-z][a-z0-9_.-]{0,99}$'", name="prompt_id"),
+    CheckConstraint("prompt_version >= 1", name="prompt_version"),
+    CheckConstraint("attempts >= 1", name="attempts"),
+    CheckConstraint("input_sha256 ~ '^[0-9a-f]{64}$'", name="input_sha256"),
+    CheckConstraint(_in_list("tier", LLM_TIERS), name="tier"),
+    CheckConstraint(_in_list("mode", LLM_MODES), name="mode"),
+    CheckConstraint("billable = (mode IN ('record', 'live'))", name="billable"),
+    CheckConstraint(_in_list("outcome", LLM_OUTCOMES), name="outcome"),
+    CheckConstraint(
+        "(cost_usd IS NULL OR cost_usd >= 0) AND reserved_usd >= 0 "
+        "AND (input_tokens IS NULL OR input_tokens >= 0) "
+        "AND (output_tokens IS NULL OR output_tokens >= 0) "
+        "AND (cache_creation_input_tokens IS NULL OR cache_creation_input_tokens >= 0) "
+        "AND (cache_read_input_tokens IS NULL OR cache_read_input_tokens >= 0) "
+        "AND (latency_ms IS NULL OR latency_ms >= 0)",
+        name="nonnegative",
+    ),
+    CheckConstraint("(outcome = 'ok') = (cost_usd IS NOT NULL)", name="ok_has_cost"),
+    Index(None, "run_id"),
+    Index("ix_llm_call_billable_called_at", "called_at", postgresql_where=text("billable")),
 )

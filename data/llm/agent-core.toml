@@ -1,0 +1,26 @@
+# agent-core settings for this project. Merged over agent-core's packaged defaults, which hold the
+# model ids and prices per tier. Model ids never appear in code. AGENT_CORE_MODE overrides `mode`.
+mode = "replay"
+
+[routing]
+default_tier = "small"
+budget_usd_per_call = "0.05"          # worst case per call incl. a structured retry; also the spend reservation
+on_budget_exceeded = "raise"
+escalate_on_structured_failure = false
+
+# Task names are snake_case: agent-core refuses dots in them (prompt ids may have dots).
+[routing.tasks]
+signals_extract = "small"
+narrative_write = "mid"
+
+[routing.tiers.small]                  # restated: a table merge keeps the packaged model id
+max_tokens = 1200
+[routing.tiers.mid]
+max_tokens = 1500
+
+[replay]
+cassette_dir = "replays"               # data/llm/replays/prompts/<prompt_id>/v<n>/<key>.json
+on_secret = "refuse"
+
+[tracing]
+capture_content = false
