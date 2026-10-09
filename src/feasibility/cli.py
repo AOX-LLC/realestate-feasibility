@@ -25,7 +25,7 @@ from feasibility.llm import ledger as llm_ledger
 from feasibility.llm import render as llm_render
 from feasibility.llm import store as llm_store
 from feasibility.llm.run import ModelStageError
-from feasibility.logging import configure_logging
+from feasibility.logging import configure_logging, describe_error
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
 from feasibility.proforma import render
@@ -172,13 +172,15 @@ def source_run(
             _enqueue_sourcing(market_id, run_date)
             return
         result = run_sourcing(get_engine(), settings, market_id, run_date)
-    except (SourcingError, PackError, ValueError) as error:
-        typer.echo(f"sourcing refused: {error}", err=True)
-        raise typer.Exit(code=2) from None
     except ModelStageError as error:
         # The ranking, the estimates and the pro-formas are stored; the model stages are not done.
         typer.echo(f"run ranked, but a model stage did not finish: {error}", err=True)
         raise typer.Exit(code=1) from None
+    except (SourcingError, PackError, ValueError) as error:
+        # A validation error is summarised without the values that failed.
+        shown = describe_error(error) if isinstance(error, ValidationError) else error
+        typer.echo(f"sourcing refused: {shown}", err=True)
+        raise typer.Exit(code=2) from None
     typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")
     for name, value in result.counts.model_dump().items():
         typer.echo(f"{name} {value}")

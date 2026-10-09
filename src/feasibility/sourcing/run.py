@@ -15,7 +15,6 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
@@ -23,7 +22,7 @@ from feasibility.jobs.queue import ERROR_TEXT_LIMIT
 from feasibility.listings import sync_listings
 from feasibility.llm import run as llm_run
 from feasibility.llm.metered import ModelCaller
-from feasibility.logging import redact
+from feasibility.logging import describe_error, redact
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.proforma.run import ProformaCounts, run_proformas
@@ -233,20 +232,8 @@ def _read_and_write_up(
 def _error_message(error: Exception, settings: Settings) -> str:
     """What a failure says on the run: redacted, and cut to the length the job queue keeps (a
     database error can carry the statement and its values)."""
-    text = redact(_describe(error), settings.secret_values())
+    text = redact(describe_error(error), settings.secret_values())
     return text[:ERROR_TEXT_LIMIT]
-
-
-def _describe(error: Exception) -> str:
-    """The error as one line. A validation error is summarised without the values that failed,
-    which can be listing or comparable-sale data."""
-    if isinstance(error, ValidationError):
-        problems = "; ".join(
-            f"{'.'.join(str(part) for part in problem['loc'])}: {problem['msg']}"
-            for problem in error.errors(include_input=False, include_url=False)
-        )
-        return f"ValidationError: {error.error_count()} problems in {error.title}: {problems}"
-    return f"{type(error).__name__}: {error}"
 
 
 def _record_stage_error(

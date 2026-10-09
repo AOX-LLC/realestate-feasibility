@@ -1050,3 +1050,88 @@ def test_a_model_client_that_cannot_be_built_is_permanent(
     run = _rows(seeded, "SELECT status, error FROM sourcing_run")[0]
     assert run.status == "completed"
     assert run.error.startswith("PermanentModelError: the model client could not be built")
+
+
+# --- what a kept error text may hold -------------------------------------------------------------
+
+LEAK = "CANARYTEXT"
+
+
+def _validation_error_holding_text() -> Exception:
+    from pydantic import ValidationError
+
+    from feasibility.llm.narrative import NarrativeResult
+
+    try:
+        NarrativeResult.model_validate({"status": LEAK})
+    except ValidationError as error:
+        assert LEAK in str(error), "the premise: pydantic quotes the input it rejected"
+        return error
+    raise AssertionError("the model accepted what it should reject")
+
+
+def test_an_error_kept_on_a_run_or_a_job_does_not_quote_what_failed_validation() -> None:
+    from feasibility.jobs.worker import describe_failure
+    from feasibility.logging import describe_error
+
+    error = _validation_error_holding_text()
+
+    assert LEAK not in describe_error(error)
+    assert LEAK not in describe_failure(error, [])
+    assert describe_error(error).startswith("ValidationError: ")
+
+
+def test_a_database_error_is_kept_as_its_class_state_and_constraint_only(seeded: Engine) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    from feasibility.logging import describe_error
+
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    with pytest.raises(IntegrityError) as raised, seeded.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE candidate_narrative SET reason = 'figure_check', "
+                "result = jsonb_build_object('summary', CAST(:leak AS text)) "
+                "WHERE status = 'accepted'"
+            ),
+            {"leak": LEAK},
+        )
+
+    assert LEAK in str(raised.value), "the premise: the driver quotes the failing row"
+    kept = describe_error(raised.value)
+    assert LEAK not in kept
+    assert "SQLSTATE 23514" in kept
+    assert "ck_candidate_narrative_reason" in kept
+
+
+def test_the_command_line_does_not_print_what_failed_validation(
+    cli_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = _validation_error_holding_text()
+
+    def raising(*args: Any, **kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(cli, "run_sourcing", raising)
+
+    result = CliRunner().invoke(cli.app, ["source", "run", "--as-of", "2026-10-01"])
+
+    assert result.exit_code == 2
+    assert LEAK not in result.output
+    assert "sourcing refused: ValidationError" in result.output
+
+
+def test_a_dead_job_keeps_no_text_of_the_listings(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("feasibility.llm.run.default_model", build_model_client)
+    _queue_the_run(seeded)
+
+    Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
+
+    remarks = [
+        row[0] for row in _rows(seeded, "SELECT remarks FROM listing WHERE remarks IS NOT NULL")
+    ]
+    assert remarks
+    kept = _rows(seeded, "SELECT last_error FROM job")[0].last_error
+    assert not any(remark[:30] in kept for remark in remarks)
