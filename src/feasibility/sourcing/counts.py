@@ -53,3 +53,23 @@ class RunCounts(BaseModel):
     proformas_computed: int = 0
     proformas_no_arv: int = 0
     proformas_unsizable: int = 0
+    # The model stages (6 signals, 7 narratives). Zero on runs stored before they existed.
+    # `signals_*` and `narratives_*` count the run's candidates by what was stored for them.
+    signals_extracted: int = 0
+    signals_fields_only: int = 0
+    signals_failed: int = 0
+    signals_deferred: int = 0
+    signals_reused: int = 0
+    signals_quotes_dropped: int = 0
+    signals_suspicious: int = 0
+    narratives_accepted: int = 0
+    narratives_rejected: int = 0
+    narratives_failed: int = 0
+    narratives_deferred: int = 0
+    narratives_not_eligible: int = 0
+    narratives_reused: int = 0
+    narratives_repaired: int = 0
+    # The calls this attempt of the run made (a call a cap refused is not one) and what they
+    # cost, as a string; None when it made none. A re-run that reuses everything makes none.
+    llm_calls: int = 0
+    llm_cost_usd: str | None = None

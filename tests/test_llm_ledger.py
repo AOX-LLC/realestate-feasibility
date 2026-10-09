@@ -249,3 +249,21 @@ def test_deleting_a_run_or_candidate_keeps_the_row(engine: Engine) -> None:
     row = _row(engine, row_id)
     assert row["run_id"] is None
     assert row["candidate_id"] is None
+
+
+def test_calls_since_counts_what_one_attempt_made(engine: Engine) -> None:
+    run_id = _new_run(engine)
+    before = ledger.record_call(engine, replace(OK, run_id=run_id))
+    assert ledger.latest_call_id(engine, run_id) == before
+    assert ledger.calls_since(engine, run_id, before) == (0, None)
+
+    ledger.record_call(engine, replace(OK, run_id=run_id, cost_usd=Decimal("0.02")))
+    ledger.record_call(engine, replace(RAISED, run_id=run_id))
+    ledger.record_call(
+        engine,
+        replace(RAISED, run_id=run_id, outcome="budget_refused", reserved_usd=Decimal(0)),
+    )
+
+    # A call that raised counts at its reservation; a refused one was never sent.
+    assert ledger.calls_since(engine, run_id, before) == (2, Decimal("0.07"))
+    assert ledger.latest_call_id(engine, run_id + 1) == 0

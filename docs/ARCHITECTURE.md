@@ -387,6 +387,30 @@ Remarks are free text from a listing feed, so they are personal-data-bearing and
 
 **What redaction does not catch.** Redaction is pattern-based, not a named-entity model. A bare name with no cue word and no contact beside it ("Maria will meet you there"), spelled-out digits, letter-spaced or `-at-` style emails, homoglyph look-alikes in a cue word, lowercase brokerage names and brands with no suffix all pass. `evals/signals/answer_key.json` tags records that plant such forms `personal:residual`; the extraction eval reports them separately and does not gate on them. A real MLS feed needs a review of its remarks before it is ingested.
 
+## Signals and narratives in the run (stages 6 and 7)
+
+`sourcing/run.py` runs two more stages after the pro-formas, both in `llm/run.py`. They read what the run stored and write only `candidate_signals`, `candidate_narrative`, the cache `llm_result`, the ledger `llm_call` and the run's counts, so they cannot change the ranking, the estimates or the pro-formas (a test compares those rows byte for byte after a failed stage).
+
+- **Stage 6, signals.** For every ranked candidate in rank order: the three field signals from the run's diff row and the listing's dates (code); then, if the primary listing has remarks and a model is configured, the extraction (cache, else one call), verified quote by quote. One `candidate_signals` row per candidate, committed as it is made.
+- **Stage 7, narratives.** For every ranked candidate whose pro-forma was computed: the facts sheet built by code, then the narrative (cache, else one call and at most one repair), checked figure by figure. The others get a `not_eligible` row. A failed stage 6 means stage 7 does not run.
+- **No call inside a transaction.** A stage reads its inputs in one short read, then calls the model with no connection open for it; the metered client writes its ledger rows on their own connections, and each result is stored in its own short transaction, serialised with the market's other runs. A stage also holds a session-level advisory lock (`llm_spend:<market>`) so a retry that overlaps its predecessor cannot spend against the same caps twice.
+- **Cache.** `llm_result` is keyed by prompt, prompt version, tier and the hash of the inputs (not run-scoped). A signals entry holds the verified signals, the dropped claims and the model's flag, plus a fingerprint of the injection scan it was verified against (remarks that differ only in angle brackets send the same text but scan differently, so they are a miss). A narrative entry holds the whole `NarrativeResult`; a rejected one is cached too, so a retry does not spend again. Failed and deferred results are never cached.
+- **Caps.** The metered client refuses a call when the run's spend (every attempt of the run, from the ledger) plus the reservation would pass `LLM_RUN_BUDGET_USD`, or, for billable calls, the month's would pass `LLM_MONTHLY_BUDGET_USD`. A refused candidate, and every later one not in the cache, is `deferred` / `budget`; a stage that hits a cap ends normally.
+
+| What happens | Candidate | Rest of the stage | Run |
+| --- | --- | --- | --- |
+| Cap refuses a call | `deferred` / `budget` | not-cached candidates `deferred` / `budget` | completed, no error |
+| Structured-output error, model refusal, a call over the per-call budget | `failed` | goes on | completed, no error |
+| Provider error (429, 5xx) | `failed` / `provider_error` | not-cached candidates `deferred` / `provider_error` | completed, error set, `RetryableModelError`, the job retries and reuses everything cached |
+| Missing, stale or malformed recording; model misconfigured | no row | stops | completed, error set, `PermanentModelError`, the job goes straight to `dead` |
+| Live data and no model configured | `fields_only` / `llm_not_configured`; narrative `deferred` | goes on | completed, no error |
+
+What a failure says is built from the error's class and never from its text, so nothing a listing, the model or the provider said reaches `sourcing_run.error`, a job's `last_error` or a log line.
+
+**Until the recordings are committed**, a mock-mode run replays nothing, so its first call raises a replay miss and the run ends as the table's fourth row says: ranking, estimates and pro-formas stored, the run `completed` with the error set, signals and narratives empty. The recording session (Phase 4 job G) removes this.
+
+`candidate_signals.result` is `SignalsResult` and `candidate_narrative.result` is `NarrativeResult` (both in `llm/results.py` and `llm/narrative.py`). `RemarksInfo.removed_invisible_count` is the number of `[invisible characters removed]` markers in the stored remarks, because only the stored text is kept after ingestion.
+
 ## Where agent-core attaches (phase 4)
 
 agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in this repository imports it today.
@@ -459,6 +483,9 @@ Pre-commit runs gitleaks and ruff.
 - **The property tax rate is for Dallas ISD addresses inside the city.** Richardson ISD and other districts differ. Only the City of Dallas component was read from an official page.
 - **Live `/avm/value` has never been called.** Whether comps' `listingType` values match the sale types, how often there are three or more sale comps, and whether an estimate of a vacant lot returns comps are unverified.
 - **Estimates are used for up to 30 days** (reused for `ttl_days`); a market move inside that window is not seen. A ranked candidate below the top N has no estimate by design and shows `no_arv`. On day 2 of the snapshot six candidates compute, not five: the sixth-ranked one still has day 1's estimate.
+- **The model results have no retention or deletion path.** `llm_result` keeps verified remarks quotes and accepted narratives by input hash, indefinitely, and re-serves them for identical inputs; `candidate_signals` and `candidate_narrative` grow by a run's rows and are never pruned; `llm_call` is spend and is kept. A quote is redacted listing text, so a future retention or deletion rule must cover `llm_result` as well as the run tables. `llm_result.llm_call_id` has no index, so deleting a ledger row scans the cache (not measured; deletes are rare).
+- **A rejected narrative is cached as rejected and is not re-checked on reuse**, because its draft text is deliberately not kept; an accepted one is checked again by the current figure check before it is reused, and a cached signal is verified again by the current verifier.
+- **A 400-class provider error fails its candidate once and is not retried by the job**; a 429 or a 5xx defers the rest of the stage and retries the job.
 - **Retention is undecided for `proforma` and `candidate_estimate`**, like the other run tables. A comp's address is stored twice, in `candidate_estimate.comps` and in `proforma.result`, so any future retention or deletion path must cover both. The API serves the full result with the comparables' addresses left out; the `proforma show` command, which is local, prints them.
 - **A GIS group means more in the pro-forma than in the ranking.** The pro-forma adds up every account on the GIS parcel in the zip; the ranking's aggregate uses only the accounts matched at the listing's street address. On a parcel with two situs addresses the two can differ.
 - **Only the price comes from the run itself.** Lot size, property type and year built come from the listing's current row and the parcel from the current table; a parcel import or a later sync between the build and the pro-forma stage can change them. An out-of-order re-run is refused, which keeps that window small.

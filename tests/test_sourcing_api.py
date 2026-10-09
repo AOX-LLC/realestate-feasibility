@@ -228,7 +228,8 @@ def test_every_route_is_get_only(engine: Engine) -> None:
     sourcing = [
         path
         for path in paths
-        if path.startswith("/sourcing") and not path.endswith(("/proformas", "/proforma"))
+        if path.startswith("/sourcing")
+        and not path.endswith(("/proformas", "/proforma", "/narratives", "/llm", "/llm/cost"))
     ]
 
     assert len(sourcing) == 4

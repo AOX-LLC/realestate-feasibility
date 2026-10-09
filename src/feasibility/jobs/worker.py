@@ -12,7 +12,7 @@ from sqlalchemy import Engine
 from feasibility.config import Settings
 from feasibility.jobs import queue
 from feasibility.jobs.handlers import PERMANENT_ERRORS, JobContext, Registry, lookup
-from feasibility.logging import redact
+from feasibility.logging import describe_error, redact
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def run_job(job: queue.ClaimedJob, registry: Registry, context: JobContext) -> N
 
 
 def describe_failure(error: Exception, secrets: list[str]) -> str:
-    return redact(f"{type(error).__name__}: {error}", secrets)
+    return redact(describe_error(error), secrets)
 
 
 class Worker:

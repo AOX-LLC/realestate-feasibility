@@ -23,7 +23,7 @@ PERSONAL_DATA_COLUMN = re.compile(r"owner|mail|phone|email|agent|office|taxpayer
 
 def test_migrations_reach_head(migrated_engine: Engine) -> None:
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0006"
+        assert current_schema_version(connection) == "0007"
 
 
 def test_table_definitions_match_the_migrations(migrated_engine: Engine) -> None:
@@ -58,13 +58,16 @@ def test_downgrade_to_0001_and_back_to_head(migrated_engine: Engine) -> None:
             "candidate_estimate",
             "proforma",
             "llm_call",
+            "llm_result",
+            "candidate_signals",
+            "candidate_narrative",
         }.isdisjoint(tables)
         assert "unit" not in {c["name"] for c in inspect(connection).get_columns("listing")}
 
     upgrade_to_head(migrated_engine)
 
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0006"
+        assert current_schema_version(connection) == "0007"
         assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 

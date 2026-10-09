@@ -158,3 +158,24 @@ def billable_spend_in_month(engine: Engine, now: datetime) -> Decimal:
     )
     with engine.connect() as connection:
         return Decimal(connection.execute(query).scalar_one())
+
+
+def latest_call_id(engine: Engine, run_id: int) -> int:
+    """The newest ledger row of the run, 0 when it has none: the point from which `calls_since`
+    counts what one attempt of the run did."""
+    query = select(func.coalesce(func.max(llm_call.c.id), 0)).where(llm_call.c.run_id == run_id)
+    with engine.connect() as connection:
+        return int(connection.execute(query).scalar_one())
+
+
+def calls_since(engine: Engine, run_id: int, after_id: int) -> tuple[int, Decimal | None]:
+    """The calls the run made after ledger row `after_id`, and what they cost (a call that raised
+    counts at its reservation). A call a cap refused was never sent and is not counted. None for
+    the cost when there were no calls."""
+    query = select(
+        func.count().filter(llm_call.c.outcome != "budget_refused"),
+        func.sum(_SPEND),
+    ).where(llm_call.c.run_id == run_id, llm_call.c.id > after_id)
+    with engine.connect() as connection:
+        calls, cost = connection.execute(query).one()
+    return int(calls), (None if not calls else Decimal(cost))

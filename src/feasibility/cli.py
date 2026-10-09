@@ -5,7 +5,7 @@ import dataclasses
 import json
 import signal
 import threading
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import FrameType
@@ -21,7 +21,11 @@ from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
 from feasibility.jobs.worker import Worker
-from feasibility.logging import configure_logging
+from feasibility.llm import ledger as llm_ledger
+from feasibility.llm import render as llm_render
+from feasibility.llm import store as llm_store
+from feasibility.llm.run import ModelStageError
+from feasibility.logging import configure_logging, describe_error
 from feasibility.markets.loader import PackError, get_pack, load_pack, pack_paths
 from feasibility.markets.schema import FileKind
 from feasibility.proforma import render
@@ -43,6 +47,8 @@ source_app = typer.Typer(no_args_is_help=True, help="Daily sourcing: run it, rea
 app.add_typer(source_app, name="source")
 proforma_app = typer.Typer(no_args_is_help=True, help="Pro-formas of a run (read-only).")
 app.add_typer(proforma_app, name="proforma")
+llm_app = typer.Typer(no_args_is_help=True, help="Model results and their cost (read-only).")
+app.add_typer(llm_app, name="llm")
 eval_app = typer.Typer(no_args_is_help=True, help="Model evals: replay by default, no live calls.")
 app.add_typer(eval_app, name="eval")
 
@@ -166,8 +172,14 @@ def source_run(
             _enqueue_sourcing(market_id, run_date)
             return
         result = run_sourcing(get_engine(), settings, market_id, run_date)
+    except ModelStageError as error:
+        # The ranking, the estimates and the pro-formas are stored; the model stages are not done.
+        typer.echo(f"run ranked, but a model stage did not finish: {error}", err=True)
+        raise typer.Exit(code=1) from None
     except (SourcingError, PackError, ValueError) as error:
-        typer.echo(f"sourcing refused: {error}", err=True)
+        # A validation error is summarised without the values that failed.
+        shown = describe_error(error) if isinstance(error, ValidationError) else error
+        typer.echo(f"sourcing refused: {shown}", err=True)
         raise typer.Exit(code=2) from None
     typer.echo(f"run {result.run_id} for {result.as_of}, sync {result.sync_status}")
     for name, value in result.counts.model_dump().items():
@@ -295,6 +307,58 @@ def proforma_show(
         raise typer.Exit(code=1) from None
     typer.echo(f"run {shown_run}")
     for line in lines:
+        typer.echo(line)
+
+
+@llm_app.command("show")
+def llm_show(
+    candidate_id: Annotated[int, typer.Argument(min=1, help="The candidate's id")],
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+) -> None:
+    """Print one candidate's signals and risk narrative in a run (read-only)."""
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        if not llm_store.candidate_in_run(connection, shown_run, candidate_id):
+            typer.echo(f"candidate {candidate_id} is not in run {shown_run}", err=True)
+            raise typer.Exit(code=2)
+        signals = llm_store.read_signals(connection, shown_run, candidate_id)
+        narrative = llm_store.read_narrative(connection, shown_run, candidate_id)
+    typer.echo(f"run {shown_run}, candidate {candidate_id}")
+    for line in [*llm_render.signals_lines(signals), *llm_render.narrative_lines(narrative)]:
+        typer.echo(line)
+
+
+@llm_app.command("cost")
+def llm_cost(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    month: Annotated[
+        str | None,
+        typer.Option(help="YYYY-MM: the billable spend of that UTC month instead of a run's"),
+    ] = None,
+) -> None:
+    """Print what a run's model calls cost, or, with --month, what a month's billable calls cost
+    against the monthly budget (read-only)."""
+    settings = get_settings()
+    if month is not None:
+        try:
+            moment = datetime.strptime(month, "%Y-%m").replace(tzinfo=UTC)
+            if not 1970 <= moment.year <= 2199:
+                raise ValueError(month)
+        except ValueError:
+            raise typer.BadParameter("month must look like 2026-10") from None
+        start, end = llm_ledger.month_bounds(moment)
+        with get_engine().connect() as connection:
+            spend = llm_store.month_spend(connection, start, end)
+        for line in llm_render.month_lines(month, spend, settings.llm_monthly_budget_usd):
+            typer.echo(line)
+        if run_id is None:
+            return
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        cost = llm_store.run_cost(connection, shown_run)
+    for line in llm_render.cost_lines(shown_run, cost, settings.llm_run_budget_usd):
         typer.echo(line)
 
 

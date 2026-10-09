@@ -12,16 +12,17 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.jobs.queue import ERROR_TEXT_LIMIT
 from feasibility.listings import sync_listings
-from feasibility.logging import redact
+from feasibility.llm import run as llm_run
+from feasibility.llm.metered import ModelCaller
+from feasibility.logging import describe_error, redact
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.proforma.run import ProformaCounts, run_proformas
@@ -116,21 +117,23 @@ def run_sourcing(
     as_of: date | None,
     *,
     client: RentCastClient | None = None,
+    model: ModelCaller | None = None,
 ) -> SourcingResult:
     """Source one day. A failure in the sync or the build marks the run failed and propagates.
-    A failure after the build (the estimate spend, the pro-formas) leaves the ranked run
-    completed with its error recorded, and also propagates."""
+    A failure after the build (the estimate spend, the pro-formas, the signals and narratives)
+    leaves the ranked run completed with its error recorded, and also propagates. `model` is the
+    client the model stages call; by default the library's, in the settings' mode."""
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
     run_id = _start_run(engine, market, run_date)
     if client is not None:
-        return _source(engine, settings, pack, run_id, run_date, client)
+        return _source(engine, settings, pack, run_id, run_date, client, model)
     # The response cache would answer a later snapshot day with the earlier day's body.
     own_client = RentCastClient.from_settings(
         engine, settings, use_cache=settings.is_live, snapshot_day=overlay
     )
     try:
-        return _source(engine, settings, pack, run_id, run_date, own_client)
+        return _source(engine, settings, pack, run_id, run_date, own_client, model)
     finally:
         own_client.close()
 
@@ -142,8 +145,10 @@ def _source(
     run_id: int,
     run_date: date,
     client: RentCastClient,
+    model: ModelCaller | None,
 ) -> SourcingResult:
     """The run's stages after it has started, in the order of docs/ARCHITECTURE.md."""
+    attempt = llm_run.current_attempt(engine, run_id)
     try:
         sync_status = _sync(engine, settings, pack, run_id, run_date, client)
         with engine.begin() as connection:
@@ -159,7 +164,8 @@ def _source(
     # place, records its error on the run and propagates so the job retries.
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
     proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
-    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts)}
+    model_counts = _read_and_write_up(engine, settings, pack, run_id, run_date, model, attempt)
+    late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **model_counts}
     return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
 
@@ -199,31 +205,50 @@ def _price_proformas(
         raise
 
 
+def _read_and_write_up(
+    engine: Engine,
+    settings: Settings,
+    pack: MarketPack,
+    run_id: int,
+    run_date: date,
+    model: ModelCaller | None,
+    attempt: datetime,
+) -> dict[str, Any]:
+    """Stages 6 and 7, the signals of every ranked candidate and then its risk narrative. A
+    failure leaves the ranked run, its estimates and its pro-formas in place, like a failed
+    spend, and propagates; a failed stage 6 means stage 7 does not run."""
+    try:
+        client = llm_run.open_client(engine, settings, run_id, model)
+        context = llm_run.stage_context(engine, pack, run_id, run_date, client, attempt)
+        signal_counts = llm_run.run_signals(context, pack)
+        narrative_counts = llm_run.run_narratives(context)
+    except Exception as error:
+        _record_stage_error(engine, settings, run_id, error, attempt)
+        raise
+    # The second stage's call and cost totals already include the first's.
+    return {**signal_counts, **narrative_counts}
+
+
 def _error_message(error: Exception, settings: Settings) -> str:
     """What a failure says on the run: redacted, and cut to the length the job queue keeps (a
     database error can carry the statement and its values)."""
-    text = redact(_describe(error), settings.secret_values())
+    text = redact(describe_error(error), settings.secret_values())
     return text[:ERROR_TEXT_LIMIT]
 
 
-def _describe(error: Exception) -> str:
-    """The error as one line. A validation error is summarised without the values that failed,
-    which can be listing or comparable-sale data."""
-    if isinstance(error, ValidationError):
-        problems = "; ".join(
-            f"{'.'.join(str(part) for part in problem['loc'])}: {problem['msg']}"
-            for problem in error.errors(include_input=False, include_url=False)
-        )
-        return f"ValidationError: {error.error_count()} problems in {error.title}: {problems}"
-    return f"{type(error).__name__}: {error}"
-
-
-def _record_stage_error(engine: Engine, settings: Settings, run_id: int, error: Exception) -> None:
-    """Note on the completed run that a stage after the build failed (redacted)."""
+def _record_stage_error(
+    engine: Engine,
+    settings: Settings,
+    run_id: int,
+    error: Exception,
+    attempt: datetime | None = None,
+) -> None:
+    """Note on the completed run that a stage after the build failed (redacted). Given the
+    attempt's marker, a run that a newer attempt has rebuilt keeps its own message."""
     message = _error_message(error, settings)
     try:
         with engine.begin() as connection:
-            store.set_run_error(connection, run_id, message)
+            store.set_run_error(connection, run_id, message, attempt)
     except Exception:
         # The stage's own failure must propagate, not this one.
         log.exception("could not record the error of run %s", run_id)

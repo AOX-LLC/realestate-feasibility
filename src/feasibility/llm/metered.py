@@ -146,6 +146,10 @@ class MeteredClient:
         self._run_id = run_id
         self._last_call_id: int | None = None
 
+    def tier_for(self, task: str) -> Tier:
+        """The tier a task routes to: what a call for it would be priced and cached under."""
+        return self._config.routing.tier_for_task(task)
+
     @property
     def last_call_id(self) -> int | None:
         """The ledger row of the most recent call (a refused one included), or None before the
