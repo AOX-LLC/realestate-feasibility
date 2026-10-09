@@ -6,13 +6,13 @@ The thesis: **LLM for judgment, code for math.** The model reads listing text an
 
 ## Status
 
-Phases 1 (foundation) and 2 (sourcing and scoring) exist today.
+Phases 1 (foundation), 2 (sourcing and scoring) and 3 (the pro-forma) exist today.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Schema, job queue, source adapters (county appraisal CSV, RentCast, MLS stub), mock and live modes, synthetic snapshot, market packs, read-only API, Docker Compose | Built |
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
-| 3 | Pro-forma engine | Not started |
+| 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives | Not started |
 | 5 | Delivery: the morning brief, scheduling | Not started |
 | 6 | Evals | Not started |
@@ -115,7 +115,7 @@ docker compose run --rm migrate feasibility source show --status unscored
 
 - `feasibility source run [--market dallas] [--as-of YYYY-MM-DD] [--enqueue]` runs inline and prints the counts (including how many value estimates were called, reused and deferred) and the top 10; `--enqueue` queues a `sourcing.run` job for the worker instead. Live mode sources for today only. A run for an earlier date than any run already started is refused (exit code 2); running the same date again rewrites that run only.
 - `feasibility source show [--run-id N] [--status ranked|filtered|unscored] [--limit 20]` prints a stored run.
-- A run costs one RentCast call in live mode (zero when the response is cached) and none in mock mode.
+- In live mode a run costs one RentCast call for the listing sync (zero when the response is cached) plus up to five value estimates for the top candidates (see the budget math above); in mock mode it costs none. After ranking and pricing it computes a [pro-forma](#pro-forma) for every ranked candidate.
 
 Read-only API:
 
@@ -125,6 +125,31 @@ Read-only API:
 | `GET /sourcing/runs/{run_id}` | One run |
 | `GET /sourcing/runs/{run_id}/candidates?status=ranked\|filtered\|unscored` | A run's candidates (ranked by rank; the others by candidate id) |
 | `GET /sourcing/runs/{run_id}/candidates/{candidate_id}` | One candidate with its score breakdown, the listings the run saw for it and its newest value estimate (price, range and comp counts) bought on or before the run's date, or `null` |
+
+## Pro-forma
+
+Every ranked candidate gets a pro-forma, computed in code from its parcel, its price in that run and the value estimate bought for it. Every figure is `Decimal` arithmetic checked against a reference spreadsheet (`docs/proforma-reference.xlsx`). **Every Dallas cost value is illustrative**: a labelled default, not a quote or a builder's actuals (sources in [docs/proforma-assumptions.md](docs/proforma-assumptions.md)). How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#pro-forma).
+
+A pro-forma has one of three statuses:
+
+- `computed`: ARV, total cost, profit, margin (profit over ARV), ROI, annualized return, the most you can pay and still earn the 15% target, and a 60-cell sensitivity grid (ARV, hard cost, hold months).
+- `no_arv`: there is no usable value estimate (`no_estimate_yet` outside the top 5, `estimate_unavailable`, `estimate_expired`, `too_few_comps`), so only the costs that need no ARV are shown. Nothing stands in for a missing ARV.
+- `unsizable`: no lot size, so there is nothing to build on.
+
+```bash
+docker compose run --rm migrate feasibility proforma list --status computed
+docker compose run --rm migrate feasibility proforma show 4 --sensitivity
+```
+
+- `feasibility proforma list [--market dallas] [--run-id N] [--status computed|no_arv|unsizable] [--limit 20]` prints a run's pro-formas in rank order (the latest completed run by default).
+- `feasibility proforma show CANDIDATE_ID [--market] [--run-id N] [--sensitivity]` prints one pro-forma section by section; `--sensitivity` adds the grid as three 5x4 blocks, one per hold. Both are read-only and exit with code 2 and a message when the run or candidate does not exist.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /sourcing/runs/{run_id}/proformas?status=computed\|no_arv\|unsizable` | A run's pro-formas in rank order: candidate, rank, address, status, reason, flags, offer price, ARV, total cost, profit, margin, ROI, annualized return and maximum offer. Money and ratios are decimal strings (0.1964 is 19.64%) |
+| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}/proforma` | One pro-forma with its full result: every assumption, input and line |
+
+On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two are marginal, one loses money) and day 2 six. A run costs the same RentCast calls as before: the pro-formas add none. In live mode a day is at most one listing sync plus up to five value estimates; in mock mode the estimates come from the snapshot and no budget is touched.
 
 ## Importing real DCAD data
 
@@ -159,6 +184,8 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `enqueue <kind> --payload <json>` | Queue a job; `--dedupe-key` skips it if one is active |
 | `import-cad <archive>` | Import a county appraisal archive (`--kind`, `--roll-year`, `--file-date`, `--force`, `--market`) |
 | `market validate [files]` | Validate market pack files (all packs by default) |
+| `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
+| `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
 Job kinds in phase 1: `cad.import` and `listings.sync`.
