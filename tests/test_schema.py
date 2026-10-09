@@ -4,7 +4,7 @@ import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Engine, insert, inspect
+from sqlalchemy import Connection, Engine, insert, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from feasibility.db import alembic_config, current_schema_version, upgrade_to_head
@@ -209,3 +209,83 @@ def test_downgrade_to_0002_drops_the_match_columns_and_upgrades_again(
         columns = {c["name"] for c in inspect(connection).get_columns("run_listing")}
         assert match_columns <= columns
         assert compare_metadata(MigrationContext.configure(connection), metadata) == []
+
+
+DRIFT_SCHEMA = "drift_check"
+CHECK_DEFINITIONS = text(
+    """
+    SELECT c.conrelid::regclass::text AS table_name, c.conname AS name,
+           pg_get_constraintdef(c.oid) AS definition
+    FROM pg_constraint c
+    WHERE c.contype = 'c' AND c.connamespace = CAST(:schema AS regnamespace)
+    ORDER BY 1, 2
+    """
+)
+
+
+def _check_definitions(connection: Connection, schema: str) -> dict[tuple[str, str], str]:
+    """Every check constraint of a schema as (table, name) -> the definition Postgres prints."""
+    rows = connection.execute(CHECK_DEFINITIONS, {"schema": schema})
+    return {(row.table_name.removeprefix(f"{schema}."), row.name): row.definition for row in rows}
+
+
+def _differences(connection: Connection) -> dict[str, list[tuple[str, str]]]:
+    """The check constraints of the migrated schema against those `tables.py` would create.
+
+    `compare_metadata` does not look at check constraints at all, so the second schema is built
+    from the table definitions into a scratch schema and Postgres's own printing of each
+    constraint is compared: that covers the name and the expression, however it is spelled. The
+    scratch schema is dropped again before this returns; the caller owns the transaction."""
+    connection.execute(text(f"DROP SCHEMA IF EXISTS {DRIFT_SCHEMA} CASCADE"))
+    connection.execute(text(f"CREATE SCHEMA {DRIFT_SCHEMA}"))
+    metadata.create_all(connection.execution_options(schema_translate_map={None: DRIFT_SCHEMA}))
+    migrated = _check_definitions(connection, "public")
+    defined = _check_definitions(connection, DRIFT_SCHEMA)
+    connection.execute(text(f"DROP SCHEMA {DRIFT_SCHEMA} CASCADE"))
+    return {
+        "only_in_migrations": sorted(set(migrated) - set(defined)),
+        "only_in_tables": sorted(set(defined) - set(migrated)),
+        "different": sorted(
+            key for key in set(migrated) & set(defined) if migrated[key] != defined[key]
+        ),
+    }
+
+
+def test_check_constraints_match_the_table_definitions(migrated_engine: Engine) -> None:
+    with migrated_engine.begin() as connection:
+        differences = _differences(connection)
+        assert len(_check_definitions(connection, "public")) > 40
+
+    assert differences == {"only_in_migrations": [], "only_in_tables": [], "different": []}
+
+
+def test_the_check_comparison_sees_a_renamed_a_dropped_and_a_changed_constraint(
+    migrated_engine: Engine,
+) -> None:
+    """Proof that the comparison can fail: damage three constraints inside a transaction that is
+    rolled back, and expect all three reported."""
+    with migrated_engine.connect() as connection:
+        damage = connection.begin()
+        connection.execute(text("ALTER TABLE job RENAME CONSTRAINT ck_job_status TO ck_job_state"))
+        connection.execute(
+            text("ALTER TABLE sourcing_run DROP CONSTRAINT ck_sourcing_run_sync_status")
+        )
+        connection.execute(text("ALTER TABLE proforma DROP CONSTRAINT ck_proforma_status"))
+        connection.execute(
+            text("ALTER TABLE proforma ADD CONSTRAINT ck_proforma_status CHECK (status <> '')")
+        )
+        differences = _differences(connection)
+        damage.rollback()
+
+    assert differences["only_in_migrations"] == [("job", "ck_job_state")]
+    assert differences["only_in_tables"] == [
+        ("job", "ck_job_status"),
+        ("sourcing_run", "ck_sourcing_run_sync_status"),
+    ]
+    assert differences["different"] == [("proforma", "ck_proforma_status")]
+    with migrated_engine.begin() as connection:
+        assert _differences(connection) == {
+            "only_in_migrations": [],
+            "only_in_tables": [],
+            "different": [],
+        }
