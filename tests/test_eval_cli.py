@@ -185,3 +185,35 @@ def test_live_data_mode_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 2
     assert "DATA_MODE=mock" in result.output
+
+
+def _record_settings() -> Settings:
+    return Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        data_mode=DataMode.MOCK,
+        AGENT_CORE_MODE="record",
+        AGENT_CORE_ANTHROPIC_API_KEY="a-test-key-never-used",
+    )
+
+
+def test_a_billable_mode_is_refused_without_allow_spend_and_nothing_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "get_settings", _record_settings)
+
+    def must_not_build(*_: Any) -> None:
+        raise AssertionError("a client was built")
+
+    monkeypatch.setattr(eval_client, "build_eval_client", must_not_build)
+
+    result = invoke()
+
+    assert result.exit_code == 2
+    assert "AGENT_CORE_MODE=record would spend money" in result.output
+    assert "model mode: record" in result.output
+
+
+def test_the_mode_is_always_stated(monkeypatch: pytest.MonkeyPatch) -> None:
+    result = invoke()
+
+    assert "model mode: replay" in result.output

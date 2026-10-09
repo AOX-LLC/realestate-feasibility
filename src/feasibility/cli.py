@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import Connection
 
 from feasibility.api.app import create_app
-from feasibility.config import REPO_ROOT, get_settings
+from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.jobs.handlers import SourcingRunPayload, build_registry, enqueue_job
 from feasibility.jobs.worker import Worker
@@ -353,6 +353,9 @@ def eval_signals(
     max_usd: Annotated[float, typer.Option(min=0, help="Spend cap for the session")] = 1.0,
     min_precision: Annotated[float | None, typer.Option(min=0, max=1)] = None,
     min_recall: Annotated[float | None, typer.Option(min=0, max=1)] = None,
+    allow_spend: Annotated[
+        bool, typer.Option("--allow-spend", help="Needed for record or live mode: it costs money")
+    ] = False,
 ) -> None:
     """Run the extraction eval. Replay mode needs recordings: a missing one fails the run."""
     # Imported here so the other commands do not load the model library.
@@ -365,6 +368,7 @@ def eval_signals(
             "evals use the committed synthetic records: run them with DATA_MODE=mock", err=True
         )
         raise typer.Exit(code=2)
+    _refuse_unannounced_spend(settings, allow_spend)
     try:
         signals_eval.splits_for(split)
     except ValueError as error:
@@ -407,6 +411,9 @@ def eval_narrative(
     out: Annotated[Path | None, typer.Option(help="Write scorecard files here")] = None,
     max_usd: Annotated[float, typer.Option(min=0, help="Spend cap for the session")] = 1.0,
     min_acceptance: Annotated[float | None, typer.Option(min=0, max=1)] = None,
+    allow_spend: Annotated[
+        bool, typer.Option("--allow-spend", help="Needed for record or live mode: it costs money")
+    ] = False,
 ) -> None:
     """Run the narrative eval. Replay mode needs recordings: a missing one fails the run."""
     from feasibility.evals import narrative as narrative_eval
@@ -418,6 +425,7 @@ def eval_narrative(
             "evals use the committed synthetic cases: run them with DATA_MODE=mock", err=True
         )
         raise typer.Exit(code=2)
+    _refuse_unannounced_spend(settings, allow_spend)
     session = build_eval_client(settings, Decimal(str(max_usd)))
     report = asyncio.run(
         narrative_eval.run_narrative_eval(
@@ -440,3 +448,16 @@ def eval_narrative(
         typer.echo(problem, err=True)
     if problems:
         raise typer.Exit(code=1)
+
+
+def _refuse_unannounced_spend(settings: Settings, allow_spend: bool) -> None:
+    """Say which model mode an eval runs in, and refuse a mode that costs money unless the
+    command line asked for it: the mode can come from the environment or a .env file."""
+    typer.echo(f"model mode: {settings.llm_mode.value}", err=True)
+    if settings.llm_mode.is_billable and not allow_spend:
+        typer.echo(
+            f"AGENT_CORE_MODE={settings.llm_mode.value} would spend money; "
+            "add --allow-spend to run it",
+            err=True,
+        )
+        raise typer.Exit(code=2)
