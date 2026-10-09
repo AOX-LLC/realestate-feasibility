@@ -137,11 +137,14 @@ def remarks_source_for(settings: Settings, market: str) -> RemarksSource:
 
 def attach_remarks(batch: ListingBatch, source: RemarksSource) -> ListingBatch:
     """The batch with each listing's remarks set from the source, matched on the feed's own
-    `mlsNumber`. A listing the source has nothing for keeps the remarks it came with."""
+    `mlsNumber`, and None where the source has nothing.
+
+    This is where the choke point is enforced: whatever remarks an adapter put on a listing
+    itself are replaced, so text that did not come through `ingest_remarks` cannot be stored."""
     listings = []
     for listing in batch.listings:
         found = source.remarks_for(listing.raw.get("mlsNumber"))
         listings.append(
-            listing if found is None else listing.model_copy(update={"remarks": found.text})
+            listing.model_copy(update={"remarks": None if found is None else found.text})
         )
     return ListingBatch(listings, batch.stale)

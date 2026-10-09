@@ -275,7 +275,7 @@ def _listing(external_id: str, mls_number: str | None, remarks: str | None = Non
     )
 
 
-def test_attach_sets_remarks_by_mls_number_and_leaves_the_rest(tmp_path: Path) -> None:
+def test_attach_sets_remarks_by_mls_number_and_clears_the_rest(tmp_path: Path) -> None:
     source = SnapshotRemarksSource(_write(tmp_path, [RECORD]))
     batch = ListingBatch(
         [
@@ -293,7 +293,7 @@ def test_attach_sets_remarks_by_mls_number_and_leaves_the_rest(tmp_path: Path) -
         f"Builder special! {REMOVED} - sold as-is.",
         None,
         None,
-        "kept as it came",
+        None,
     ]
     assert attached.stale is True
     # The source record is never merged into the listing's raw payload.
@@ -301,7 +301,12 @@ def test_attach_sets_remarks_by_mls_number_and_leaves_the_rest(tmp_path: Path) -
     assert batch.listings[0].remarks is None
 
 
-def test_attach_with_no_source_changes_nothing() -> None:
-    batch = ListingBatch([_listing("a", "SYN000001")])
+def test_attach_discards_remarks_an_adapter_set_itself() -> None:
+    """Text that did not come through ingest_remarks must not be stored, whatever the adapter
+    that built the listing did."""
+    unredacted = "Call Dana Whitfield 214-555-0187"
+    batch = ListingBatch([_listing("a", "SYN000001", remarks=unredacted)])
 
-    assert attach_remarks(batch, NoRemarksSource()) == batch
+    attached = attach_remarks(batch, NoRemarksSource())
+
+    assert attached.listings[0].remarks is None

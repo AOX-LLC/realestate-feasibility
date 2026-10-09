@@ -15,10 +15,12 @@ replicated feed) and maps them onto domain.Listing:
     LivingArea            living_area_sqft
     YearBuilt             year_built
     ListingContractDate   listed_date
-    PublicRemarks         remarks: the listing text the LLM layer reads
+    PublicRemarks         remarks: the listing text the LLM layer reads, through
+                          sources.mls.reso.ingest_remarks only (it redacts personal data)
 
 Agent and office fields (ListAgent*, ListOffice*) and any private remarks are
-never mapped, matching the personal-data rule for every other source.
+never mapped, matching the personal-data rule for every other source. Remarks reach a
+listing only through reso.attach_remarks, which discards any text set on the listing itself.
 """
 
 from feasibility.sources.base import ListingBatch, ListingQuery, NotConfiguredError
