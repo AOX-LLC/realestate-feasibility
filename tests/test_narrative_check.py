@@ -117,9 +117,21 @@ REJECTED = [
         "ARV $1,420,799.85 or $420,799.85.",
         [("unlisted_figure", "$420,799.85")],
     ),
-    ("spaced_k", "Profit is $107,560.14 k.", [("unlisted_figure", "$107,560.14")]),
-    ("spaced_m", "An ARV of $1,420,799.85 M.", [("unlisted_figure", "$1,420,799.85")]),
-    ("spaced_mm", "A cost of $1,313,239.71 mm.", [("unlisted_figure", "$1,313,239.71")]),
+    (
+        "spaced_k",
+        "Profit is $107,560.14 k.",
+        [("unlisted_figure", "$107,560.14"), ("spelled_number", "k")],
+    ),
+    (
+        "spaced_m",
+        "An ARV of $1,420,799.85 M.",
+        [("unlisted_figure", "$1,420,799.85"), ("spelled_number", "m")],
+    ),
+    (
+        "spaced_mm",
+        "A cost of $1,313,239.71 mm.",
+        [("unlisted_figure", "$1,313,239.71"), ("spelled_number", "mm")],
+    ),
     ("money_as_percent", "A $420,000.00% offer.", [("unlisted_figure", "$420,000.00%")]),
     ("area_as_money", "A $3,168 sq ft home.", [("unlisted_figure", "$3,168")]),
     ("percent_inside_longer", "A 17.57% margin.", [("unlisted_figure", "17.57%")]),
@@ -395,3 +407,20 @@ def test_the_attack_file_stays_ascii() -> None:
     data = (Path(__file__).parent / "narrative_attacks.py").read_bytes()
 
     assert all(byte < 128 for byte in data)
+
+
+def test_every_attack_from_the_gatekeeper_review_is_rejected() -> None:
+    from narrative_attacks import REVIEW_ATTACKS
+
+    accepted = [name for name, text in REVIEW_ATTACKS if check_narrative(draft(text), FACTS).passed]
+
+    assert len(REVIEW_ATTACKS) >= 60
+    assert accepted == []
+
+
+def test_plain_words_that_contain_a_number_word_still_pass() -> None:
+    from narrative_attacks import REVIEW_DECOYS
+
+    rejected = [(n, kinds(draft(t))) for n, t in REVIEW_DECOYS if kinds(draft(t)) != []]
+
+    assert rejected == []

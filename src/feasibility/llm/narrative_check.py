@@ -100,13 +100,119 @@ _SIGNS = frozenset("-+") | {chr(0x2212), chr(0x2013), chr(0x2014)}
 _MASK = chr(0x2588)
 _TOKEN_PUNCTUATION = ".,:;-+/"  # noqa: S105 (punctuation that may trail a number, not a secret)
 _TOKEN_MARKS = frozenset("$%")
-_NUMBER_WORDS = (
-    "zero|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen"
-    "|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
-    "|hundred|thousand|million|billion|trillion|dozen|percent|per[\\s-]cent"
-    "|quarter|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth"
+# Number words are a blocklist, so it is matched generously: stems anywhere in a letter run (so
+# "twentyfive" and "twenties" fail), short words as whole pieces (so "tenant" passes and "tenfold"
+# fails), the words with the hyphens, dots and underscores between letters taken out ("tw-o"),
+# runs of single letters joined ("t w o"), and a squashed copy for the longest words ("hun dred").
+# A number in a language or slang this list lacks is out of reach of a list; the digit rule, the
+# facts sheet and the closed schema are the guards that do not depend on it.
+_LONG_STEMS = re.compile(
+    r"twent|thirt(?:y|ies|ieth|een)|fort(?:y|ies|ieth)|fift(?:y|ies|ieth|een|h)"
+    r"|sixt(?:y|ies|ieth|een)|sevent(?:y|ies|ieth|een)|eight(?:y|ies|ieth|een|h)"
+    r"|ninet(?:y|ies|ieth|een)|hundred|thousand|illion|dozen|twelf|eleven|fourteen"
 )
-_SPELLED = re.compile(rf"\b(?:{_NUMBER_WORDS})(?:s|fold|th|ths)?\b", re.IGNORECASE)
+_SHORT_WORDS = "zero|two|three|four|five|six|seven|eight|nine|ten|nil|naught|nought"
+_SHORT_COMPOUND = re.compile(rf"(?:(?:{_SHORT_WORDS})(?:s|es|th|ths|ish|fold)?)+")
+_WHOLE_WORDS = frozenset(
+    (
+        "couple",
+        "pair",
+        "trio",
+        "score",
+        "scores",
+        "gross",
+        "triple",
+        "treble",
+        "thrice",
+        "quadruple",
+        "doz",
+        "dozens",
+        "grand",
+        "grands",
+        "mil",
+        "mils",
+        "bil",
+        "mn",
+        "mln",
+        "bn",
+        "bln",
+        "mm",
+        "tn",
+        "thou",
+        "lakh",
+        "crore",
+        "buck",
+        "bucks",
+        "tenner",
+        "fiver",
+        "cnote",
+        "percent",
+        "pct",
+        "quarter",
+        "quarters",
+        "third",
+        "thirds",
+        "fourth",
+        "fifth",
+        "sixth",
+        "seventh",
+        "eighth",
+        "ninth",
+        "tenth",
+        "tenths",
+        "eleventh",
+        "twelfth",
+        "digit",
+        "digits",
+        "teen",
+        "teens",
+        "fourscore",
+        "k",
+        "g",
+        "m",
+        "b",
+        "t",
+        "dos",
+        "tres",
+        "cuatro",
+        "cinco",
+        "seis",
+        "siete",
+        "ocho",
+        "nueve",
+        "diez",
+        "cien",
+        "ciento",
+        "deux",
+        "trois",
+        "quatre",
+        "cinq",
+        "sept",
+        "huit",
+        "neuf",
+        "dix",
+        "zwei",
+        "drei",
+        "vier",
+        "funf",
+        "sechs",
+        "sieben",
+        "acht",
+        "neun",
+        "zehn",
+        "hundert",
+        "mille",
+    )
+)
+_SQUASHED_STEMS = re.compile(
+    r"thousand|hundred|illion|dozen|twenty|thirty|fifty|sixty|seventy|ninety"
+)
+_PER_CENT = re.compile(r"\bper[\s-]cent\b", re.IGNORECASE)
+_ROMAN = re.compile(r"[MDCLXVI]{2,}")
+_LOOKALIKE_NUMBER = re.compile(r"\$?[lIOS]+(?:[.,][lIOS]+)*%?")
+_APOSTROPHE_IN_WORD = re.compile(r"(?<=[A-Za-z])[\u2018\u2019'](?=[A-Za-z])")
+_JOINED_BY_PUNCTUATION = re.compile(r"(?<=[A-Za-z])[-._](?=[A-Za-z])")
+_SPACED_LETTERS = re.compile(r"\b(?:[A-Za-z][ \t\n]+){2,}[A-Za-z]\b")
 _DIGIT = re.compile(r"[0-9]")
 # A figure followed by a magnitude letter, even after a space, is a bigger number: $1,000.00 k.
 _MAGNITUDE_SUFFIX = re.compile(r"\s{0,2}(?:[kmb]|mm|bn)\b", re.IGNORECASE)
@@ -174,6 +280,57 @@ def _numeric_tokens(masked: str) -> list[str]:
     return tokens
 
 
+def _letter_tokens(text: str) -> list[str]:
+    """Runs of letters, apostrophes inside a word dropped. A run touching a digit belongs to a
+    number (`108k`) that the digit rule already reports."""
+    return re.findall(r"(?<![0-9])[A-Za-z]+(?![0-9])", _APOSTROPHE_IN_WORD.sub("", text))
+
+
+def _is_number_word(token: str) -> bool:
+    lowered = token.lower()
+    return (
+        lowered in _WHOLE_WORDS
+        or _LONG_STEMS.search(lowered) is not None
+        or _SHORT_COMPOUND.fullmatch(lowered) is not None
+    )
+
+
+def _spelled_numbers(masked: str) -> list[str]:
+    """The number words in `masked`, as the tokens they were found in, sorted."""
+    found = {token.lower() for token in _letter_tokens(masked) if _is_number_word(token)}
+    found |= {token for token in _letter_tokens(masked) if _ROMAN.fullmatch(token)}
+    found |= {match.group(0).lower().replace("-", " ") for match in _PER_CENT.finditer(masked)}
+    # The same words with the separators taken out, so a split spelling is read whole. A token
+    # is reported only for what the plain scan did not already name.
+    joined = _JOINED_BY_PUNCTUATION.sub("", _SPACED_LETTERS.sub(_without_space, masked))
+    for token in _letter_tokens(joined):
+        lowered = token.lower()
+        if _is_number_word(token) and not any(
+            lowered in known or known in lowered for known in found
+        ):
+            found.add(lowered)
+    squashed = "".join(_letter_tokens(masked)).lower()
+    for match in _SQUASHED_STEMS.finditer(squashed):
+        if not any(match.group(0) in known for known in found):
+            found.add(match.group(0))
+    return sorted(token[:TOKEN_MAX_CHARS] for token in found)
+
+
+def _without_space(match: re.Match[str]) -> str:
+    return re.sub(r"\s+", "", match.group(0))
+
+
+def _lookalike_numbers(masked: str) -> list[str]:
+    """Digit look-alikes written in ASCII: $lOO,OOO.OO, lO%, O.OO%."""
+    found = []
+    for token in re.findall(r"[\w$%.,]+", masked):
+        word = token.strip(".,")
+        punctuated = any(mark in word for mark in "$%,.")
+        if punctuated and _LOOKALIKE_NUMBER.fullmatch(word) and re.search(r"[lIO]", word):
+            found.append(word[:TOKEN_MAX_CHARS])
+    return sorted(set(found))
+
+
 def _scan_text(
     location: str, text: str, figures: dict[str, list[str]]
 ) -> tuple[list[Violation], list[tuple[str, str]]]:
@@ -184,8 +341,10 @@ def _scan_text(
     violations += [
         Violation(kind="unlisted_figure", text=token) for token in _numeric_tokens(masked)
     ]
-    spoken = sorted({match.group(0).casefold() for match in _SPELLED.finditer(masked)})
-    violations += [Violation(kind="spelled_number", text=word) for word in spoken]
+    violations += [
+        Violation(kind="unlisted_figure", text=token) for token in _lookalike_numbers(masked)
+    ]
+    violations += [Violation(kind="spelled_number", text=word) for word in _spelled_numbers(masked)]
     return violations, quoted
 
 
