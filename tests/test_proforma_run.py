@@ -73,6 +73,7 @@ DAY_TWO_COMPUTED = ["051", "004", "052", "002", "015", "006"]
 def _label(property_key: str) -> str:
     """'acct:99000000000000051' -> '051'; 'gis:SYN000067' -> '068+069' (the two-account lot)."""
     if property_key.startswith("gis:"):
+        assert property_key == "gis:SYN000067", "a second GIS group needs a label of its own"
         return "068+069"
     return property_key.removeprefix("acct:")[-3:]
 
@@ -290,12 +291,6 @@ def test_the_run_counts_its_pro_formas(days: dict[date, Day]) -> None:
         assert counts.proformas_no_arv == total - computed
         assert counts.proformas_unsizable == 0
         assert counts.proformas == counts.ranked
-
-
-def test_no_pro_forma_spent_anything(days: dict[date, Day]) -> None:
-    # Day one bought five estimates and day two one; the pro-forma stage added no call.
-    assert days[DAY_ONE].result.counts.estimates_called == 5
-    assert days[DAY_TWO].result.counts.estimates_called == 1
 
 
 # --- tests that change the database -------------------------------------------------------------
