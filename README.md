@@ -6,14 +6,14 @@ The thesis: **LLM for judgment, code for math.** The model reads listing text an
 
 ## Status
 
-Phases 1 (foundation), 2 (sourcing and scoring) and 3 (the pro-forma) exist today.
+Phases 1 (foundation), 2 (sourcing and scoring) and 3 (the pro-forma) exist today; Phase 4 (the LLM layer) is partly built.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Schema, job queue, source adapters (county appraisal CSV, RentCast, MLS stub), mock and live modes, synthetic snapshot, market packs, read-only API, Docker Compose | Built |
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
-| 4 | LLM layer: listing-text signals and risk narratives | Not started |
+| 4 | LLM layer: listing-text signals and risk narratives | In progress: both run in the daily run, with a read-only API and CLI; the recorded model responses they replay are not in the repository yet (see [Signals and narratives](#signals-and-narratives)) |
 | 5 | Delivery: the morning brief, scheduling | Not started |
 | 6 | Evals | Not started |
 
@@ -152,6 +152,32 @@ docker compose run --rm migrate feasibility proforma show 4 --sensitivity
 
 On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two are marginal, one loses money) and day 2 six. A run costs the same RentCast calls as before: the pro-formas add none. In live mode a day is at most one listing sync plus up to five value estimates; in mock mode the estimates come from the snapshot and no budget is touched.
 
+## Signals and narratives
+
+After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). The model never produces a number: a signal survives only if code finds its quote verbatim in the listing's remarks, and a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). Three signals (price cut, relisted, long on the market) are computed in code from the listing's fields and need no model.
+
+Results are cached by a hash of their inputs, so a same-day re-run, or a day whose inputs did not change, makes no call. Every call has one row in the ledger (`llm_call`), and a run's spend is capped (`LLM_RUN_BUDGET_USD`, per run across all its attempts) as is a UTC month of billable calls (`LLM_MONTHLY_BUDGET_USD`). A candidate the cap cannot afford is stored as `deferred`, not as an error.
+
+**Until the recordings land, a mock-mode run records an error on purpose.** Mock mode replays recorded model responses (`AGENT_CORE_MODE=replay`, no key), and this repository has no recordings yet (a later job records them in one paid session). So the first model call finds nothing to replay, and the run, which has already stored its ranking, estimates and pro-formas, ends with `sourcing_run.error` set to `PermanentModelError: signals stage stopped at ...`, the run's status stays `completed`, `candidate_signals` and `candidate_narrative` stay empty, and `feasibility source run` exits with code 1 and says which stage stopped. Nothing falls back to a live call. The ranking and the pro-formas are unchanged, so everything above works as before.
+
+```bash
+docker compose run --rm migrate feasibility llm cost             # the latest run's model calls: none made
+docker compose run --rm migrate feasibility llm show 4           # signals and narrative, once recorded
+docker compose run --rm migrate feasibility llm cost --month 2026-10
+```
+
+- `feasibility llm show CANDIDATE_ID [--market] [--run-id N]` prints one candidate's signals (with their quotes) and narrative. An accepted narrative is printed as written; a rejected one as its reason and the kinds of rule it broke.
+- `feasibility llm cost [--market] [--run-id N] [--month YYYY-MM]` prints a run's calls, tokens and cost by stage and by model, and the money held for calls that raised (their real cost is unknown). With `--month` it prints that UTC month's billable spend against the monthly budget instead. Both commands are read-only and exit with code 2 and a message when the run or candidate does not exist.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /sourcing/runs/{run_id}/candidates/{candidate_id}/llm` | The candidate's signals and narrative together (either is `null` when its stage wrote no row) |
+| `GET /sourcing/runs/{run_id}/narratives?status=accepted\|rejected\|failed\|deferred\|not_eligible` | A run's narratives in rank order: status, reason and, for an accepted one, the summary |
+| `GET /sourcing/runs/{run_id}/llm/cost` | The run's calls, tokens, cost by stage and by model, the money reserved for calls whose cost is unknown, and the run budget |
+| `GET /llm/spend?month=YYYY-MM` | Billable calls and cost in a UTC month against the monthly budget (the current month by default) |
+
+A rejected narrative is served as its status, its reason and the kinds of rule it broke: never the model's text and never the text of a violation. The API never calls a model.
+
 ## Importing real DCAD data
 
 1. Download the certified zip (`DCAD{YYYY}_CURRENT.ZIP`, about 200 MB) from `dallascad.org/dataproducts.aspx` into `local/`.
@@ -187,6 +213,7 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `market validate [files]` | Validate market pack files (all packs by default) |
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
+| `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [Signals and narratives](#signals-and-narratives)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
 Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.
