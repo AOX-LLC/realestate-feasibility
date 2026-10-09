@@ -189,6 +189,9 @@ def test_unknown_runs_and_candidates_are_404(run_two: tuple[TestClient, int], wh
 
     for path in paths:
         assert client.get(path).status_code == 404, path
+    if which == "detail":
+        # An unknown run says so, as the list does.
+        assert client.get(paths[0]).json()["detail"] == "no such run"
 
 
 def test_a_candidate_the_run_did_not_rank_has_no_pro_forma(

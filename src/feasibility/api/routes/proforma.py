@@ -71,6 +71,7 @@ def get_candidate_proforma(
 ) -> ProformaDetailOut:
     """One candidate's pro-forma in one run: the summary and every input and intermediate."""
     with engine.connect() as connection:
+        require_run(connection, run_id)
         found = read_proforma(connection, run_id, candidate_id)
     if found is None or found.result is None:
         raise HTTPException(
