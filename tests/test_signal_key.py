@@ -3,6 +3,7 @@
 The key is written and reviewed before anything is recorded and is not edited afterwards to
 raise a score. These tests take no fixtures and touch no database."""
 
+import hashlib
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 from mls_data import (
     CATALOGUE,
     DEMO_SIGNALS,
+    KEY_FILE,
     NULL_REMARKS,
     all_records,
     answer_key,
@@ -203,3 +205,15 @@ def test_the_eval_only_set_splits_between_dev_and_holdout() -> None:
 
     assert splits["dev"] >= 8 and splits["holdout"] >= 8
     assert by_split["dev"] >= 20 and by_split["holdout"] >= 20
+
+
+# The key is frozen once it has been blind-labelled and before anything is recorded. Changing
+# a label, its evidence or its split to improve a score would defeat the eval, so a change here
+# is a decision for the project owner and costs a new recording.
+FROZEN_LABELS_SHA256 = "e999b84409bbd413ef65435a2d91a1ff9258e38c3f4cab471ecc5db2452cb5db"
+
+
+def test_the_answer_key_is_frozen() -> None:
+    digest = hashlib.sha256(KEY_FILE.read_bytes()).hexdigest()
+
+    assert digest == FROZEN_LABELS_SHA256
