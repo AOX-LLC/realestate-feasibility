@@ -229,3 +229,11 @@ def test_show_marks_what_a_pro_forma_without_an_arv_lacks(seeded: dict[str, Any]
     for missing in ("arv: none", "selling: none", "totals: none", "max_offer: none"):
         assert missing in result.output
     assert "\nsensitivity: none" in result.output
+
+
+def test_the_views_round_half_up_not_half_even() -> None:
+    from feasibility.proforma import render
+
+    assert render.percent("0.1925") == "19.3%"
+    assert render.percent("0.1935") == "19.4%"
+    assert render.money("1234.505") == "1,234.51"

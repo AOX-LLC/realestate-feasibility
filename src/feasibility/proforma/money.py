@@ -5,6 +5,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 CENT = Decimal("0.01")
 RATIO_STEP = Decimal("0.0001")
 WHOLE = Decimal(1)
+PERCENT_STEP = Decimal("0.1")
 
 
 def round_money(value: Decimal) -> Decimal:
@@ -24,4 +25,14 @@ def round_ratio(value: Decimal) -> Decimal:
 
 def round_sqft(value: Decimal) -> Decimal:
     """Round a size to whole square feet, half away from zero."""
+    return value.quantize(WHOLE, rounding=ROUND_HALF_UP)
+
+
+def round_percent(fraction: Decimal) -> Decimal:
+    """A ratio as a percent to one place, half away from zero (for display)."""
+    return (fraction * 100).quantize(PERCENT_STEP, rounding=ROUND_HALF_UP)
+
+
+def round_dollars(value: Decimal) -> Decimal:
+    """Round an amount to whole dollars, half away from zero (for display)."""
     return value.quantize(WHOLE, rounding=ROUND_HALF_UP)

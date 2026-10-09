@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from feasibility.proforma.model import ProformaResult
+from feasibility.proforma.money import round_dollars, round_money, round_percent
 from feasibility.proforma.store import StoredProforma
 
 NONE = "none"
@@ -20,11 +21,11 @@ LIST_HEADER = ("rank", "address", "status", "arv", "total_cost", "profit", "marg
 
 
 def money(value: Decimal | str | None) -> str:
-    return NONE if value is None else f"{Decimal(value):,.2f}"
+    return NONE if value is None else f"{round_money(Decimal(value)):,.2f}"
 
 
 def percent(fraction: Decimal | str | None) -> str:
-    return NONE if fraction is None else f"{Decimal(fraction) * 100:.1f}%"
+    return NONE if fraction is None else f"{round_percent(Decimal(fraction))}%"
 
 
 def list_lines(items: Sequence[StoredProforma]) -> list[str]:
@@ -114,7 +115,9 @@ def _grid_blocks(sensitivity: Mapping[str, Any]) -> list[str]:
             row = [arv]
             for cost in axes["hard_cost_delta_pct"]:
                 cell = cells[(arv, cost, hold)]
-                row.append(f"{Decimal(cell['profit']):,.0f} ({percent(cell['margin'])})")
+                row.append(
+                    f"{round_dollars(Decimal(cell['profit'])):,.0f} ({percent(cell['margin'])})"
+                )
             lines.append("    " + "\t".join(row))
     return lines
 
