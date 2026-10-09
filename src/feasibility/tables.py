@@ -32,11 +32,25 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
+
+def _check_name(constraint: Any, table: Any) -> str:
+    """The name to put after `ck_<table>_`: the constraint's own name, less that prefix when it
+    already carries it. A migration that spells the whole name (`ck_proforma_status`) and a table
+    that gives the short one (`status`) therefore both end up as `ck_proforma_status`, never as
+    `ck_proforma_ck_proforma_status`, which is what the plain convention made of the first five
+    migrations."""
+    name = str(constraint.name)
+    prefix = f"ck_{table.name}_"
+    return name[len(prefix) :] if name.startswith(prefix) else name
+
+
 metadata = MetaData(
     naming_convention={
         "ix": "ix_%(table_name)s_%(column_0_N_name)s",
         "uq": "uq_%(table_name)s_%(column_0_N_name)s",
         "ck": "ck_%(table_name)s_%(constraint_name)s",
+        # A callable under a token's name replaces the token for every convention above.
+        "constraint_name": _check_name,
         "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
         "pk": "pk_%(table_name)s",
     }
