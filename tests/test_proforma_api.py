@@ -253,6 +253,7 @@ def test_the_router_module_cannot_write_or_spend() -> None:
         "estimate_store",
         "save_estimate",
         "write_proformas",
+        "store",
     )
     for name in names:
         assert not hasattr(proforma_routes, name), name

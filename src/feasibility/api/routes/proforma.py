@@ -18,9 +18,8 @@ from feasibility.api.schemas import (
     ProformaResultOut,
     ProformaSummaryOut,
 )
-from feasibility.proforma import store
 from feasibility.proforma.model import ProformaResult
-from feasibility.proforma.store import StoredProforma
+from feasibility.proforma.store import StoredProforma, read_proforma, read_proformas
 
 router = APIRouter(prefix="/sourcing", tags=["pro-forma"])
 
@@ -58,7 +57,7 @@ def list_run_proformas(
     status. A candidate the run did not rank has none."""
     with engine.connect() as connection:
         require_run(connection, run_id)
-        rows = store.read_proformas(
+        rows = read_proformas(
             connection, run_id, status=proforma_status, after_rank=after, limit=limit + 1
         )
     items = [ProformaSummaryOut.model_validate(_summary(row)) for row in rows[:limit]]
@@ -72,7 +71,7 @@ def get_candidate_proforma(
 ) -> ProformaDetailOut:
     """One candidate's pro-forma in one run: the summary and every input and intermediate."""
     with engine.connect() as connection:
-        found = store.read_proforma(connection, run_id, candidate_id)
+        found = read_proforma(connection, run_id, candidate_id)
     if found is None or found.result is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "no pro-forma for this candidate in this run"
