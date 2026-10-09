@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     llm_monthly_budget_usd: Decimal = Field(default=Decimal("10.00"), ge=0)
 
     snapshot_dir: Path = REPO_ROOT / "data" / "snapshot"
+    # Synthetic RESO records (listing remarks) for mock mode, one `<market>.json` per market.
+    mls_dir: Path = REPO_ROOT / "data" / "mls"
     # Operator-downloaded files (county zips) and local reports; gitignored.
     local_dir: Path = REPO_ROOT / "local"
 
