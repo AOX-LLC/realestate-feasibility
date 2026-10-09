@@ -81,6 +81,13 @@ def test_the_api_alone_gets_the_two_bearer_tokens() -> None:
         assert "API_CLIENT_IP_HEADER" not in environment, name
 
 
+def test_the_api_healthcheck_uses_the_open_route() -> None:
+    check = " ".join(_services()["api"]["healthcheck"]["test"])
+
+    assert "/livez" in check
+    assert "/health'" not in check
+
+
 def test_the_database_name_comes_from_one_variable_with_a_default() -> None:
     for name in ("api", "worker", "migrate"):
         assert _services()[name]["environment"]["DATABASE_URL"].endswith(

@@ -10,6 +10,7 @@ from conftest import empty_database
 from fastapi.testclient import TestClient
 from mls_data import answer_key, feed_listings, feed_row_ids, ingested, snapshot_records
 from sqlalchemy import Engine, text
+from test_api import READ_HEADERS, with_tokens
 
 from feasibility.api.app import create_app
 from feasibility.config import DataMode, Settings
@@ -93,7 +94,9 @@ def test_the_api_serves_redacted_remarks_and_no_planted_string(both_days: Engine
     planted = _planted_strings()
     bodies: list[str] = []
     served: dict[int, str | None] = {}
-    with TestClient(create_app(_settings(), both_days)) as client:
+    with TestClient(
+        create_app(with_tokens(_settings()), both_days), headers=READ_HEADERS
+    ) as client:
         after: str | None = None
         while True:
             params: dict[str, Any] = {"limit": 50, **({"after": after} if after else {})}
