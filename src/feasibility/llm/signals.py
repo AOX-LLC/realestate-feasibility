@@ -158,8 +158,9 @@ class ExtractionInput:
 def build_extraction_input(remarks: str) -> ExtractionInput:
     """`remarks` as stored (already normalised, redacted and capped), scanned and then defanged.
 
-    The scan runs first because defanging rewrites the tags the fence rule looks for; the
-    rewrite keeps the length, so the hits' offsets hold for the text that is sent."""
+    The scan runs first because defanging rewrites the tags the fence rule looks for. Folding
+    bracket lookalikes and defanging both keep the length, so the hits' offsets index `remarks`
+    and the text that is sent alike."""
     hits = scan_injection(remarks)
     text = defang_tags(remarks)
     return ExtractionInput(text, hashlib.sha256(text.encode()).hexdigest(), tuple(hits))
