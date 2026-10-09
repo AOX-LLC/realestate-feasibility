@@ -1,5 +1,6 @@
 """Runtime settings, read from the environment (and an optional .env file)."""
 
+import re
 from datetime import timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -14,6 +15,8 @@ DEFAULT_DATABASE_URL = (
     "postgresql+psycopg://feasibility:feasibility-local-dev@127.0.0.1:4502/feasibility"
 )
 DEFAULT_LLM_CONFIG_PATH = REPO_ROOT / "data" / "llm" / "agent-core.toml"
+# A bearer token is 32 to 256 of these: what `openssl rand -hex 32` and most generators produce.
+API_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{32,256}$")
 
 
 class DataMode(StrEnum):
@@ -68,6 +71,18 @@ class Settings(BaseSettings):
     llm_run_budget_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
     llm_monthly_budget_usd: Decimal = Field(default=Decimal("10.00"), ge=0)
 
+    # The API's two static bearer tokens. Unset means every gated route answers 401: there is no
+    # setting that turns the gate off. The read token opens every GET; the trigger token opens
+    # only POST /triggers/*, so the scheduler holds a token that can read nothing.
+    api_read_token: SecretStr | None = None
+    api_trigger_token: SecretStr | None = None
+    api_reads_per_minute: int = Field(default=120, ge=1, le=100_000)
+    api_triggers_per_hour: int = Field(default=12, ge=1, le=10_000)
+    # Name of a header that carries the client address (for example CF-Connecting-IP behind a
+    # tunnel). Left unset, the socket peer is the client: a header anyone can send must not
+    # choose who gets rate-limited or banned.
+    api_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
+
     snapshot_dir: Path = REPO_ROOT / "data" / "snapshot"
     # Synthetic RESO records (listing remarks) for mock mode, one `<market>.json` per market.
     mls_dir: Path = REPO_ROOT / "data" / "mls"
@@ -82,6 +97,33 @@ class Settings(BaseSettings):
         if key is not None and not key.get_secret_value().strip():
             return None
         return key
+
+    @field_validator("api_read_token", "api_trigger_token", "api_client_ip_header", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # An empty variable (compose's empty default, `API_READ_TOKEN=` in .env) means unset.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _check_api_tokens(self) -> "Settings":
+        # The messages name the variable and never the value.
+        for variable, token in (
+            ("API_READ_TOKEN", self.api_read_token),
+            ("API_TRIGGER_TOKEN", self.api_trigger_token),
+        ):
+            if token is not None and not API_TOKEN_PATTERN.match(token.get_secret_value()):
+                raise ValueError(
+                    f"{variable} must be 32 to 256 characters from A-Z a-z 0-9 . _ ~ + / = -"
+                )
+        if (
+            self.api_read_token is not None
+            and self.api_trigger_token is not None
+            and self.api_read_token.get_secret_value() == self.api_trigger_token.get_secret_value()
+        ):
+            raise ValueError("API_READ_TOKEN and API_TRIGGER_TOKEN must differ")
+        return self
 
     @model_validator(mode="after")
     def _check_mode_and_key(self) -> "Settings":
@@ -136,7 +178,12 @@ class Settings(BaseSettings):
 
     def secret_values(self) -> list[str]:
         """Every configured secret, for log redaction."""
-        keys = (self.rentcast_api_key, self.llm_api_key)
+        keys = (
+            self.rentcast_api_key,
+            self.llm_api_key,
+            self.api_read_token,
+            self.api_trigger_token,
+        )
         return [key.get_secret_value() for key in keys if key is not None]
 
 

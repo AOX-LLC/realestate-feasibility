@@ -66,3 +66,23 @@ def test_the_api_and_the_worker_read_the_same_caps() -> None:
 
     for name in API_LLM_VARIABLES:
         assert services["api"]["environment"][name] == services["worker"]["environment"][name]
+
+
+API_TOKENS = {"API_READ_TOKEN", "API_TRIGGER_TOKEN"}
+
+
+def test_the_api_alone_gets_the_two_bearer_tokens() -> None:
+    services = _services()
+
+    assert set(services["api"]["environment"]) >= API_TOKENS
+    for name in ("worker", "migrate", "db"):
+        environment = services[name].get("environment", {})
+        assert API_TOKENS.isdisjoint(environment), name
+        assert "API_CLIENT_IP_HEADER" not in environment, name
+
+
+def test_the_database_name_comes_from_one_variable_with_a_default() -> None:
+    for name in ("api", "worker", "migrate"):
+        assert _services()[name]["environment"]["DATABASE_URL"].endswith(
+            "${FEASIBILITY_DB:-feasibility}"
+        ), name

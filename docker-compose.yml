@@ -28,7 +28,7 @@ x-local-dir-read-only: &local-dir-read-only
 
 # The app's own variables, shared by every service that runs the app.
 x-app-environment: &app-environment
-  DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/feasibility
+  DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/${FEASIBILITY_DB:-feasibility}
   DATA_MODE: ${DATA_MODE:-mock}
   RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
   RENTCAST_MONTHLY_BUDGET: ${RENTCAST_MONTHLY_BUDGET:-50}
@@ -49,6 +49,13 @@ x-llm-environment: &llm-environment
 x-llm-budgets: &llm-budgets
   LLM_RUN_BUDGET_USD: ${LLM_RUN_BUDGET_USD:-1.00}
   LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-10.00}
+
+# The API's bearer tokens go to the api service only: the worker, migrate and any scheduler never
+# hold a token that reads, and the scheduler's own credential is the trigger token entered in it.
+x-api-auth: &api-auth
+  API_READ_TOKEN: ${API_READ_TOKEN:-}
+  API_TRIGGER_TOKEN: ${API_TRIGGER_TOKEN:-}
+  API_CLIENT_IP_HEADER: ${API_CLIENT_IP_HEADER:-}
 
 x-app: &app
   build:
@@ -98,7 +105,7 @@ services:
   api:
     <<: [*app, *hardening]
     environment:
-      <<: [*app-environment, *llm-budgets]
+      <<: [*app-environment, *llm-budgets, *api-auth]
     ports:
       - "127.0.0.1:4501:4501"
     depends_on:
