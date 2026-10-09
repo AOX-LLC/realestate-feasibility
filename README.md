@@ -14,27 +14,40 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma) and 4 (the LL
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
-| 5 | Delivery: the morning brief, scheduling | Not started |
+| 5 | Delivery: the morning brief, scheduling | In progress: the API auth gate, the morning trigger and the stored brief are built (see [The brief](#the-brief)); the PDF, Notion, Slack and the schedule are not |
 | 6 | Evals and the proof kit | Started: the two model evals exist (Phase 4); more suites to come |
 
 ## Quick start
 
-Needs Docker with Compose. A fresh clone needs no `.env`; mock mode is the default and needs no API key and no network.
+Needs Docker with Compose. A fresh clone needs no `.env` and mock mode needs no model key and no network. **Every API route except `/livez` needs a bearer token**, so make two (any 32 or more characters of `A-Za-z0-9._~+/=-`; they must differ) and put them in `.env`:
 
 ```bash
+printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose up -d --wait
+set -a; . ./.env; set +a
+R="Authorization: Bearer $API_READ_TOKEN"
 
-curl -s http://127.0.0.1:4501/health
-curl -s "http://127.0.0.1:4501/parcels?limit=5"
-curl -s "http://127.0.0.1:4501/listings?limit=5"
-curl -s http://127.0.0.1:4501/markets/dallas
+curl -s http://127.0.0.1:4501/livez                          # open: {"status":"ok"}
+curl -s -H "$R" http://127.0.0.1:4501/health
+curl -s -H "$R" "http://127.0.0.1:4501/parcels?limit=5"
+curl -s -H "$R" "http://127.0.0.1:4501/listings?limit=5"
+curl -s -H "$R" http://127.0.0.1:4501/markets/dallas
 ```
 
-Enqueue a listings sync and watch the worker pick it up:
+Start the morning run for a day and watch the worker do it (the trigger only queues a job):
+
+```bash
+T="Authorization: Bearer $API_TRIGGER_TOKEN"
+curl -s -X POST -H "$T" -H 'content-type: application/json' \
+  -d '{"market":"dallas","as_of":"2026-10-01"}' http://127.0.0.1:4501/triggers/morning
+curl -s -H "$R" http://127.0.0.1:4501/jobs
+docker compose run --rm migrate feasibility brief show
+```
+
+Or enqueue a listings sync from the command line:
 
 ```bash
 docker compose exec worker feasibility enqueue listings.sync --payload '{"market": "dallas"}'
-curl -s http://127.0.0.1:4501/jobs
 ```
 
 Stop and delete the data:
@@ -47,12 +60,12 @@ The stack has four services: `db` (Postgres 16), `migrate` (one-shot: runs the m
 
 | Port | Use |
 | --- | --- |
-| 4500 | Reserved for the report viewer (later phase) |
+| 4500 | Reserved; the report viewer was dropped (the brief's PDFs travel as files) |
 | 4501 | API |
 | 4502 | Postgres |
-| 4503 | Reserved for n8n (later phase) |
+| 4503 | n8n, opt-in (a later session) |
 
-The API is read-only. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`, and the sourcing views below.
+Reads are `GET`; the only write is a trigger that queues a job. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`, and the sourcing views below.
 
 ## The data
 
@@ -207,6 +220,34 @@ cat evals/scorecards/signals-holdout.md
 
 The eval set is small, synthetic and written by this project, so these numbers say nothing about real listings.
 
+## API access and the morning trigger
+
+Two static bearer tokens guard the API, and there is no setting that turns the guard off: with a token unset, every route but `/livez` answers 401.
+
+| | Opens | Held by |
+| --- | --- | --- |
+| `API_READ_TOKEN` | every `GET` (and `HEAD`) | anyone who reads |
+| `API_TRIGGER_TOKEN` | only `POST /triggers/*` | the scheduler, which can read nothing |
+
+- `/livez` is the one open route: `{"status": "ok"}` or 503, from a `SELECT 1`, and nothing else. `/health` (revision, mode) is behind the read token. The interactive docs and the schema route are not served.
+- The wrong scope is a 403; no or a malformed header is a 401 with `WWW-Authenticate: Bearer`; an unknown path without a token is a 401 as well, so the response does not say what exists.
+- Limits, in the API process: 120 reads a minute on the read token, 12 triggers an hour, 60 `/livez` a minute per address, and 20 failed authentications in 10 minutes ban an address for 15 minutes (a valid token does not lift it). The address is the socket peer; behind a tunnel or proxy set `API_CLIENT_IP_HEADER` to the header that carries it (for example `CF-Connecting-IP`), because a header anyone can send must not decide who is banned.
+- `POST /triggers/morning` takes `{"market": "dallas", "as_of": "2026-10-01"}` (`as_of` may be left out in live mode; mock mode needs a date the snapshot holds). It checks the market and the date, queues one `morning.run` job and answers 202 with its id; the same market and date again, while the first is queued or running, answers 200 and queues nothing; a date earlier than a run already started is a 409. The API never syncs, spends or calls a model.
+
+`morning.run` runs the day (`source run`) and then queues `brief.deliver {run_id}`. If the run ranked but a model stage could not finish (a missing recording), the brief is still queued, as `partial`, and the `morning.run` job still ends `dead` so the failure stays visible.
+
+## The brief
+
+The brief is what a run delivers, built by code from its stored rows: the computed pro-formas in rank order (at most ten), each with its figures as exact decimal strings, a verdict in code facts, the comps as a count, a median $/sq ft and the lowest and highest sale price (never an address), flags with a written meaning, the signals that held (code, polarity, source and the meaning written in this repository; **never a quote**) and the narrative. A narrative is in the brief only if it was accepted and still passes the figure check against facts rebuilt now; otherwise the brief says "Withheld" or "Not available today." and carries none of the model's text. A run whose later stage failed is delivered as `partial` with a notice, never with its error. The rest of the ranked list is counted ("7 more ranked candidates have no computed pro-forma").
+
+```bash
+docker compose run --rm migrate feasibility brief build          # make or rebuild the latest run's brief
+docker compose run --rm migrate feasibility brief show
+curl -s -H "$R" http://127.0.0.1:4501/sourcing/runs/1/brief | jq '.brief.shown'
+```
+
+The brief is stored per run with a content hash (table `brief`), so a same-day re-run that changes nothing builds the same bytes. Rendering it as a PDF and sending it to Notion and Slack come in later sessions; nothing is sent anywhere yet.
+
 ## Importing real DCAD data
 
 1. Download the certified zip (`DCAD{YYYY}_CURRENT.ZIP`, about 200 MB) from `dallascad.org/dataproducts.aspx` into `local/`.
@@ -242,11 +283,12 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `market validate [files]` | Validate market pack files (all packs by default) |
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
+| `brief build`, `brief show` | Build and read a run's brief (see [The brief](#the-brief)) |
 | `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [The LLM layer](#the-llm-layer)) |
 | `eval signals`, `eval narrative` | Score the model tasks against their answer keys, in replay by default (see [Evals and scorecards](#evals-and-scorecards)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
-Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.
+Job kinds: `cad.import`, `listings.sync`, `sourcing.run`, `morning.run` and `brief.deliver`.
 
 ## Development
 

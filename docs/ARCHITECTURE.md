@@ -105,11 +105,21 @@ llm/                 the model layer: stages 6 and 7 of the run and everything t
   render.py, errors.py
 evals/               the two eval harnesses (extraction, narrative), their scorers and scorecard writers
 api/                 app factory, identity, schemas, and routers: health, markets, parcels,
-                     listings, jobs, budget, sourcing, proforma, llm
+                     listings, jobs, budget, sourcing, proforma, llm, brief, triggers
+  auth.py            bearer parsing, the two scopes, constant-time token comparison (pure)
+  gate.py            the ASGI middleware in front of every route: authentication, scope, rate
+                     limits, the ban, a body cap
+  ratelimit.py       window counters and the failed-authentication ban (bounded, in process)
+delivery/            what leaves the database
+  brief.py           the Brief models and the pure presenters (figures, comps, signals, narrative)
+  build.py           build_brief: a run's rows to a Brief
+  store.py           the brief's SQL: set-based reads and the stored copy
+  render.py          the lines behind `feasibility brief show`
 cli.py               the feasibility command
 migrations/          Alembic environment and versions/ (0001 initial schema, 0002 sourcing,
                      0003 per-run match, 0004 candidate estimates, 0005 pro-formas, 0006 llm_call,
-                     0007 llm_result and the per-run signals and narratives, 0008 schema polish)
+                     0007 llm_result and the per-run signals and narratives, 0008 schema polish,
+                     0009 brief)
 ```
 
 Outside the package: `scripts/` (`generate_snapshot.py`, `check_rentcast_docs.py`, `build_narrative_cases.py`), `data/snapshot/`, `data/mls/` (the synthetic RESO records), `data/llm/` (the model config and the recordings), `evals/` (answer key, eval-only records, narrative cases, scorecards), `tests/`.
@@ -125,7 +135,7 @@ No empty modules exist. These are the planned locations.
 
 ## Schema
 
-Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`), `0004_candidate_estimate`, `0005_proforma`, `0006_llm_call`, `0007_llm_results` and `0008_schema_polish` (the sourcing tables are described under [Sourcing](#sourcing), the pro-forma table under [Pro-forma](#pro-forma), the model tables under [Signals and narratives in the run](#signals-and-narratives-in-the-run-stages-6-and-7)).
+Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`), `0004_candidate_estimate`, `0005_proforma`, `0006_llm_call`, `0007_llm_results`, `0008_schema_polish` and `0009_brief` (the sourcing tables are described under [Sourcing](#sourcing), the pro-forma table under [Pro-forma](#pro-forma), the model tables under [Signals and narratives in the run](#signals-and-narratives-in-the-run-stages-6-and-7)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
@@ -149,7 +159,7 @@ Phase 4 added four tables:
 | `candidate_signals` | One row per ranked candidate and run | `status` (`extracted`, `fields_only`, `failed`, `deferred`), `reason`, the primary `listing_id` read, `result` (`SignalsResult`). Composite foreign key to `run_candidate`, `ON DELETE CASCADE`. |
 | `candidate_narrative` | One row per ranked candidate and run | `status` (`accepted`, `rejected`, `failed`, `deferred`, `not_eligible`), `reason`, `input_sha256`, `result` (`NarrativeResult`). Same key and cascade. |
 
-Later phases add their own tables in their own migrations: briefs and deliveries (5).
+Phase 5 adds `brief` (migration 0009): one row per run (`run_id`, cascading from `sourcing_run`), the `version`, `completeness` (`complete` or `partial`), the whole `content` as jsonb, its `content_sha256` and `built_at`. It is rebuilt in place. Later sessions add the delivery ledger.
 
 ## Job queue
 
@@ -483,6 +493,21 @@ agent-core v0.1.0 is pinned by git tag; its lockfile entry also pins `anthropic`
 | Tracing | Not wired. No exporter is configured; `[tracing] capture_content = false` keeps prompts and replies out of any span that is created. |
 | Audit log | Not used. The ledger records every call; the library's hash-chained log would need its own schema and adds nothing the ledger lacks. A Phase 6 candidate. |
 
+## The API gate and the trigger
+
+Every request passes `api/gate.py`, a pure ASGI middleware that runs before routing, so an unknown path without a token is a 401 (no route is revealed) and a router added later is gated with no code. `required_access(method, path)` decides what a request needs: `GET /livez` nothing; `POST /triggers/<name>` the trigger scope; any other `GET` or `HEAD` the read scope; anything else is refused with a 405 once the caller has authenticated. The presented token is hashed with sha256 and compared with the digests of both configured tokens through `hmac.compare_digest`, always both, so the work does not depend on which one matches. A token that is not configured is the digest of random bytes: unset tokens match nothing, and there is no switch that opens the API. The gate answers 401 (with `WWW-Authenticate: Bearer`), 403 (wrong scope), 405, 413 (a trigger body over 4 KB, declared or streamed), 429 (with `Retry-After`); the security-headers middleware outside it adds its headers to those answers too. A failed attempt logs the address and the path (control characters escaped, no query, never a header).
+
+- **Limits** (`api/ratelimit.py`, in process, fixed windows, every map bounded so a flood of addresses cannot grow memory): reads per token scope, triggers per hour, `/livez` per address, and a ban of 15 minutes after 20 failed authentications in 10 minutes that also refuses a valid token. The client address is the socket peer; `API_CLIENT_IP_HEADER` names a header to read it from instead and only a valid IP in it is used.
+- **`/livez`** is the only open route: a `SELECT 1`, `{"status": "ok"}` or 503 `{"status": "degraded"}`, no revision, mode or key state. The compose healthcheck uses it. `/health` is behind the read token. `docs_url`, `redoc_url` and `openapi_url` are off (`app.openapi()` still works for tests).
+- **`POST /triggers/morning`** (`api/routes/triggers.py`) imports the job queue, the payload models and the date check (`sourcing/dates.py`), and nothing that syncs, spends or calls a model (a test checks the module's names). It resolves the pack (422 unknown market) and the date (`resolve_run_date`; mock mode needs a date the snapshot holds, live mode only today), refuses a date earlier than the latest run started (409), and enqueues `morning.run {market, as_of}` with the dedupe key `morning.run:<market>:<as_of>` (202 with the job id; 200 `already_active` on a dedupe hit).
+- **`morning.run`** runs `run_sourcing`, then enqueues `brief.deliver {run_id}` (dedupe `brief.deliver:<run_id>`). A `PermanentModelError` (a missing recording, a misconfigured model) leaves a ranked, completed run with its error recorded: the brief is still queued, as `partial`, and the job re-raises so it ends `dead` and stays visible. A `RetryableModelError` queues nothing: the retry reuses every cached result and briefs when it finishes. **`brief.deliver`** builds the brief and stores it; `BriefError` (no such run, a run not completed) is permanent.
+
+## The brief
+
+`delivery/brief.py` defines the frozen `Brief` and the entries inside it. Money and ratios are decimal strings, as the API serves them; display formatting is left to the presenters, which use `llm/figures.py`, so what a reader sees is what the narrative was checked against. The types have no field that could hold a comp address, listing text, a signal's quote, a rejected or deferred draft, an error message or a model-written figure.
+
+`build_brief(connection, run_id, data_mode)` reads in a fixed number of set-based statements (the run, the status counts of its pro-formas, the first ten computed ones with their stored results, their signals, their narratives) and raises `BriefNotReadyError` for a run that is not `completed`. For each computed candidate: figures from the stored result; the verdict as the code facts of `llm/facts.py`; the comps as the count used, the median $/sq ft and the lowest and highest price of the comps used; the flags with their written meanings; the signals as code, polarity, source and the meaning written in `llm/catalogue.py` or `llm/field_signals.py`. **Narrative rule:** an `accepted` narrative is rebuilt into a draft (`llm.narrative.draft_of`) and checked again by `check_narrative` against facts rebuilt from today's rows; if it passes it is delivered under a fixed label ("Written by a language model. Every figure in it was checked against this pro-forma by code."), if it fails it is `withheld` ("Withheld: the narrative no longer matches this pro-forma."). A `rejected` narrative is `withheld` ("Withheld: the draft did not pass the figure check.") and a failed, deferred or not-eligible one is `not_available` ("Not available today."); none of those carries any model text. A brief is `partial` exactly when `sourcing_run.error` is set (notice `later_stage_failed`); the error text is never copied. The content hash covers the canonical JSON and no timestamp, so a same-day re-run that changes nothing hashes the same.
+
 ## Compose and CI
 
 `docker-compose.yml` (project name `realestate-feasibility`):
@@ -494,7 +519,7 @@ agent-core v0.1.0 is pinned by git tag; its lockfile entry also pins `anthropic`
 | `api` | `127.0.0.1:4501`; starts after `migrate` completes successfully; has a healthcheck |
 | `worker` | `feasibility worker`; starts after `migrate` completes successfully |
 
-Every service sets `mem_limit`, each at least twice the peak working set a seeded day-1 run showed in `docker stats` (the measurements are in the compose file's header), and `tests/test_compose.py` fails if one does not. All ports bind to 127.0.0.1. Ports 4500 and 4503 stay free for the report viewer and n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
+Every service sets `mem_limit`, each at least twice the peak working set a seeded day-1 run showed in `docker stats` (the measurements are in the compose file's header), and `tests/test_compose.py` fails if one does not. All ports bind to 127.0.0.1. Port 4500 is reserved and unused (the report viewer was dropped) and 4503 stays free for n8n. A fresh clone needs no `.env`: compose falls back to local-only development defaults, mock mode and a localhost-bound database password.
 
 **Container hardening.** Base images are pinned by index digest, with the tag kept in a comment beside it: `python:3.12-slim` and `ghcr.io/astral-sh/uv:0.12.10` in the Dockerfile, `postgres:16-alpine` in compose and in the CI service container. Never use `:latest`. To refresh a digest, request the manifest from the registry and read the `Docker-Content-Digest` response header (for example `curl -sI -H 'Accept: application/vnd.oci.image.index.v1+json' <registry manifest URL for the tag>`), then update every place the image appears.
 
@@ -537,7 +562,7 @@ Pre-commit runs gitleaks and ruff.
 - **The live estimate spend has never run against RentCast.** It is tested through stub transports only. Not verified live: whether `/avm/value` returns sale comps for most addresses, whether it returns any for a vacant lot, and (as above) whether 404 and 429 are billed.
 - **The spend and the client can disagree about the billing period near its boundary.** The cap and reserve use the period that contains the run date (the market's time zone); the budget reservation uses the UTC date. When the two differ, before the first call or between two calls, the stage spends nothing more and defers the rest until the next run; the hard budget stop is unaffected.
 - **Estimates are reused for `ttl_days` and a market move inside that window is not seen.**
-- **The API has no authentication, rate limiting or IP banning yet.** It is read-only, binds to 127.0.0.1 and serves synthetic data in mock mode. Phase 5's write endpoint brings authentication with it; anything exposed beyond localhost needs these controls first.
+- **The API's tokens are static.** No expiry, rotation or per-person identity: rotate by changing `.env` and restarting the api. Rate limits and the ban live in the API process: they reset on a restart and assume one process. Behind a proxy or tunnel, set `API_CLIENT_IP_HEADER`, or every request shares the proxy's address and one attacker can ban everyone. Nothing here is a reason to expose the API beyond localhost without a reverse proxy that terminates TLS.
 - **Pro-formas are illustrative.** Every Dallas cost value is a labelled default from aggregator and lender-blog pages, not a quote or a builder's actuals. Contingency, the build/marketing split, the living share and the default zoning rule are unsourced; hard cost is probably low for inner-Dallas spec homes. Quote nothing from a pro-forma to a client without the builder's own figures.
 - **ARV from resale comps.** There is no new-build premium (the pack knob `new_build_premium_pct` is zero because no public source supports a number) and no size adjustment; the sign of the combined error is unknown. The AVM point estimate is not used.
 - **The loan is not capped at a share of ARV**, the draw schedule is a linear approximation, taxes use the purchase price as the land basis and ignore improvements under construction, and setbacks, platted building lines and overlays are ignored in sizing. The maximum offer is a closed form that ignores the rounding of each cost line, so profit at that offer can differ from the target by a couple of cents.
@@ -570,3 +595,6 @@ Pre-commit runs gitleaks and ruff.
 - **The injection scan is a heuristic list.** The structural defences (closed schema, verified quotes, no digits from quotes, no tools) are the real guard.
 - **Haiku-tier extraction is the routing choice and its quality on real remarks is unmeasured.** Moving extraction to the mid tier is a config change plus a re-recording.
 - **Tracing and the library's audit log are not used.** The ledger is the only record of calls.
+- **Mock-mode triggers need an explicit date**, as `source run` does. The trigger queues a job; if no worker is running nothing happens until one is.
+- **The brief covers computed pro-formas only** (at most ten, in rank order), and counts the rest. Its signals are code and meaning, never the quote, so a reader cannot see the listing words behind a signal; the quote stays in `GET /sourcing/runs/{id}/candidates/{id}/llm`.
+- **`brief.deliver` only builds and stores the brief for now.** The PDF, the Notion rows, the Slack digest, the delivery ledger and the schedule are later sessions. A brief row has no retention rule yet, like the other run tables.
