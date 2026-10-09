@@ -1,5 +1,6 @@
 """`feasibility proforma list` and `show` over the seeded database."""
 
+import dataclasses
 import logging
 from collections.abc import Iterator
 from datetime import date
@@ -237,3 +238,21 @@ def test_the_views_round_half_up_not_half_even() -> None:
     assert render.percent("0.1925") == "19.3%"
     assert render.percent("0.1935") == "19.4%"
     assert render.money("1234.505") == "1,234.51"
+
+
+def test_a_stored_result_the_model_no_longer_accepts_is_a_message_not_a_traceback(
+    seeded: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = store.read_proforma
+
+    def stale(connection: Any, run_id: int, candidate_id: int) -> Any:
+        found = real(connection, run_id, candidate_id)
+        return dataclasses.replace(found, result={"version": 2})
+
+    monkeypatch.setattr(cli.proforma_store, "read_proforma", stale)
+
+    result = _invoke("show", str(seeded["computed"]))
+
+    assert result.exit_code == 1
+    assert "does not fit the current model" in result.output
+    assert "Traceback" not in result.output

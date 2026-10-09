@@ -278,8 +278,18 @@ def proforma_show(
     if item is None:
         typer.echo(f"candidate {candidate_id} has no pro-forma in run {shown_run}", err=True)
         raise typer.Exit(code=2)
+    try:
+        lines = render.show_lines(item, sensitivity=sensitivity)
+    except ValidationError as error:
+        # A result stored under an older version of the model; say so rather than trace.
+        typer.echo(
+            f"the stored result of candidate {candidate_id} does not fit the current model "
+            f"({error.error_count()} problems)",
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
     typer.echo(f"run {shown_run}")
-    for line in render.show_lines(item, sensitivity=sensitivity):
+    for line in lines:
         typer.echo(line)
 
 
