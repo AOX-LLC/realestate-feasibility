@@ -3,6 +3,10 @@ so a rolled-back run keeps its spend. All SQL for the ledger lives here.
 
 Spend is `sum(coalesce(cost_usd, reserved_usd))`: a call that raised has no known cost, so it
 counts at the reservation held for it. The total is therefore over-stated, never under-stated.
+
+A call's row is written before the call, as a `provider_error` at its reservation, and updated
+when the call ends. A process killed mid-call therefore leaves that row behind: it reads as a
+failed call that cost its reservation, which is the safe thing to assume.
 """
 
 from dataclasses import dataclass
@@ -10,11 +14,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Engine, func, insert, select
+from sqlalchemy import Connection, Engine, delete, func, insert, select, update
 
 from feasibility.tables import llm_call
 
 ZERO = Decimal(0)
+# Key of the advisory lock that serialises "check the caps, then write the pending row".
+SPEND_LOCK_KEY = "llm_spend"
 _SPEND = func.coalesce(llm_call.c.cost_usd, llm_call.c.reserved_usd)
 
 
@@ -43,8 +49,8 @@ class LlmCallRecord:
     called_at: datetime | None = None
 
 
-def record_call(engine: Engine, call: LlmCallRecord) -> int:
-    """Insert one ledger row and return its id. Commits on its own connection."""
+def insert_call(connection: Connection, call: LlmCallRecord) -> int:
+    """Insert one ledger row on `connection` and return its id."""
     values: dict[str, Any] = {
         "run_id": call.run_id,
         "candidate_id": call.candidate_id,
@@ -68,11 +74,61 @@ def record_call(engine: Engine, call: LlmCallRecord) -> int:
     }
     if call.called_at is not None:
         values["called_at"] = call.called_at
-    with engine.begin() as connection:
-        row_id = connection.execute(
-            insert(llm_call).values(**values).returning(llm_call.c.id)
-        ).scalar_one()
+    row_id = connection.execute(
+        insert(llm_call).values(**values).returning(llm_call.c.id)
+    ).scalar_one()
     return int(row_id)
+
+
+def record_call(engine: Engine, call: LlmCallRecord) -> int:
+    """Insert one ledger row and return its id. Commits on its own connection."""
+    with engine.begin() as connection:
+        return insert_call(connection, call)
+
+
+def lock_spend(connection: Connection) -> None:
+    """Hold the spend lock until `connection`'s transaction ends. Whoever checks a cap and then
+    writes the row that counts against it does both under this lock, so two processes cannot
+    both pass the same check."""
+    connection.execute(select(func.pg_advisory_xact_lock(func.hashtext(SPEND_LOCK_KEY))))
+
+
+def finish_call(
+    engine: Engine,
+    call_id: int,
+    *,
+    outcome: str,
+    reserved_usd: Decimal,
+    attempts: int,
+    model: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
+    cost_usd: Decimal | None = None,
+    latency_ms: int | None = None,
+) -> None:
+    """Record how a call ended, on the row written before it. Commits on its own connection."""
+    values = {
+        "outcome": outcome,
+        "reserved_usd": reserved_usd,
+        "attempts": attempts,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "cost_usd": cost_usd,
+        "latency_ms": latency_ms,
+    }
+    with engine.begin() as connection:
+        connection.execute(update(llm_call).where(llm_call.c.id == call_id).values(**values))
+
+
+def discard_call(engine: Engine, call_id: int) -> None:
+    """Remove the row of a call that never reached the model (an error in our own code)."""
+    with engine.begin() as connection:
+        connection.execute(delete(llm_call).where(llm_call.c.id == call_id))
 
 
 def run_spend(engine: Engine, run_id: int) -> Decimal:

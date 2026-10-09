@@ -1,13 +1,15 @@
-"""Spend caps, hard by reservation.
+"""Spend caps, enforced by reservation.
 
 Before each call a guard refuses when `spent + reservation > cap`. The reservation is the most a
-single call can cost (agent-core refuses any call whose worst case, retries included, is over
-it), so a call that is let through cannot take spend past the cap. A call whose cost is unknown
-because it raised is counted at its reservation, so recorded spend is never under-stated.
+single call may cost as agent-core estimates it (3 characters to a token, plus the full output
+allowance); agent-core refuses any call whose estimate is over it. A call that is let through
+is expected to cost no more, and an overshoot, if the estimate is ever wrong, is recorded at its
+real cost. A call whose cost is unknown because it raised is counted at its reservation, so
+recorded spend is not under-stated.
 
-The guards do not lock. Two callers sharing a cap can both pass the check, so callers run
-serially: the sourcing run holds an advisory lock around its model stages, and the eval and
-recording sessions make one call at a time.
+The guards do not lock. The metered client checks a guard and writes the row that counts against
+it under one Postgres advisory lock, so callers that share a cap cannot both pass the same check.
+A session guard with no database (an eval run in CI) is in-process only.
 """
 
 from collections.abc import Callable

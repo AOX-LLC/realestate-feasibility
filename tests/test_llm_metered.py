@@ -1,6 +1,7 @@
 """What the metered client writes for each kind of call, and what it forwards."""
 
 import asyncio
+import threading
 from decimal import Decimal
 
 import pytest
@@ -16,13 +17,15 @@ from aox_agent_core.errors import (
     StructuredOutputError,
 )
 from llm_fakes import INPUTS, PROMPT, FakeClient, Verdict, result
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, insert, select
+from sqlalchemy.exc import IntegrityError
 
 from feasibility.config import Settings
+from feasibility.llm import ledger
 from feasibility.llm.client import build_model_client
 from feasibility.llm.metered import MeteredClient, input_sha256
 from feasibility.llm.spend import SessionSpendGuard
-from feasibility.tables import llm_call
+from feasibility.tables import llm_call, sourcing_run
 
 RESERVATION = Decimal("0.05")
 
@@ -48,6 +51,15 @@ def _rows(engine: Engine) -> list[dict[str, object]]:
         return [
             dict(r) for r in connection.execute(select(llm_call).order_by(llm_call.c.id)).mappings()
         ]
+
+
+def _new_run(engine: Engine) -> int:
+    with engine.begin() as connection:
+        return connection.execute(
+            insert(sourcing_run)
+            .values(market="dallas", as_of="2026-10-01", status="running", sync_status="pending")
+            .returning(sourcing_run.c.id)
+        ).scalar_one()
 
 
 def _call(client: MeteredClient, **kwargs: object) -> None:
@@ -277,3 +289,103 @@ def test_a_config_whose_mode_differs_from_the_wrapped_clients_is_refused(
 
     with pytest.raises(ValueError, match="differs from the client's replay"):
         MeteredClient(inner, SessionSpendGuard(Decimal(1)), None, live_config)
+
+
+# --- the row exists before the call, and the check and the row are one step ---
+
+
+def test_the_call_is_counted_while_it_is_in_flight(engine: Engine, config: AgentCoreConfig) -> None:
+    run_id = _new_run(engine)
+    seen: list[Decimal] = []
+
+    class Probe(FakeClient):
+        def call_sync(self, prompt, *, inputs, **kwargs):  # type: ignore[no-untyped-def]
+            seen.append(ledger.run_spend(engine, run_id))
+            return super().call_sync(prompt, inputs=inputs, **kwargs)
+
+    client = MeteredClient(
+        Probe(result("0.004000")),
+        SessionSpendGuard(Decimal(100)),
+        engine,
+        config,
+        run_id=run_id,
+    )
+
+    _call(client)
+
+    assert seen == [RESERVATION]
+    assert ledger.run_spend(engine, run_id) == Decimal("0.004000")
+
+
+def test_a_row_that_cannot_be_closed_still_counts_at_the_reservation(
+    engine: Engine, config: AgentCoreConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = _new_run(engine)
+    client = MeteredClient(
+        FakeClient(result("0.004000")),
+        SessionSpendGuard(Decimal(100)),
+        engine,
+        config,
+        run_id=run_id,
+    )
+
+    def database_down(*_args: object, **_kwargs: object) -> None:
+        raise OSError("connection lost")
+
+    monkeypatch.setattr(ledger, "finish_call", database_down)
+
+    with pytest.raises(OSError, match="connection lost"):
+        _call(client)
+
+    assert ledger.run_spend(engine, run_id) == RESERVATION
+
+
+def test_a_stage_the_ledger_does_not_know_is_refused_before_the_call(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    fake = FakeClient(result())
+    client = _metered(fake, engine, config)
+
+    with pytest.raises(ValueError, match="unknown stage 'chat'"):
+        client.call_sync(
+            PROMPT, inputs=INPUTS, output=Verdict, stage="chat", task="signals_extract"
+        )
+
+    assert fake.calls == []
+    assert _rows(engine) == []
+
+
+def test_a_candidate_that_does_not_exist_fails_before_the_call_is_made(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    fake = FakeClient(result())
+    client = _metered(fake, engine, config)
+
+    with pytest.raises(IntegrityError):
+        _call(client, candidate_id=987654321)
+
+    assert fake.calls == []
+    assert _rows(engine) == []
+
+
+def test_the_check_waits_for_whoever_holds_the_spend_lock(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    fake = FakeClient(result())
+    client = _metered(fake, engine, config)
+    finished = threading.Event()
+
+    def make_call() -> None:
+        _call(client)
+        finished.set()
+
+    with engine.begin() as holder:
+        ledger.lock_spend(holder)
+        worker = threading.Thread(target=make_call)
+        worker.start()
+        assert not finished.wait(0.5), "the call went ahead while another caller held the lock"
+        assert fake.calls == []
+    worker.join(timeout=10)
+
+    assert finished.is_set()
+    assert len(fake.calls) == 1

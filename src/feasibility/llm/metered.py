@@ -1,6 +1,10 @@
-"""The metered client: every model call passes a spend guard first and writes one ledger row
-after, whatever its outcome. It wraps a client (the library's, or a fake in tests) and never
-makes a call itself.
+"""The metered client: every model call passes a spend guard first and has one ledger row,
+whatever its outcome. It wraps a client (the library's, or a fake in tests) and never makes a
+call itself.
+
+The row is written before the call, at the call's reservation, under the spend lock, and updated
+when the call ends. So the guard's check and the spend it protects are one atomic step, and a
+call that dies, or a row that cannot be updated afterwards, still counts against the caps.
 
 No prompt text, remarks or model output is written anywhere here. A call is never made inside a
 database transaction: each ledger row commits on its own connection.
@@ -29,6 +33,7 @@ from feasibility.llm import ledger
 from feasibility.llm.errors import LlmBudgetError
 from feasibility.llm.ledger import LlmCallRecord
 from feasibility.llm.spend import SpendGuard
+from feasibility.tables import LLM_STAGES
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 
@@ -100,6 +105,7 @@ class _Call:
         self.digest = digest
         self.run_id = run_id
         self.candidate_id = candidate_id
+        self.row_id: int | None = None
 
 
 class MeteredClient:
@@ -152,7 +158,7 @@ class MeteredClient:
         max_attempts: int = 2,
     ) -> CallResult[OutputT]:
         call = self._prepare(stage, prompt, inputs, tier, task, candidate_id)
-        self._reserve(call)
+        self._begin(call)
         try:
             result = self._inner.call_sync(
                 prompt,
@@ -163,9 +169,9 @@ class MeteredClient:
                 max_attempts=max_attempts,
             )
         except BaseException as error:
-            self._record_failure(call, error)
+            self._end_failed(call, error)
             raise
-        self._record_success(call, result)
+        self._end_ok(call, result)
         return result
 
     async def call(
@@ -181,7 +187,7 @@ class MeteredClient:
         max_attempts: int = 2,
     ) -> CallResult[OutputT]:
         call = self._prepare(stage, prompt, inputs, tier, task, candidate_id)
-        await asyncio.to_thread(self._reserve, call)
+        await asyncio.to_thread(self._begin, call)
         try:
             result = await self._inner.call(
                 prompt,
@@ -192,9 +198,9 @@ class MeteredClient:
                 max_attempts=max_attempts,
             )
         except BaseException as error:
-            await asyncio.to_thread(self._record_failure, call, error)
+            await asyncio.to_thread(self._end_failed, call, error)
             raise
-        await asyncio.to_thread(self._record_success, call, result)
+        await asyncio.to_thread(self._end_ok, call, result)
         return result
 
     def _prepare(
@@ -206,6 +212,8 @@ class MeteredClient:
         task: str | None,
         candidate_id: int | None,
     ) -> _Call:
+        if stage not in LLM_STAGES:
+            raise ValueError(f"unknown stage {stage!r}; the ledger takes {', '.join(LLM_STAGES)}")
         if tier is not None and task is not None:
             raise ValueError("pass tier or task, not both")
         routing = self._config.routing
@@ -219,20 +227,40 @@ class MeteredClient:
             candidate_id=candidate_id,
         )
 
-    def _reserve(self, call: _Call) -> None:
-        try:
+    def _begin(self, call: _Call) -> None:
+        """Check the caps and write the call's row, at its reservation, as one step under the
+        spend lock. Raises LlmBudgetError (after writing a refused row) if a cap would be passed.
+        A row that cannot be written (a bad run or candidate id) fails here, before any money
+        is spent."""
+        if self._engine is None:
             self._guard.reserve(self._reservation, billable=self._billable)
-        except LlmBudgetError:
-            self._write(call, outcome="budget_refused", reserved=Decimal(0))
-            raise
+            return
+        refusal: LlmBudgetError | None = None
+        with self._engine.begin() as connection:
+            ledger.lock_spend(connection)
+            try:
+                self._guard.reserve(self._reservation, billable=self._billable)
+            except LlmBudgetError as error:
+                refusal = error
+                ledger.insert_call(
+                    connection, self._record(call, "budget_refused", reserved=Decimal(0))
+                )
+            else:
+                # Counted as a failed call until it ends; a killed process leaves it so.
+                call.row_id = ledger.insert_call(
+                    connection, self._record(call, "provider_error", reserved=self._reservation)
+                )
+        if refusal is not None:
+            raise refusal
 
-    def _record_success(self, call: _Call, result: CallResult[Any]) -> None:
-        self._write(
+    def _end_ok(self, call: _Call, result: CallResult[Any]) -> None:
+        self._guard.settle(result.cost_usd)
+        self._finish(
             call,
             outcome="ok",
             reserved=self._reservation,
-            model=result.model,
             attempts=result.attempts,
+            model=result.model,
             input_tokens=result.usage.input_tokens,
             output_tokens=result.usage.output_tokens,
             cache_creation_input_tokens=result.usage.cache_creation_input_tokens,
@@ -240,48 +268,56 @@ class MeteredClient:
             cost_usd=result.cost_usd,
             latency_ms=round(result.latency_ms),
         )
-        self._guard.settle(result.cost_usd)
 
-    def _record_failure(self, call: _Call, error: BaseException) -> None:
-        """One row for a call that raised. Its cost is unknown, so it counts at the reservation.
-        An error this module does not know, in a billable mode, is counted the same way: a
-        request may have gone out, and the total must err high. Such an error in replay, where
-        nothing is sent, leaves no row."""
-        if isinstance(error, BudgetExceededError):
-            # agent-core also checks before a retry, after a first attempt that was paid for and
-            # whose cost the error does not carry. In a billable mode that is counted at the
-            # reservation; only in replay, where nothing is ever sent, is it free.
-            reserved = self._reservation if self._billable else Decimal(0)
-            self._write(call, outcome="budget_refused", reserved=reserved)
-            self._guard.settle(reserved)
+    def _end_failed(self, call: _Call, error: BaseException) -> None:
+        """Close the row of a call that raised. Its cost is unknown, so it counts at the
+        reservation. An error this module does not know, in a billable mode, is counted the same
+        way: a request may have gone out, and the total must err high. Such an error in replay,
+        where nothing is sent, leaves no row. A library budget refusal can follow a first
+        attempt that was paid for, so it too counts at the reservation unless in replay."""
+        outcome = "budget_refused" if isinstance(error, BudgetExceededError) else _outcome_of(error)
+        if outcome is None and not self._billable:
+            if self._engine is not None and call.row_id is not None:
+                ledger.discard_call(self._engine, call.row_id)
             return
-        outcome = _outcome_of(error)
-        if outcome is None:
-            if not self._billable:
-                return
-            outcome = "provider_error"
+        reserved = (
+            self._reservation if self._billable or outcome != "budget_refused" else Decimal(0)
+        )
+        self._guard.settle(reserved)
         attempts = len(error.attempts) if isinstance(error, StructuredOutputError) else 1
-        self._write(call, outcome=outcome, reserved=self._reservation, attempts=max(1, attempts))
-        self._guard.settle(self._reservation)
+        self._finish(
+            call,
+            outcome=outcome or "provider_error",
+            reserved=reserved,
+            attempts=max(1, attempts),
+        )
 
-    def _write(self, call: _Call, *, outcome: str, reserved: Decimal, **measured: Any) -> None:
-        if self._engine is None:
+    def _finish(
+        self, call: _Call, *, outcome: str, reserved: Decimal, attempts: int, **measured: Any
+    ) -> None:
+        if self._engine is None or call.row_id is None:
             return
-        ledger.record_call(
+        ledger.finish_call(
             self._engine,
-            LlmCallRecord(
-                stage=call.stage,
-                prompt_id=call.prompt.id,
-                prompt_version=call.prompt.version,
-                input_sha256=call.digest,
-                tier=call.tier.value,
-                mode=self._config.mode.value,
-                outcome=outcome,
-                reserved_usd=reserved,
-                run_id=call.run_id,
-                candidate_id=call.candidate_id,
-                **measured,
-            ),
+            call.row_id,
+            outcome=outcome,
+            reserved_usd=reserved,
+            attempts=attempts,
+            **measured,
+        )
+
+    def _record(self, call: _Call, outcome: str, *, reserved: Decimal) -> LlmCallRecord:
+        return LlmCallRecord(
+            stage=call.stage,
+            prompt_id=call.prompt.id,
+            prompt_version=call.prompt.version,
+            input_sha256=call.digest,
+            tier=call.tier.value,
+            mode=self._config.mode.value,
+            outcome=outcome,
+            reserved_usd=reserved,
+            run_id=call.run_id,
+            candidate_id=call.candidate_id,
         )
 
 
