@@ -282,13 +282,11 @@ def _merge_counts(ctx: StageContext, tally: dict[str, int]) -> dict[str, Any]:
     """Merge the stage's counts, with the calls this attempt has made so far and what they cost,
     into the run, when the run is still the one that was built. Returns what it merged. Best
     effort: the stage's own failure must propagate, not this one."""
-    calls, cost = ledger.calls_since(ctx.engine, ctx.run_id, ctx.watermark)
-    patch: dict[str, Any] = {
-        **tally,
-        "llm_calls": calls,
-        "llm_cost_usd": None if cost is None else str(cost),
-    }
+    patch: dict[str, Any] = dict(tally)
     try:
+        calls, cost = ledger.calls_since(ctx.engine, ctx.run_id, ctx.watermark)
+        patch["llm_calls"] = calls
+        patch["llm_cost_usd"] = None if cost is None else str(cost)
         with ctx.engine.begin() as connection:
             sourcing_store.lock_market_runs(connection, ctx.market)
             if llm_store.attempt_is_current(connection, ctx.run_id, ctx.attempt):

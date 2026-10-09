@@ -994,3 +994,23 @@ def test_a_superseded_attempt_stops_before_the_narratives_and_leaves_no_error_on
         ("accepted", None): 5,
         ("not_eligible", "proforma_no_arv"): 7,
     }
+
+
+def test_a_failure_in_recording_the_counts_does_not_replace_the_stages_own_error(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def blip(*args: Any) -> Any:
+        raise RuntimeError("the database blinked")
+
+    monkeypatch.setattr("feasibility.llm.run.ledger.calls_since", blip)
+
+    with pytest.raises(PermanentModelError):
+        run_sourcing(
+            seeded,
+            _settings(),
+            "dallas",
+            DAY_ONE,
+            model=RunModel(
+                failures={1: ReplayMissError("no recording", key="k", path="p")}, **FREE
+            ),
+        )
