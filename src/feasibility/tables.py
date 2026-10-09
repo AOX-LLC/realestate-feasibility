@@ -620,3 +620,22 @@ candidate_narrative = Table(
     ),
     Index(None, "run_id", "status"),
 )
+
+BRIEF_COMPLETENESS = ("complete", "partial")
+
+# What is delivered for a run, built by code from the run's stored rows and kept for audit and
+# idempotency (a same-day re-run that changes nothing hashes the same). Rebuilt in place.
+brief = Table(
+    "brief",
+    metadata,
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="CASCADE")),
+    Column("version", SmallInteger, nullable=False),
+    Column("completeness", Text, nullable=False),
+    Column("content", JSONB, nullable=False),
+    Column("content_sha256", CHAR(64), nullable=False),
+    _timestamp("built_at"),
+    PrimaryKeyConstraint("run_id"),
+    CheckConstraint("version = 1", name="version"),
+    CheckConstraint(_in_list("completeness", BRIEF_COMPLETENESS), name="completeness"),
+    CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="content_sha256"),
+)
