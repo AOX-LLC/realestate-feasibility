@@ -19,6 +19,7 @@ from aox_agent_core.errors import (
 from conftest import empty_database
 from llm_fakes import RunModel
 from sqlalchemy import Engine, text
+from test_api import SENTINEL
 from typer.testing import CliRunner
 
 from feasibility import cli
@@ -355,11 +356,52 @@ def test_a_retry_cannot_spend_past_the_run_cap(seeded: Engine) -> None:
     assert again.counts.signals_deferred == 8
 
 
-def test_the_monthly_cap_defers_billable_calls(seeded: Engine) -> None:
-    # A zero monthly cap refuses every billable call; replay calls are not billable and pass.
+def _billable(**overrides: Any) -> Settings:
+    """Settings for a run in `record` mode (billable calls) with the stand-in key; the model
+    passed to `run_sourcing` is a fake, so nothing is sent."""
+    return _settings(AGENT_CORE_MODE="record", AGENT_CORE_ANTHROPIC_API_KEY=SENTINEL, **overrides)
+
+
+def test_a_zero_monthly_cap_refuses_every_billable_call(seeded: Engine) -> None:
     model = RunModel(**FREE)
+
     result = run_sourcing(
-        seeded, _settings(llm_monthly_budget_usd=Decimal(0)), "dallas", DAY_ONE, model=model
+        seeded, _billable(llm_monthly_budget_usd=Decimal(0)), "dallas", DAY_ONE, model=model
+    )
+
+    assert model.calls == []
+    assert _signals_by_status(seeded, result.run_id) == {
+        ("deferred", "budget"): 10,
+        ("fields_only", "no_remarks"): 2,
+    }
+    assert _narratives_by_status(seeded, result.run_id)[("deferred", "budget")] == 5
+    ledger = _ledger(seeded, result.run_id)
+    assert [row.outcome for row in ledger] == ["budget_refused"]
+    assert _rows(seeded, "SELECT mode, billable FROM llm_call")[0] == ("record", True)
+
+
+def test_the_monthly_cap_stops_billable_calls_where_it_is_reached(seeded: Engine) -> None:
+    # Each call costs 0.004 and holds 0.05: a call goes out while spent + 0.05 <= 0.06.
+    model = RunModel(small_cost="0.004", mid_cost="0.012")
+
+    result = run_sourcing(
+        seeded, _billable(llm_monthly_budget_usd=Decimal("0.06")), "dallas", DAY_ONE, model=model
+    )
+
+    assert len(model.calls) == 3
+    assert result.counts.signals_extracted == 3
+    assert result.counts.signals_deferred == 7
+    spent = _rows(seeded, "SELECT sum(coalesce(cost_usd, reserved_usd)) FROM llm_call")[0][0]
+    assert spent <= Decimal("0.06")
+
+
+def test_a_replay_run_is_not_held_to_the_monthly_cap(seeded: Engine) -> None:
+    result = run_sourcing(
+        seeded,
+        _settings(llm_monthly_budget_usd=Decimal(0)),
+        "dallas",
+        DAY_ONE,
+        model=RunModel(**FREE),
     )
 
     assert result.counts.signals_extracted == 10
@@ -530,10 +572,36 @@ def test_a_cached_result_of_another_shape_is_treated_as_absent(seeded: Engine) -
     assert again.counts.signals_reused == again.counts.narratives_reused == 0
 
 
-def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(seeded: Engine) -> None:
-    clean = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
-    expected = _phase_three(seeded, clean.run_id)
+def _without_the_model_stages(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> tuple[int, dict[str, list[str]]]:
+    """The run with both model stages switched off, and everything Phase 3 stored for it: the
+    baseline that a run with the stages, failing or not, must leave as it is."""
+    with monkeypatch.context() as patch:
+        patch.setattr("feasibility.sourcing.run.llm_run.run_signals", lambda ctx, pack: {})
+        patch.setattr("feasibility.sourcing.run.llm_run.run_narratives", lambda ctx: {})
+        bare = run_sourcing(engine, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+    expected = _phase_three(engine, bare.run_id)
     assert expected["proforma"], "the comparison must have something to compare"
+    assert _rows(engine, "SELECT count(*) FROM candidate_signals")[0][0] == 0
+    return bare.run_id, expected
+
+
+def test_the_model_stages_leave_ranking_and_proformas_as_they_were(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id, expected = _without_the_model_stages(seeded, monkeypatch)
+
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
+
+    assert _rows(seeded, "SELECT count(*) FROM candidate_signals")[0][0] == 12
+    assert _phase_three(seeded, run_id) == expected
+
+
+def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id, expected = _without_the_model_stages(seeded, monkeypatch)
 
     for failing in (
         ProviderUnavailableError("503"),
@@ -543,7 +611,7 @@ def test_a_failed_signals_stage_leaves_ranking_and_proformas_intact(seeded: Engi
             connection.execute(text("DELETE FROM llm_result"))  # or the failing call is never made
         with pytest.raises((RetryableModelError, PermanentModelError)):
             run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=_fails(failing)(1))
-        assert _phase_three(seeded, clean.run_id) == expected
+        assert _phase_three(seeded, run_id) == expected
 
 
 def test_a_missing_recording_is_permanent_and_says_nothing_about_the_remarks(
@@ -814,11 +882,10 @@ def test_a_failed_signals_stage_writes_no_narratives(seeded: Engine) -> None:
     assert _rows(seeded, "SELECT count(*) FROM candidate_narrative")[0][0] == 0
 
 
-def test_a_failed_narrative_stage_leaves_ranking_and_proformas_intact(seeded: Engine) -> None:
-    clean = run_sourcing(seeded, _settings(), "dallas", DAY_ONE, model=RunModel(**FREE))
-    expected = _phase_three(seeded, clean.run_id)
-    with seeded.begin() as connection:
-        connection.execute(text("DELETE FROM llm_result WHERE prompt_id = 'narrative.write'"))
+def test_a_failed_narrative_stage_leaves_ranking_and_proformas_intact(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id, expected = _without_the_model_stages(seeded, monkeypatch)
 
     with pytest.raises(RetryableModelError):
         run_sourcing(
@@ -829,7 +896,8 @@ def test_a_failed_narrative_stage_leaves_ranking_and_proformas_intact(seeded: En
             model=RunModel(failures={1: RateLimitedError("429")}, **FREE),
         )
 
-    assert _phase_three(seeded, clean.run_id) == expected
+    assert _phase_three(seeded, run_id) == expected
+    assert _rows(seeded, "SELECT count(*) FROM candidate_signals")[0][0] == 12
 
 
 def test_a_missing_recording_in_the_narratives_stops_the_stage(seeded: Engine) -> None:
