@@ -177,14 +177,19 @@ def _spend_estimates(
             secrets=settings.secret_values(),
         )
     except Exception as error:
-        message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
-        try:
-            with engine.begin() as connection:
-                store.set_run_error(connection, run_id, message)
-        except Exception:
-            # The stage's own failure must propagate, not this one.
-            log.exception("could not record the error of run %s", run_id)
+        _record_stage_error(engine, settings, run_id, error)
         raise
+
+
+def _record_stage_error(engine: Engine, settings: Settings, run_id: int, error: Exception) -> None:
+    """Note on the completed run that a stage after the build failed (redacted)."""
+    message = redact(f"{type(error).__name__}: {error}", settings.secret_values())
+    try:
+        with engine.begin() as connection:
+            store.set_run_error(connection, run_id, message)
+    except Exception:
+        # The stage's own failure must propagate, not this one.
+        log.exception("could not record the error of run %s", run_id)
 
 
 def _refuse_if_out_of_order(connection: Connection, market: str, as_of: date) -> None:
