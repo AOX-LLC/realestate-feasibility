@@ -7,8 +7,9 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from conftest import empty_database
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, select
 from test_api import SENTINEL, _client, _walk_pages
 
 from feasibility.api.app import create_app
@@ -44,10 +45,7 @@ SUMMARY_KEYS = {
 def run_two(migrated_engine: Engine) -> Iterator[tuple[TestClient, int]]:
     """The client and the id of day two's run. Built once: nothing here writes through the
     API, and this module's tests never use the function-scoped `engine` fixture."""
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            text("TRUNCATE sourcing_run, candidate, listing, parcel, api_budget CASCADE")
-        )
+    empty_database(migrated_engine)
     seed(migrated_engine, MOCK)
     run_sourcing(migrated_engine, MOCK, "dallas", DAY_ONE)
     run_sourcing(migrated_engine, MOCK, "dallas", DAY_TWO)

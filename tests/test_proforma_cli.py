@@ -6,7 +6,8 @@ from datetime import date
 from typing import Any
 
 import pytest
-from sqlalchemy import Engine, select, text
+from conftest import empty_database
+from sqlalchemy import Engine, select
 from typer.testing import CliRunner
 
 from feasibility import cli
@@ -56,10 +57,7 @@ def keep_root_logging() -> Iterator[None]:
 @pytest.fixture(scope="module")
 def ran(migrated_engine: Engine) -> dict[str, Any]:
     """Both days sourced once; the ids the tests ask for by candidate."""
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            text("TRUNCATE sourcing_run, candidate, listing, parcel, api_budget CASCADE")
-        )
+    empty_database(migrated_engine)
     seed(migrated_engine, _settings())
     one = run_sourcing(migrated_engine, _settings(), "dallas", DAY_ONE)
     two = run_sourcing(migrated_engine, _settings(), "dallas", DAY_TWO)
@@ -101,7 +99,7 @@ def test_list_shows_the_latest_run_in_rank_order(seeded: dict[str, Any]) -> None
     result = _invoke("list")
 
     assert result.exit_code == 0
-    assert result.output.splitlines()[0] == "run 2, all statuses: 17 shown"
+    assert result.output.splitlines()[0] == f"run {seeded['day_two']}, all statuses: 17 shown"
     rows = _table(result.output)
     assert [row[0] for row in rows] == [str(rank) for rank in range(1, 18)]
     assert rows[0][1:] == [

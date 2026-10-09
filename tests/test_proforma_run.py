@@ -13,7 +13,8 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import Engine, func, select, text
+from conftest import empty_database
+from sqlalchemy import Engine, func, select
 
 from feasibility.config import DataMode, Settings
 from feasibility.proforma import store
@@ -108,10 +109,7 @@ def _read_day(engine: Engine, result: SourcingResult) -> Day:
 def days(migrated_engine: Engine) -> Iterator[dict[date, Day]]:
     """Both snapshot days, run once for the read-only tests below. They read what was captured
     here, not the database, which the next test's `engine` fixture empties."""
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            text("TRUNCATE sourcing_run, candidate, listing, parcel, api_budget CASCADE")
-        )
+    empty_database(migrated_engine)
     seed(migrated_engine, _settings())
     results = {
         day: run_sourcing(migrated_engine, _settings(), "dallas", day) for day in (DAY_ONE, DAY_TWO)
