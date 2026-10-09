@@ -214,8 +214,21 @@ _APOSTROPHE_IN_WORD = re.compile(r"(?<=[A-Za-z])[\u2018\u2019'](?=[A-Za-z])")
 _JOINED_BY_PUNCTUATION = re.compile(r"(?<=[A-Za-z])[-._](?=[A-Za-z])")
 _SPACED_LETTERS = re.compile(r"\b(?:[A-Za-z][ \t\n]+){2,}[A-Za-z]\b")
 _DIGIT = re.compile(r"[0-9]")
-# A figure followed by a magnitude letter, even after a space, is a bigger number: $1,000.00 k.
-_MAGNITUDE_SUFFIX = re.compile(r"\s{0,2}(?:[kmb]|mm|bn)\b", re.IGNORECASE)
+# What may not follow a figure, however far off it sits (whitespace, a hyphen, a bracket): a
+# magnitude (`$1,000.00 k`, `mil`), a rate or unit (`/mo`, `per month`, `psf`, `APR`).
+_AFTER_FIGURE = re.compile(
+    r"[\s\-(^*'\u2018\u2019]*(?:"
+    r"(?:k|m|b|g|t|mm|bn|mn|mln|bln|bil|mil|tn|thou|lakh|crore|million|billion|thousand|grand"
+    r"|psf|sf|apr|apy|pct|mo|yr|annually|monthly|yearly"
+    r"|sq|sqft|square|acres?|months?|years?|comps?)\b"
+    r"|/"
+    r"|per\s+(?:month|mo|year|yr|annum|sq|sf|square|unit|comp|lot|day|week|acre|foot|ft)\b)",
+    re.IGNORECASE,
+)
+# Words that, just before a figure, change what it says.
+_BEFORE_FIGURE = re.compile(
+    r"\b(?:minus|negative|neg|plus|cad|usd|eur|gbp|mxn|aud)\s*$", re.IGNORECASE
+)
 
 
 def _is_odd(character: str) -> bool:
@@ -233,12 +246,16 @@ def _stands_alone(text: str, start: int, end: int) -> bool:
             return False
         if before in ",." and start > 1 and text[start - 2].isdigit():
             return False
+        # The same sign with whitespace between: `- $107,560.14`, `minus 7.57%`.
+        gap = text[:start].rstrip()
+        if gap and (gap[-1] in _SIGNS or _BEFORE_FIGURE.search(gap)):
+            return False
     if end < len(text):
         after = text[end]
         # A percent sign after a figure changes its unit: $420,000.00%.
         if after.isalnum() or after == "%":
             return False
-        if _MAGNITUDE_SUFFIX.match(text, end):
+        if _AFTER_FIGURE.match(text, end):
             return False
         if after in ",." and end + 1 < len(text) and text[end + 1].isdigit():
             return False

@@ -424,3 +424,61 @@ def test_plain_words_that_contain_a_number_word_still_pass() -> None:
     rejected = [(n, kinds(draft(t))) for n, t in REVIEW_DECOYS if kinds(draft(t)) != []]
 
     assert rejected == []
+
+
+# --- a figure whose meaning is changed from a distance (gatekeeper review) -----------------------
+
+EN_DASH, EM_DASH, RSQUO = _c(0x2013), _c(0x2014), _c(0x2019)
+MEANING_CHANGES = [
+    ("spaced_minus_money", "Profit is - $107,560.14."),
+    ("spaced_minus_percent", "A - 7.57% margin."),
+    ("spaced_en_dash", f"Profit is {EN_DASH} $107,560.14."),
+    ("spaced_em_dash", f"Profit is {EM_DASH} $107,560.14."),
+    ("minus_then_newline", "Profit is -\n$107,560.14."),
+    ("minus_then_tab", "Profit is -\t$107,560.14."),
+    ("double_sign", "Gap of - -$95,728.50."),
+    ("word_minus", "A minus 7.57% margin."),
+    ("word_negative", "A negative $107,560.14."),
+    ("word_minus_before_signed", "Gap of minus -$95,728.50."),
+    ("word_plus", "Plus $324,271.50 of room."),
+    ("three_spaces_k", "Profit is $107,560.14   k."),
+    ("three_tabs_k", "Profit is $107,560.14\t\t\tk."),
+    ("three_newlines_k", "Profit is $107,560.14\n\n\nk."),
+    ("mil", "ARV of $420,000.00 mil."),
+    ("mn", "ARV of $420,000.00 mn."),
+    ("mln", "ARV of $420,000.00 mln."),
+    ("bil", "ARV of $420,000.00 bil."),
+    ("trillion_letter", "ARV of $420,000.00 T."),
+    ("thou", "ARV of $420,000.00 thou."),
+    ("lakh", "ARV of $420,000.00 lakh."),
+    ("crore", "ARV of $420,000.00 crore."),
+    ("hyphen_k", "ARV of $420,000.00-k."),
+    ("bracket_k", "ARV of $420,000.00 (k)."),
+    ("caret_k", "ARV of $420,000.00^k."),
+    ("star_k", "ARV of $420,000.00*k."),
+    ("quote_k", f"ARV of $420,000.00{RSQUO}k."),
+    ("per_month_slash", "Profit is $107,560.14/mo."),
+    ("per_sf_slash", "ARV is $420,000.00/sf."),
+    ("psf", "ARV is $420,000.00 psf."),
+    ("per_month_words", "A 33.69% per month return."),
+    ("apr", "A 33.69% APR."),
+    ("currency_prefix", "CAD $420,000.00."),
+    ("money_as_area", "A $420,000.00 sq ft lot."),
+]
+
+
+@pytest.mark.parametrize(("name", "text"), MEANING_CHANGES, ids=[r[0] for r in MEANING_CHANGES])
+def test_a_figure_whose_meaning_is_changed_from_a_distance_is_rejected(
+    name: str, text: str
+) -> None:
+    assert check_narrative(draft(text), FACTS).passed is False, name
+
+
+def test_dashes_and_words_away_from_a_figure_are_still_prose() -> None:
+    for text in (
+        "Profit is $107,560.14 - thin but real.",
+        f"Thin {EM_DASH} but the margin is 7.57%.",
+        "At $420,000.00, per the sheet, it is high.",
+        "The ceiling is $324,271.50; plus the comps are fresh.",
+    ):
+        assert kinds(draft(text)) == [], text
