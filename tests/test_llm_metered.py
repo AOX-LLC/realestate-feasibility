@@ -115,7 +115,7 @@ def test_the_candidate_id_reaches_the_row_and_not_the_wrapped_client(
         (ProviderUnavailableError("503"), "provider_error", 1),
         (ReplayMissError("miss"), "replay_error", 1),
         (SecretInRecordingError("secret"), "replay_error", 1),
-        (BudgetExceededError("over"), "budget_refused", 1),
+        (BudgetExceededError("over"), "budget_refused", 1),  # replay: nothing was sent
     ],
 )
 def test_every_failure_kind_writes_one_row_and_reraises(
@@ -134,6 +134,26 @@ def test_every_failure_kind_writes_one_row_and_reraises(
     assert row["input_tokens"] is None
     assert row["latency_ms"] is None
     assert row["reserved_usd"] == (Decimal(0) if outcome == "budget_refused" else RESERVATION)
+
+
+def test_a_budget_refusal_from_the_library_in_a_billable_mode_counts_at_the_reservation(
+    engine: Engine, config: AgentCoreConfig
+) -> None:
+    # The library checks again before a retry, after a first attempt that was paid for.
+    guard = SessionSpendGuard(Decimal(100))
+    client = MeteredClient(
+        FakeClient(BudgetExceededError("retry over budget")),
+        guard,
+        engine,
+        config.model_copy(update={"mode": Mode.LIVE}),
+    )
+
+    with pytest.raises(BudgetExceededError):
+        _call(client)
+
+    (row,) = _rows(engine)
+    assert (row["outcome"], row["reserved_usd"]) == ("budget_refused", RESERVATION)
+    assert guard.spent == RESERVATION
 
 
 def test_an_error_the_ledger_does_not_know_is_counted_when_the_call_could_have_cost_money(

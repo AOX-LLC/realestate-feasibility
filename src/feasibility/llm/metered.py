@@ -243,12 +243,17 @@ class MeteredClient:
         self._guard.settle(result.cost_usd)
 
     def _record_failure(self, call: _Call, error: BaseException) -> None:
-        """One row for a call that raised. Its cost is unknown, so it counts at the reservation
-        (nothing, for a call refused before it was sent). An error this module does not know,
-        in a billable mode, is counted the same way: a request may have gone out, and the total
-        must err high. Errors raised before anything is sent, in replay, leave no row."""
+        """One row for a call that raised. Its cost is unknown, so it counts at the reservation.
+        An error this module does not know, in a billable mode, is counted the same way: a
+        request may have gone out, and the total must err high. Such an error in replay, where
+        nothing is sent, leaves no row."""
         if isinstance(error, BudgetExceededError):
-            self._write(call, outcome="budget_refused", reserved=Decimal(0))
+            # agent-core also checks before a retry, after a first attempt that was paid for and
+            # whose cost the error does not carry. In a billable mode that is counted at the
+            # reservation; only in replay, where nothing is ever sent, is it free.
+            reserved = self._reservation if self._billable else Decimal(0)
+            self._write(call, outcome="budget_refused", reserved=reserved)
+            self._guard.settle(reserved)
             return
         outcome = _outcome_of(error)
         if outcome is None:
