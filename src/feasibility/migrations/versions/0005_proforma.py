@@ -17,6 +17,10 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 MONEY = sa.Numeric(14, 2)
+# The engine accepts comps of up to 15 digits and a tiny ARV makes a margin enormous, so the
+# figures it computes must fit wider columns than a listing price does.
+RESULT_MONEY = sa.Numeric(20, 2)
+RESULT_RATIO = sa.Numeric(20, 4)
 
 
 def upgrade() -> None:
@@ -28,13 +32,13 @@ def upgrade() -> None:
         sa.Column("reason", sa.Text()),
         sa.Column("estimate_fetched_on", sa.Date()),
         sa.Column("offer_price", MONEY, nullable=False),
-        sa.Column("arv", MONEY),
-        sa.Column("total_cost", MONEY),
-        sa.Column("profit", MONEY),
-        sa.Column("margin", sa.Numeric(10, 4)),
-        sa.Column("roi", sa.Numeric(10, 4)),
-        sa.Column("annualized_return", sa.Numeric(10, 4)),
-        sa.Column("max_offer", MONEY),
+        sa.Column("arv", RESULT_MONEY),
+        sa.Column("total_cost", RESULT_MONEY),
+        sa.Column("profit", RESULT_MONEY),
+        sa.Column("margin", RESULT_RATIO),
+        sa.Column("roi", RESULT_RATIO),
+        sa.Column("annualized_return", RESULT_RATIO),
+        sa.Column("max_offer", RESULT_MONEY),
         sa.Column("flags", JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
         sa.Column("result", JSONB(), nullable=False),
         sa.PrimaryKeyConstraint("run_id", "candidate_id", name="pk_proforma"),

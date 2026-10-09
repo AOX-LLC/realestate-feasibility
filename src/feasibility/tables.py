@@ -303,6 +303,9 @@ candidate_estimate = Table(
     CheckConstraint("(outcome = 'ok') = (price IS NOT NULL)", name="ok_has_price"),
 )
 
+# Wider than a listing's price: the engine takes 15-digit comps, and a tiny ARV makes a huge margin.
+RESULT_MONEY = Numeric(20, 2)
+RESULT_RATIO = Numeric(20, 4)
 PROFORMA_STATUSES = ("computed", "no_arv", "unsizable")
 
 # One pro-forma per ranked candidate of a run; a re-run clears and rebuilds them through the
@@ -317,13 +320,13 @@ proforma = Table(
     Column("reason", Text),
     Column("estimate_fetched_on", Date),
     Column("offer_price", MONEY, nullable=False),
-    Column("arv", MONEY),
-    Column("total_cost", MONEY),
-    Column("profit", MONEY),
-    Column("margin", Numeric(10, 4)),
-    Column("roi", Numeric(10, 4)),
-    Column("annualized_return", Numeric(10, 4)),
-    Column("max_offer", MONEY),
+    Column("arv", RESULT_MONEY),
+    Column("total_cost", RESULT_MONEY),
+    Column("profit", RESULT_MONEY),
+    Column("margin", RESULT_RATIO),
+    Column("roi", RESULT_RATIO),
+    Column("annualized_return", RESULT_RATIO),
+    Column("max_offer", RESULT_MONEY),
     Column("flags", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
     Column("result", JSONB, nullable=False),
     PrimaryKeyConstraint("run_id", "candidate_id"),

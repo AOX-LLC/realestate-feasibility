@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from conftest import empty_database
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 
 from feasibility.config import DataMode, Settings
 from feasibility.proforma import store
@@ -382,3 +382,34 @@ def test_a_failed_pro_forma_stage_keeps_the_ranking_and_the_estimates_and_a_retr
     assert (retry.counts.proformas, retry.counts.proformas_computed) == (12, 5)
     assert _stored_run(seeded, run_id).error is None
     assert _count(seeded, proforma) == 12
+
+
+@pytest.mark.parametrize(
+    ("price", "area"),
+    [
+        (Decimal("1"), 4000),  # an ARV of under a dollar: a margin of minus a million
+        (Decimal("999999999999999"), 600),  # 15 digits a comp, the most the engine accepts
+    ],
+)
+def test_comps_priced_absurdly_still_store_and_do_not_fail_the_run(
+    seeded: Engine, price: Decimal, area: int
+) -> None:
+    run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
+    junk = [
+        {
+            "address": f"{n} JUNK ST, DALLAS, TX 75209",
+            "price": str(price),
+            "living_area_sqft": area,
+            "distance_miles": None,
+            "year_built": None,
+            "days_old": 1,
+        }
+        for n in range(5)
+    ]
+    with seeded.begin() as connection:
+        connection.execute(update(candidate_estimate).values(comps=junk))
+
+    again = run_sourcing(seeded, _settings(), "dallas", DAY_ONE)
+
+    assert (again.counts.proformas, again.counts.proformas_computed) == (12, 5)
+    assert _stored_run(seeded, again.run_id).error is None
