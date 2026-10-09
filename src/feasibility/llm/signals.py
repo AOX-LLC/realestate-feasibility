@@ -28,6 +28,10 @@ MIN_QUOTE_CHARS = 8
 MAX_QUOTE_CHARS = 200
 REDACTION_TOKEN = "[contact removed]"  # noqa: S105 (the redactor's replacement text)
 
+# A quote may not hold any piece of a marker the pipeline inserted, whole or cut: a marker is not
+# the seller's text, and half of one would pass for it.
+_MARKER_FRAGMENTS = ("[contact", "contact removed", "removed]", "[invisible", "characters removed")
+
 DropReason = Literal[
     "quote_not_found",
     "quote_too_short",
@@ -229,7 +233,7 @@ def _drop_reason(
         return "quote_too_short"
     if len(quote) > MAX_QUOTE_CHARS:
         return "quote_too_long"
-    if REDACTION_TOKEN in quote:
+    if any(fragment in quote.lower() for fragment in _MARKER_FRAGMENTS):
         return "quote_has_redaction"
     starts = text.occurrences(quote)
     if not starts:
