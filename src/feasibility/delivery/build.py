@@ -1,6 +1,7 @@
 """Building the brief of one run from what the run stored."""
 
 import re
+from decimal import Decimal
 
 from sqlalchemy import Connection, Engine
 
@@ -65,6 +66,9 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
     addresses += [line.address for result in results if result.arv for line in result.arv.comps]
     context = TextContext(remarks=remarks, street_names=street_names_of(addresses))
 
+    for row, result in zip(rows, results, strict=True):
+        _check_against_columns(row, result)
+
     candidates = []
     for row, result in zip(rows, results, strict=True):
         stored_signals = signals.get(row.candidate_id)
@@ -92,6 +96,7 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
             )
         )
     computed = counts.get("computed", 0)
+    ranked = store.ranked_count(connection, run_id)
     partial = header.error is not None
     return Brief(
         market=header.market,
@@ -100,15 +105,44 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
         data_mode=header.data_mode,  # type: ignore[arg-type]
         completeness="partial" if partial else "complete",
         notice="later_stage_failed" if partial else None,
-        ranked=store.ranked_count(connection, run_id),
+        ranked=ranked,
         shown=len(candidates),
         not_shown=NotShown(
             no_arv=counts.get("no_arv", 0),
             unsizable=counts.get("unsizable", 0),
             over_the_cap=max(0, computed - len(candidates)),
+            no_pro_forma=max(0, ranked - sum(counts.values())),
         ),
         candidates=candidates,
     )
+
+
+def _check_against_columns(row: store.ComputedRow, result: ProformaResult) -> None:
+    """The stored result and the columns beside it come from one pro-forma; if they disagree,
+    one was edited or written by a bug, and which one to trust is not for a brief to guess."""
+    figures = figures_of(result)
+    pairs = {
+        "offer_price": (row.list_price, figures.offer_price),
+        "arv": (row.arv, figures.arv),
+        "total_cost": (row.total_cost, figures.total_cost),
+        "profit": (row.profit, figures.profit),
+        "margin": (row.margin, figures.margin),
+        "max_offer": (row.max_offer, figures.max_offer),
+    }
+    for name, (column, shown) in pairs.items():
+        same = (column is None and shown is None) or (
+            column is not None and shown is not None and column == Decimal(shown)
+        )
+        if not same:
+            raise BriefError(
+                f"the stored pro-forma of candidate {row.candidate_id} disagrees "
+                f"with its own {name} column"
+            )
+    arv = result.arv
+    if arv is not None and arv.comp_count_used != sum(1 for line in arv.comps if line.used):
+        raise BriefError(
+            f"the stored pro-forma of candidate {row.candidate_id} counts comps it does not hold"
+        )
 
 
 def build_brief_snapshot(engine: Engine, run_id: int) -> Brief:

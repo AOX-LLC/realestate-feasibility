@@ -235,7 +235,6 @@ def test_b3_a_pro_forma_changed_after_acceptance_withholds_the_narrative(plain: 
     assert changed.narrative.status == "withheld"
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b4_the_result_and_its_columns_cannot_disagree(plain: Any) -> None:
     engine, one, _ = plain
     base = build_with(engine, one.run_id)
@@ -266,7 +265,6 @@ def test_b4_the_result_and_its_columns_cannot_disagree(plain: Any) -> None:
     assert Decimal(shown.figures.profit) == column
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b10_the_comp_count_must_match_the_comps_used(plain: Any) -> None:
     engine, one, _ = plain
     target = build_with(engine, one.run_id).candidates[0].candidate_id
@@ -307,7 +305,6 @@ def test_b11_a_comps_street_name_in_a_narrative_is_withheld(plain: Any) -> None:
     assert {e.narrative.status for e in brief.candidates} == {"withheld"}
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b9_the_counts_add_up(plain: Any) -> None:
     engine, one, _ = plain
     update = (

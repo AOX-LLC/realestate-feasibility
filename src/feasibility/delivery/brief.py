@@ -131,9 +131,13 @@ class BriefCandidate(BriefModel):
 
 
 class NotShown(BriefModel):
+    """Every ranked candidate is in the brief or in exactly one of these."""
+
     no_arv: int
     unsizable: int
     over_the_cap: int
+    # Ranked, but no pro-forma was made for it (its price was not positive).
+    no_pro_forma: int
 
 
 class Brief(BriefModel):

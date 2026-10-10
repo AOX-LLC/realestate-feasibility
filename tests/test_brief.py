@@ -67,7 +67,12 @@ def test_day_one_has_five_candidates_in_rank_order(days: Any) -> None:
     assert (brief.market, brief.as_of, brief.run_id) == ("dallas", DAY_ONE, one.run_id)
     assert (brief.completeness, brief.notice, brief.data_mode) == ("complete", None, "mock")
     assert (brief.ranked, brief.shown) == (12, 5)
-    assert brief.not_shown.model_dump() == {"no_arv": 7, "unsizable": 0, "over_the_cap": 0}
+    assert brief.not_shown.model_dump() == {
+        "no_arv": 7,
+        "unsizable": 0,
+        "over_the_cap": 0,
+        "no_pro_forma": 0,
+    }
     ranks = [entry.rank for entry in brief.candidates]
     assert ranks == sorted(ranks)
     assert len(set(ranks)) == 5

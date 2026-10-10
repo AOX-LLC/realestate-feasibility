@@ -46,6 +46,12 @@ class ComputedRow:
     street: str
     zip5: str | None
     list_price: Decimal
+    # The pro-forma's own columns, which the result must agree with.
+    arv: Decimal | None
+    total_cost: Decimal | None
+    profit: Decimal | None
+    margin: Decimal | None
+    max_offer: Decimal | None
     result: dict[str, Any]
 
 
@@ -103,6 +109,11 @@ def top_computed(connection: Connection, run_id: int, limit: int) -> list[Comput
             listing.c.address_line,
             listing.c.zip5,
             proforma.c.offer_price,
+            proforma.c.arv,
+            proforma.c.total_cost,
+            proforma.c.profit,
+            proforma.c.margin,
+            proforma.c.max_offer,
             proforma.c.result,
         )
         .select_from(
@@ -124,6 +135,11 @@ def top_computed(connection: Connection, run_id: int, limit: int) -> list[Comput
             row.address_line,
             row.zip5,
             row.offer_price,
+            row.arv,
+            row.total_cost,
+            row.profit,
+            row.margin,
+            row.max_offer,
             row.result,
         )
         for row in rows
