@@ -196,7 +196,6 @@ def test_c7_no_credential_is_in_a_prompt(migrated_engine: Engine) -> None:
 # --- API responses ------------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_c8_no_token_is_in_any_api_response(engine: Engine) -> None:
     bodies: list[str] = []
     with TestClient(create_app(_settings(), engine), raise_server_exceptions=False) as client:

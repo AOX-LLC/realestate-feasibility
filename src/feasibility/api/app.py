@@ -94,9 +94,15 @@ async def _security_headers(request: Request, call_next: RequestResponseEndpoint
 
 
 async def _validation_error(request: Request, error: Exception) -> JSONResponse:
-    """Say which parameter was wrong without echoing the submitted value back."""
+    """Say which parameter was wrong without echoing anything the caller chose: not the value,
+    and not an unexpected field's name either (a caller could post a secret as a key)."""
     problems = error.errors() if isinstance(error, RequestValidationError) else []
-    detail = [{"loc": problem["loc"], "msg": problem["msg"]} for problem in problems]
+    detail = []
+    for problem in problems:
+        location = list(problem["loc"])
+        if problem.get("type") == "extra_forbidden" and location:
+            location[-1] = "<unexpected field>"
+        detail.append({"loc": location, "msg": problem["msg"]})
     return JSONResponse({"detail": detail}, status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
