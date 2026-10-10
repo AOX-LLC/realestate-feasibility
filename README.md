@@ -61,6 +61,7 @@ Needs Docker with Compose. A fresh clone needs no `.env` and mock mode needs no 
 
 ```bash
 printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
+chmod 600 .env
 docker compose up -d --wait
 set -a; . ./.env; set +a
 R="Authorization: Bearer $API_READ_TOKEN"
