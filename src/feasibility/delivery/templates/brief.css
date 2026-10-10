@@ -38,7 +38,7 @@ p { margin: 0 0 var(--space-1); }
   padding: var(--space-2) var(--space-2) var(--space-2);
 }
 .masthead .meta { font: 400 var(--size-small) var(--font-figure); color: var(--ink-soft); margin-bottom: 1mm; }
-.masthead .address { font: 400 10pt var(--font-body); margin-top: 1mm; color: var(--ink-soft); }
+.masthead .address { font: 400 var(--size-lead) var(--font-body); margin-top: 1mm; color: var(--ink-soft); }
 .chips { margin-top: var(--space-1); }
 .chip {
   display: inline-block;

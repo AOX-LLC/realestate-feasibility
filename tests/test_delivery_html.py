@@ -104,7 +104,9 @@ def test_the_stylesheets_use_only_the_tokens_for_colour_and_type() -> None:
     css = (TEMPLATES / "brief.css").read_text(encoding="utf-8")
 
     assert not re.findall(r"#[0-9a-fA-F]{3,8}\b", css)
-    assert not re.findall(r"\b\d+(?:\.\d+)?pt\b.*font-family", css)
+    # No font shorthand or font-size with a literal size: every size is a token.
+    assert not re.findall(r"font(?:-size)?:[^;{}]*\b\d+(?:\.\d+)?(?:pt|px|em|rem)\b", css)
+    assert re.findall(r"font(?:-size)?:[^;{}]*var\(--size-", css)
 
 
 def test_a_document_has_no_field_for_a_comp_address_and_none_reaches_it() -> None:
