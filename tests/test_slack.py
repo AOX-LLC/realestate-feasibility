@@ -27,6 +27,7 @@ from feasibility.delivery.slack import (
     file_title,
 )
 from feasibility.delivery.transport import Pacer, TransportResponse
+from feasibility.logging import NOISY_HTTP_LOGGERS, configure_logging
 
 CHANNEL = "C0123ABCD45"
 TOKEN = "xoxb-not-a-real-credential"
@@ -292,19 +293,67 @@ def test_the_token_is_in_the_authorization_header_only_and_the_upload_gets_none(
     assert TOKEN not in json.dumps([r.getMessage() for r in caplog.records])
 
 
-def test_a_network_failure_on_the_upload_leaves_the_url_out_of_the_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def refuse(url: str, **kwargs: Any) -> None:
-        raise httpx.ConnectError(f"cannot reach {url}")
+def upload_transport(handler: Any) -> HttpSlackTransport:
+    return HttpSlackTransport(
+        TOKEN, upload_client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
 
-    monkeypatch.setattr(httpx, "post", refuse)
-    transport = HttpSlackTransport(TOKEN)
+
+def test_a_network_failure_on_the_upload_leaves_the_url_out_of_the_error() -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"cannot reach {request.url}")
+
+    transport = upload_transport(refuse)
 
     with pytest.raises(TransportError) as raised:
         transport.upload("https://files.slack.com/upload/v1/CAPSENTINEL", b"x")
 
     assert "CAPSENTINEL" not in str(raised.value) and "files.slack.com" not in repr(raised.value)
+
+
+UPLOAD = "https://files.slack.com/upload/v1/CAPSENTINEL"
+
+
+def test_the_upload_sends_the_bytes_to_the_url_with_no_token_and_follows_no_redirect() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(302, headers={"location": "https://evil.example/steal"})
+
+    sent = upload_transport(handler).upload(UPLOAD, b"%PDF-bytes")
+
+    assert [str(r.url) for r in seen] == [UPLOAD]  # the redirect was not followed
+    assert sent.status == 302
+    assert seen[0].content == b"%PDF-bytes"
+    assert "authorization" not in seen[0].headers
+    assert TOKEN not in str(seen[0].headers) and TOKEN not in str(seen[0].url)
+
+
+def test_the_upload_url_is_not_logged_once_logging_is_configured(
+    capfd: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200)
+
+    # The control: httpx itself logs the full request line at INFO, URL included, so the
+    # configuration is what keeps a capability URL out of the log.
+    caplog.set_level(logging.INFO)
+    upload_transport(handler).upload(UPLOAD, b"x")
+    assert "CAPSENTINEL" in " ".join(r.getMessage() for r in caplog.records)
+    caplog.clear()
+
+    root_handlers = logging.getLogger().handlers[:]
+    try:
+        configure_logging([TOKEN], level=logging.DEBUG)
+        upload_transport(handler).upload(UPLOAD, b"x")
+        printed = capfd.readouterr().err
+    finally:
+        logging.getLogger().handlers = root_handlers
+        for name in NOISY_HTTP_LOGGERS:
+            logging.getLogger(name).setLevel(logging.NOTSET)
+
+    assert "CAPSENTINEL" not in printed and "files.slack.com" not in printed
 
 
 def test_a_post_is_never_sent_twice_after_a_server_error_or_a_lost_connection() -> None:

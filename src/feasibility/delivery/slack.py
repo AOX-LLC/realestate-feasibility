@@ -249,9 +249,20 @@ class SlackClient:
 class HttpSlackTransport:
     """The real API. The token is in the `Authorization` header only."""
 
-    def __init__(self, token: str, *, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        *,
+        client: httpx.Client | None = None,
+        upload_client: httpx.Client | None = None,
+    ) -> None:
         self._client = client or httpx.Client(
             base_url=BASE_URL, timeout=httpx.Timeout(15.0, connect=5.0)
+        )
+        # A client of its own for the upload URL: it has no base URL and no header, so the token
+        # cannot reach it, and it follows no redirect.
+        self._upload_client = upload_client or httpx.Client(
+            timeout=httpx.Timeout(30.0, connect=5.0), follow_redirects=False
         )
         self._headers = {"Authorization": f"Bearer {token}"}
 
@@ -281,7 +292,7 @@ class HttpSlackTransport:
         """Send the bytes to the one-time upload URL. No token is sent to it: the URL is the
         credential, and it is never logged."""
         try:
-            response = httpx.post(url, content=content, timeout=httpx.Timeout(30.0, connect=5.0))
+            response = self._upload_client.post(url, content=content)
         except httpx.HTTPError:
             raise TransportError("network_error") from None
         return TransportResponse(response.status_code, None, {})
