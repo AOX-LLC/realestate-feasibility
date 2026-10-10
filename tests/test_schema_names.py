@@ -100,7 +100,7 @@ def test_revision_0008_renames_the_doubled_names_a_database_built_before_it_hold
 
         assert _check_names(migrated_engine) == before
         with migrated_engine.connect() as connection:
-            assert current_schema_version(connection) == "0009"
+            assert current_schema_version(connection) == "0010"
         # Running it again changes nothing.
         _rerun_0008(migrated_engine)
         assert _check_names(migrated_engine) == before
