@@ -152,8 +152,13 @@ UPLOAD_HOSTS = ("files.slack.com",)
 
 
 def _is_slack_upload_url(url: str) -> bool:
-    parts = urlsplit(url)
-    return parts.scheme == "https" and parts.hostname in UPLOAD_HOSTS and parts.port in (None, 443)
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        # A port that is not a number: not Slack's, and the text is not worth keeping.
+        return False
+    return parts.scheme == "https" and parts.hostname in UPLOAD_HOSTS and port in (None, 443)
 
 
 class SlackClient:
@@ -367,7 +372,10 @@ class MockSlackTransport:
 
 
 def build_slack_transport(settings: Settings, outbox: Outbox | None = None) -> SlackTransport:
-    """The mock transport, or the real one when delivery is live (which needs its token)."""
-    if settings.delivery_mode is DeliveryMode.LIVE and settings.slack_bot_token is not None:
+    """The mock transport, or the real one when delivery is live. Live delivery with no token is
+    refused, never quietly answered by a mock: its ledger rows would say `live` and `sent`."""
+    if settings.delivery_mode is DeliveryMode.LIVE:
+        if settings.slack_bot_token is None:
+            raise DeliveryConfigError("slack_token_missing")
         return HttpSlackTransport(settings.slack_bot_token.get_secret_value())
     return MockSlackTransport(outbox=outbox)

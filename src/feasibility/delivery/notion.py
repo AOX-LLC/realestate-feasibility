@@ -346,7 +346,10 @@ def _key_of(properties: dict[str, Any]) -> str | None:
 
 
 def build_notion_transport(settings: Settings, outbox: Outbox | None = None) -> Transport:
-    """The mock transport, or the real one when delivery is live (which needs its token)."""
-    if settings.delivery_mode is DeliveryMode.LIVE and settings.notion_token is not None:
+    """The mock transport, or the real one when delivery is live. Live delivery with no token is
+    refused, never quietly answered by a mock: its ledger rows would say `live` and `sent`."""
+    if settings.delivery_mode is DeliveryMode.LIVE:
+        if settings.notion_token is None:
+            raise DeliveryConfigError("notion_token_missing")
         return HttpNotionTransport(settings.notion_token.get_secret_value())
     return MockNotionTransport(outbox=outbox)

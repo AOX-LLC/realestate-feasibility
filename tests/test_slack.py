@@ -424,6 +424,7 @@ def test_a_read_only_style_call_is_still_retried_after_a_server_error() -> None:
         "https://files.slack.com:8443/upload/v1/x",
         "https://user@evil.example/upload",
         "file:///etc/passwd",
+        "https://files.slack.com:notaport/upload/v1/x",
     ],
 )
 def test_the_pdf_is_never_sent_to_a_url_that_is_not_slacks_upload_host(url: str) -> None:
@@ -471,3 +472,13 @@ def test_the_same_answers_to_a_request_that_is_safe_to_repeat_are_plain_failures
         client(Scripted(answer)).upload_file("a.pdf", b"%PDF", "t", "1.0")
 
     assert not isinstance(raised.value, SlackOutcomeUnknownError)
+
+
+def test_a_malformed_port_in_the_upload_url_is_a_slack_error_with_a_code_and_not_the_url() -> None:
+    bad = "https://files.slack.com:notaport/upload/v1/CAPSENTINEL"
+    transport = Scripted(TransportResponse(200, {"ok": True, "upload_url": bad, "file_id": "F1"}))
+
+    with pytest.raises(SlackError, match="bad_upload_url") as raised:
+        client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0")
+
+    assert "CAPSENTINEL" not in str(raised.value) and "notaport" not in repr(raised.value)

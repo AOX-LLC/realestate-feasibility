@@ -528,3 +528,27 @@ def test_c16_ci_masks_the_tokens_it_makes_and_never_traces_a_command() -> None:
 @pytest.fixture
 def _quiet() -> Iterator[Path]:
     yield REPO
+
+
+def test_c16_live_delivery_with_no_token_is_refused_and_is_never_answered_by_a_mock() -> None:
+    from feasibility.config import DeliveryMode
+    from feasibility.delivery.errors import DeliveryConfigError
+    from feasibility.delivery.notion import HttpNotionTransport, build_notion_transport
+    from feasibility.delivery.slack import HttpSlackTransport, build_slack_transport
+
+    bare = Settings(_env_file=None).model_copy(  # type: ignore[call-arg]
+        update={"delivery_mode": DeliveryMode.LIVE}
+    )
+    with pytest.raises(DeliveryConfigError, match="notion_token_missing"):
+        build_notion_transport(bare)
+    with pytest.raises(DeliveryConfigError, match="slack_token_missing"):
+        build_slack_transport(bare)
+
+    keyed = bare.model_copy(
+        update={
+            "notion_token": SecretStr(NOTION_SENTINEL),
+            "slack_bot_token": SecretStr(SLACK_SENTINEL),
+        }
+    )
+    assert isinstance(build_notion_transport(keyed), HttpNotionTransport)
+    assert isinstance(build_slack_transport(keyed), HttpSlackTransport)
