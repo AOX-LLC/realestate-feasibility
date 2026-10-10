@@ -32,7 +32,7 @@ h1 { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 72px
   <div>
     <div class="eyebrow">Real estate feasibility engine</div>
     <h1>LLM for judgment, code for&nbsp;math.</h1>
-    <div class="lede">A daily brief of teardown candidates for a Dallas spec builder. Every figure is computed and tested in code; <strong>the model never produces a number</strong>.</div>
+    <div class="lede">A daily brief of teardown candidates for a Dallas spec builder. Every figure is computed and tested in code; <strong>the model only repeats them, and code checks that it did</strong>.</div>
   </div>
   <div class="card">
     <div class="tag">PRO-FORMA &middot; SYNTHETIC DEMO DATA</div>
@@ -41,11 +41,11 @@ h1 { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 72px
     <div class="row"><span>Profit</span><span>{{PROFIT}}</span></div>
     <div class="row"><span>Margin</span><span>{{MARGIN}}</span></div>
     <div class="row"><span>Maximum offer</span><span>{{MAXOFFER}}</span></div>
-    <div class="verdict">The margin meets or beats the target margin.</div>
+    <div class="verdict">{{VERDICT}}</div>
   </div>
   <div class="facts">
     <div><b>{{ACCEPTED}}</b>narratives accepted</div>
-    <div><b>0</b>numbers from the model</div>
+    <div><b>{{FIGURES}}</b>of narrative figures exact</div>
     <div><b>$0</b>to replay a run</div>
   </div>
 </div>

@@ -15,14 +15,17 @@ digest and the Notion rows are *mock renderings* of the payloads the app builds 
 mode, in this project's own style (never a copy of either product's look), and the PDF page is
 the real PDF rasterised.
 
-Output goes only to `--out` (default `$MEDIA_OUT/05-proof-kit`), `docs/media/` and `local/`.
+Output goes only to `--out` (default `$MEDIA_OUT/proof-kit`, else `local/proof-kit`), and to
+`docs/media/` only as the destination of `optimise`.
 """
 
 import argparse
+import html
 import json
 import os
 import shutil
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -32,10 +35,12 @@ REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 FONTS = REPO / "src" / "feasibility" / "delivery" / "fonts"
 DOCS_MEDIA = REPO / "docs" / "media"
-ALLOWED_OUT_ROOTS = [DOCS_MEDIA, REPO / "local"]
 DEFAULT_DAY = "2026-10-02"
 MARKET = "dallas"
-VIEWPORT = {"width": 1000, "height": 640}
+VIEWPORT = {"width": 1000, "height": 640}  # the GIF
+SLACK_SHOT = {"width": 1000, "height": 700}
+NOTION_SHOT = {"width": 1500, "height": 540}
+LOCAL_API_PREFIXES = ("http://127.0.0.1:", "http://localhost:")
 GIF_WIDTH = 760
 GIF_COLOURS = 64
 LIVE_SLOTS = {
@@ -49,39 +54,51 @@ class CaptureError(RuntimeError):
 
 
 def media_out_root() -> Path | None:
-    value = os.environ.get("MEDIA_OUT") or os.environ.get("MEDIA_OUT_DIR")
+    """The folder outside the repository for final media. Only `MEDIA_OUT`: the stack's own
+    outbox (`MEDIA_OUT_DIR`) is a different folder and must not receive captures."""
+    value = os.environ.get("MEDIA_OUT")
     return Path(value).resolve() if value else None
 
 
-def safe_out(path: Path) -> Path:
-    """Refuse to write anywhere but the media folder, docs/media or local/."""
+def safe_out(path: Path, *, allow_docs_media: bool = False) -> Path:
+    """Refuse to write anywhere but the media folder or local/ (docs/media only for `optimise`)."""
     resolved = path.resolve()
-    roots = [*ALLOWED_OUT_ROOTS]
+    roots = [REPO / "local"]
+    if allow_docs_media:
+        roots.append(DOCS_MEDIA)
     root = media_out_root()
     if root is not None:
         roots.append(root)
     if not any(resolved == r.resolve() or r.resolve() in resolved.parents for r in roots):
-        raise CaptureError(
-            f"refusing to write outside the media folder, docs/media or local: {resolved}"
-        )
-    resolved.mkdir(parents=True, exist_ok=True)
+        raise CaptureError(f"refusing to write outside the media folder or local/: {resolved}")
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise CaptureError(f"cannot create {resolved}: {error.strerror}") from None
     return resolved
 
 
 # --- the stack ----------------------------------------------------------------------------------
 
 
+def check_api_url(api: str) -> None:
+    """The read token goes only to the stack on this machine."""
+    if not api.startswith(LOCAL_API_PREFIXES):
+        raise CaptureError("--api must be http://127.0.0.1:<port> or http://localhost:<port>")
+
+
 def api_get(api: str, path: str, token: str | None) -> Any:
-    request = urllib.request.Request(api + path)  # noqa: S310 - the local API, http on 127.0.0.1
+    request = urllib.request.Request(api + path)  # noqa: S310 - checked to be a local http URL
     if token:
-        request.add_header("Authorization", f"Bearer {token}")
+        # Unredirected: a redirect to another host must not carry the token along.
+        request.add_unredirected_header("Authorization", f"Bearer {token}")
     try:
         with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
             return json.load(response)
     except urllib.error.HTTPError as error:
         raise CaptureError(f"GET {path} answered {error.code}") from None
-    except urllib.error.URLError:
-        raise CaptureError(f"GET {path}: the API is not reachable at {api}") from None
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise CaptureError(f"GET {path}: no usable answer from the API at {api}") from None
 
 
 def check_stack(api: str, day: str) -> int:
@@ -89,6 +106,7 @@ def check_stack(api: str, day: str) -> int:
     token = os.environ.get("API_READ_TOKEN")
     if not token:
         raise CaptureError("API_READ_TOKEN is not set (the read token of the running stack)")
+    check_api_url(api)
     api_get(api, "/livez", None)
     runs = api_get(api, "/sourcing/runs", token)
     items = runs["items"] if isinstance(runs, dict) else runs
@@ -103,24 +121,37 @@ def check_stack(api: str, day: str) -> int:
     return run_id
 
 
+def read_lines(path: Path) -> list[dict[str, Any]]:
+    try:
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, ValueError):
+        raise CaptureError(f"cannot read {path.name} as lines of JSON in {path.parent}") from None
+
+
 def outbox(stack_out: Path, day: str) -> dict[str, Any]:
     folder = stack_out / f"{MARKET}-{day}"
     if not folder.is_dir():
         raise CaptureError(f"no mock outbox at {folder}")
-    slack = [
-        json.loads(line) for line in (folder / "mock-slack-requests.jsonl").read_text().splitlines()
+    digests = [
+        r["body"]
+        for r in read_lines(folder / "mock-slack-requests.jsonl")
+        if r.get("path") == "/chat.postMessage"
     ]
-    digest = next(r["body"] for r in slack if r.get("path") == "/chat.postMessage")
-    notion = [
-        json.loads(line)
-        for line in (folder / "mock-notion-requests.jsonl").read_text().splitlines()
-    ]
-    rows = [r["body"] for r in notion if r.get("body") and "properties" in r["body"]]
-    rows.sort(key=lambda b: b["properties"]["Rank"]["number"])
+    if len(digests) != 1:
+        raise CaptureError(
+            f"the outbox holds {len(digests)} digests, expected 1: use a fresh MEDIA_OUT_DIR"
+        )
+    by_key: dict[str, dict[str, Any]] = {}
+    for request in read_lines(folder / "mock-notion-requests.jsonl"):
+        body = request.get("body")
+        if body and "properties" in body:
+            key = body["properties"]["Candidate key"]["rich_text"][0]["text"]["content"]
+            by_key[key] = body  # a later write to the same row replaces the earlier one
+    rows = sorted(by_key.values(), key=lambda b: b["properties"]["Rank"]["number"])
     pdfs = sorted(folder.glob("pro-forma-rank-*.pdf"), key=lambda p: int(p.name.split("-")[3]))
     if not pdfs or not rows:
         raise CaptureError(f"{folder} holds no PDFs or no Notion rows")
-    return {"digest": digest, "rows": rows, "pdfs": pdfs}
+    return {"digest": digests[0], "rows": rows, "pdfs": pdfs}
 
 
 # --- the PDF ------------------------------------------------------------------------------------
@@ -196,8 +227,8 @@ def cmd_mock(out: Path, data: dict[str, Any], day: str) -> list[Path]:
     written = []
     with sync_playwright() as playwright:
         browser = launch(playwright)
-        context, page = open_stage(browser, out, {"width": 1000, "height": 700})
-        page.evaluate(f"slackMock({js(data['digest'])}, {js(names)}, {js(day)})")
+        context, page = open_stage(browser, out, SLACK_SHOT)
+        page.evaluate(f"slackMock({js(data['digest'])}, {js(names)})")
         page.evaluate("step.arrive(); " + "".join(f"step.file({i});" for i in range(len(names))))
         page.wait_for_timeout(900)
         target = out / "slack-digest-mock.png"
@@ -205,7 +236,7 @@ def cmd_mock(out: Path, data: dict[str, Any], day: str) -> list[Path]:
         written.append(target)
         context.close()
 
-        context, page = open_stage(browser, out, {"width": 1500, "height": 540})
+        context, page = open_stage(browser, out, NOTION_SHOT)
         page.evaluate(f"notionMock({js(data['rows'])}, {js(day)})")
         page.wait_for_timeout(300)
         target = out / "notion-table-mock.png"
@@ -239,7 +270,7 @@ def cmd_gif(out: Path, data: dict[str, Any], day: str) -> Path:
         browser = launch(playwright)
         context, page = open_stage(browser, out, VIEWPORT)
         page.add_style_tag(content="*, *::before, *::after { transition: none !important; }")
-        page.evaluate(f"slackMock({js(data['digest'])}, {js(names)}, {js(day)})")
+        page.evaluate(f"slackMock({js(data['digest'])}, {js(names)})")
         page.evaluate("step.fixHeight()")
 
         def snap(milliseconds: int) -> None:
@@ -304,27 +335,29 @@ def save_gif(frames: list[tuple[Any, int]], target: Path) -> Path:
     return target
 
 
-def cmd_social(out: Path) -> Path:
+def cmd_social(out: Path, row: dict[str, str]) -> Path:
     from playwright.sync_api import sync_playwright
 
     narrative = json.loads((REPO / "evals" / "scorecards" / "narrative.json").read_text())[
         "summary"
     ]
-    data = outbox_for_social()
-    html = (HERE / "social.html").read_text(encoding="utf-8").replace("{{FONTS}}", FONTS.as_uri())
+    page_html = (HERE / "social.html").read_text(encoding="utf-8")
+    page_html = page_html.replace("{{FONTS}}", FONTS.as_uri())
     for key, value in {
-        "ADDRESS": data["address"],
-        "ARV": data["arv"],
-        "PROFIT": data["profit"],
-        "MARGIN": data["margin"],
-        "MAXOFFER": data["max_offer"],
+        "ADDRESS": row["address"],
+        "ARV": row["arv"],
+        "PROFIT": row["profit"],
+        "MARGIN": row["margin"],
+        "MAXOFFER": row["max_offer"],
+        "VERDICT": row["verdict"],
         "ACCEPTED": f"{narrative['accepted']} / {narrative['cases_scored']}",
+        "FIGURES": f"{narrative['figure_exact_of_accepted'] * 100:.0f}%",
     }.items():
-        html = html.replace("{{" + key + "}}", value)
+        page_html = page_html.replace("{{" + key + "}}", html.escape(value))
     work = out / ".work"
     work.mkdir(exist_ok=True)
     page_file = work / "social.html"
-    page_file.write_text(html, encoding="utf-8")
+    page_file.write_text(page_html, encoding="utf-8")
     target = out / "social-preview.png"
     with sync_playwright() as playwright:
         browser = launch(playwright)
@@ -341,29 +374,35 @@ def cmd_social(out: Path) -> Path:
     return target
 
 
-SOCIAL_ROW: dict[str, str] = {}
-
-
-def outbox_for_social() -> dict[str, str]:
-    if not SOCIAL_ROW:
-        raise CaptureError("the social preview needs the stack's rank 1 row (run with --stack-out)")
-    return SOCIAL_ROW
+def target_margin() -> float:
+    """The Dallas pack's target margin, as a ratio (the PDF's verdict compares against it)."""
+    pack = tomllib.loads(
+        (REPO / "src" / "feasibility" / "markets" / "packs" / "dallas.toml").read_text("utf-8")
+    )
+    return float(pack["cost_assumptions"]["target"]["margin_pct"]) / 100
 
 
 def social_row_from(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """The figures of the rank 1 row, with the verdict worked out from them. Refuses a row that
+    is below the target, because the card's claim would then be false."""
     props = rows[0]["properties"]
+    margin = props["Margin"]["number"]
+    if margin < target_margin():
+        raise CaptureError(
+            "the rank 1 row is below the target margin: the social card says it clears it"
+        )
 
     def money(name: str) -> str:
-        value = props[name]["number"]
-        return f"${value:,.2f}"
+        return f"${props[name]['number']:,.2f}"
 
     street = props["Name"]["title"][0]["text"]["content"].split(",")[0].title()
     return {
         "address": street,
         "arv": money("ARV"),
         "profit": money("Profit"),
-        "margin": f"{props['Margin']['number'] * 100:.2f}%",
+        "margin": f"{margin * 100:.2f}%",
         "max_offer": money("Max offer"),
+        "verdict": "The margin meets or beats the target margin.",
     }
 
 
@@ -418,7 +457,11 @@ def main() -> int:
     parser.add_argument("--stack-out", type=Path, help="the stack's MEDIA_OUT_DIR (mock outbox)")
     parser.add_argument("--day", default=DEFAULT_DAY)
     parser.add_argument("--api", default="http://127.0.0.1:4501")
-    parser.add_argument("--out", type=Path, help="output folder (default $MEDIA_OUT/05-proof-kit)")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        help="output folder (default $MEDIA_OUT/proof-kit, else local/proof-kit)",
+    )
     args = parser.parse_args()
 
     try:
@@ -426,13 +469,12 @@ def main() -> int:
             raise CaptureError(
                 f"{args.command} is not built: it needs a real workspace, a saved browser login "
                 f"in local/playwright/ and DELIVERY_MODE=live, none of which exist yet. The slot "
-                f"is "
-                f"docs/media/{LIVE_SLOTS[args.command]}."
+                f"is docs/media/{LIVE_SLOTS[args.command]}."
             )
         root = media_out_root()
-        out = safe_out(args.out or ((root / "05-proof-kit") if root else REPO / "local" / "media"))
+        out = safe_out(args.out or ((root / "proof-kit") if root else REPO / "local" / "proof-kit"))
         if args.command == "optimise":
-            for path in cmd_optimise(out, safe_out(DOCS_MEDIA)):
+            for path in cmd_optimise(out, safe_out(DOCS_MEDIA, allow_docs_media=True)):
                 print(f"{path.relative_to(REPO)} {path.stat().st_size:,} bytes")
             return 0
         run_id = check_stack(args.api, args.day)
@@ -442,7 +484,7 @@ def main() -> int:
         if args.stack_out is None:
             raise CaptureError("--stack-out is required")
         data = outbox(args.stack_out, args.day)
-        SOCIAL_ROW.update(social_row_from(data["rows"]))
+        row = social_row_from(data["rows"]) if args.command in ("social", "all") else {}
         results: list[Path] = []
         if args.command in ("pdf", "all"):
             results += cmd_pdf(out, data)
@@ -451,7 +493,7 @@ def main() -> int:
         if args.command in ("gif", "all"):
             results.append(cmd_gif(out, data, args.day))
         if args.command in ("social", "all"):
-            results.append(cmd_social(out))
+            results.append(cmd_social(out, row))
         for path in results:
             print(f"{path} {path.stat().st_size:,} bytes")
     except CaptureError as error:

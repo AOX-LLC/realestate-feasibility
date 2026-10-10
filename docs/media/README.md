@@ -36,7 +36,9 @@ and `DELIVERY_MODE=live`, and none of that has been run.
 ## Regenerating
 
 With the stack up and both mornings triggered (see the quick start), the read token in
-`API_READ_TOKEN` and the stack's `MEDIA_OUT_DIR` as `--stack-out`:
+`API_READ_TOKEN`, the stack's `MEDIA_OUT_DIR` as `--stack-out` and `MEDIA_OUT` set to a folder
+outside the repository (a different folder from the stack's own outbox, which the script
+refuses to write to):
 
 ```bash
 uv run --no-project --with playwright==1.58.0 --with pypdfium2==5.14.0 --with pillow==12.3.0 \
@@ -45,7 +47,10 @@ uv run --no-project --with playwright==1.58.0 --with pypdfium2==5.14.0 --with pi
     python scripts/capture/capture_proof.py optimise
 ```
 
-The first command writes the full-size files and a 1280x640 social preview to `$MEDIA_OUT/05-proof-kit/`;
-the second writes the optimised copies here. The script refuses to write anywhere else (the media
-folder, `docs/media/` and `local/` only). The tools are pinned in the command and are not part of
-`uv.lock`; a Chromium matching the pinned Playwright must be installed (`playwright install chromium`).
+The first command writes the full-size files and a 1280x640 social preview to `$MEDIA_OUT/proof-kit/`
+(or `local/proof-kit/` when `MEDIA_OUT` is unset); the second writes the optimised copies here. The
+script writes only there, and to `docs/media/` only for `optimise`. It sends the read token only to
+an API on this machine. The social card's verdict is worked out from the rank 1 row, and the script
+stops if that row is below the target margin. The tools are pinned in the command and are not part
+of `uv.lock`; a Chromium matching the pinned Playwright must be installed
+(`playwright install chromium`).

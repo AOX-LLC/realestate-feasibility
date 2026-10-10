@@ -98,7 +98,7 @@ const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, 
 const mrkdwn = (s) => esc(s).replace(/\*([^*]+)\*/g, "<strong>$1</strong>").replace(/(^|[\s(])_([^_]+)_/g, "$1<em>$2</em>").replace(/\n/g, "<br>");
 const money = /(-?\$[\d,]+\.\d\d|-?\d+\.\d\d%)/g;
 
-function slackMock(payload, files, day) {
+function slackMock(payload, files) {
   document.getElementById("mocktext").textContent =
     "The digest payload the app builds for Slack, drawn here. Not a screenshot of Slack.";
   document.getElementById("panetitle").textContent = "# acquisition-brief";
@@ -124,7 +124,7 @@ function notionMock(rows, day) {
   const cols = [["Rank", "num", "Rank"], ["Name", "name", "Name"], ["List price", "num", "List price"], ["ARV", "num", "ARV"], ["Profit", "num", "Profit"], ["Margin", "num", "Margin"], ["Max offer", "num", "Max offer"], ["Comps used", "num", "Comps"], ["Narrative", "sel", "Narrative"], ["Signals", "multi", "Signals"], ["Flags", "multi", "Flags"]];
   const fmt = (name, p) => {
     if (!p) return "";
-    if (p.title) return p.title.map((t) => t.text.content).join("");
+    if (p.title) return esc(p.title.map((t) => t.text.content).join(""));
     if (p.select) return `<span class="chip">${esc(p.select.name)}</span>`;
     if (p.multi_select) return p.multi_select.map((m) => `<span class="chip">${esc(m.name)}</span>`).join("");
     if (p.number !== undefined && p.number !== null) {
