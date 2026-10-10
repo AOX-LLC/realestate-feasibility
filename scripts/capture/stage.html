@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock rendering</title>
+<style>
+/* Fonts are the ones the PDF uses (SIL OFL); the capture script fills in the folder. */
+@font-face { font-family: "Space Grotesk"; font-weight: 600; src: url("{{FONTS}}/SpaceGrotesk/SpaceGrotesk-SemiBold.ttf"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 500; src: url("{{FONTS}}/SpaceGrotesk/SpaceGrotesk-Medium.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; src: url("{{FONTS}}/IBMPlexSans/IBMPlexSans-Regular.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; src: url("{{FONTS}}/IBMPlexSans/IBMPlexSans-SemiBold.ttf"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url("{{FONTS}}/IBMPlexMono/IBMPlexMono-Regular.ttf"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("{{FONTS}}/IBMPlexMono/IBMPlexMono-Medium.ttf"); }
+
+:root {
+  --ink: #15181b;
+  --ink-2: #3a4147;
+  --muted: #6b747c;
+  --rule: #d9dde0;
+  --paper: #ffffff;
+  --wash: #f3f4f5;
+  --flag: #b3261e;
+  --mock: #fff4c2;
+  --mock-ink: #5c4a00;
+  --font-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--wash); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+
+.mockbar {
+  display: flex; gap: 12px; align-items: center; padding: 10px 20px;
+  background: var(--mock); color: var(--mock-ink); border-bottom: 1px solid #e6d37a; font-size: 13px;
+}
+.mockbar .tag { font-family: var(--font-mono); font-weight: 500; letter-spacing: .06em; border: 1px solid currentColor; padding: 1px 8px; border-radius: 3px; white-space: nowrap; }
+
+main { position: relative; flex: 1; padding: 20px; display: flex; justify-content: center; }
+.pane { width: 100%; max-width: 920px; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
+.pane-head { padding: 12px 18px; border-bottom: 1px solid var(--rule); font-family: var(--font-display); font-weight: 600; font-size: 16px; display: flex; justify-content: space-between; }
+.pane-head .muted { color: var(--muted); font-family: var(--font-body); font-weight: 400; font-size: 13px; }
+.feed { padding: 16px 18px; overflow: hidden; flex: 1; }
+
+.message { opacity: 0; transform: translateY(10px); transition: opacity .5s ease, transform .5s ease; }
+.message.in { opacity: 1; transform: none; }
+.sender { font-weight: 600; margin-bottom: 2px; }
+.sender .time { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 8px; font-family: var(--font-mono); }
+.block-header { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 6px 0 2px; }
+.block-context { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+.block-section { border-left: 3px solid var(--ink); padding: 2px 0 2px 12px; margin: 10px 0; }
+.block-section strong { font-family: var(--font-display); font-weight: 600; }
+.block-section .fig { font-family: var(--font-mono); font-size: 13.5px; }
+
+.thread { margin: 12px 0 0 0; padding-left: 14px; border-left: 2px solid var(--rule); }
+.thread-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.file { display: inline-flex; align-items: center; gap: 8px; margin: 0 8px 8px 0; padding: 6px 10px; border: 1px solid var(--rule); border-radius: 5px; background: var(--paper); font-family: var(--font-mono); font-size: 12.5px; opacity: 0; transition: opacity .3s ease, box-shadow .2s ease, border-color .2s ease; }
+.file.in { opacity: 1; }
+.file .kind { background: var(--ink); color: #fff; font-size: 10.5px; padding: 1px 5px; border-radius: 3px; letter-spacing: .05em; }
+.file.hot { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(21,24,27,.18); }
+
+.viewer { position: absolute; inset: 0; background: rgba(21,24,27,.78); display: none; justify-content: center; padding: 16px; }
+.viewer.on { display: flex; }
+.viewer-card { background: var(--paper); border-radius: 6px; width: 100%; max-width: 640px; display: flex; flex-direction: column; overflow: hidden; }
+.viewer-bar { padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); display: flex; justify-content: space-between; }
+.viewer-scroll { overflow: hidden; flex: 1; position: relative; }
+.viewer-scroll img { display: block; width: 100%; height: auto; }
+
+table.notion { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.notion th, table.notion td { border-bottom: 1px solid var(--rule); padding: 7px 10px; text-align: left; white-space: nowrap; }
+table.notion th { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--wash); }
+table.notion td.wrap { white-space: normal; min-width: 150px; max-width: 280px; }
+table.notion td.num { text-align: right; font-family: var(--font-mono); }
+table.notion td.name { font-family: var(--font-display); font-weight: 600; }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 3px; background: var(--wash); border: 1px solid var(--rule); margin-right: 3px; }
+.neg { color: var(--flag); }
+.scroller { overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="mockbar"><span class="tag">MOCK RENDERING</span><span id="mocktext"></span></div>
+<main>
+  <div class="pane" id="pane">
+    <div class="pane-head"><span id="panetitle"></span><span class="muted" id="panesub"></span></div>
+    <div class="feed" id="feed"></div>
+  </div>
+  <div class="viewer" id="viewer">
+    <div class="viewer-card">
+      <div class="viewer-bar"><span id="vname"></span><span id="vpage"></span></div>
+      <div class="viewer-scroll" id="vscroll"><img id="vimg" alt="A page of the pro-forma PDF"></div>
+    </div>
+  </div>
+</main>
+<script>
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Slack's mrkdwn, the small part the digest uses: *bold*, _italic_, newlines.
+const mrkdwn = (s) => esc(s).replace(/\*([^*]+)\*/g, "<strong>$1</strong>").replace(/(^|[\s(])_([^_]+)_/g, "$1<em>$2</em>").replace(/\n/g, "<br>");
+const money = /(-?\$[\d,]+\.\d\d|-?\d+\.\d\d%)/g;
+
+function slackMock(payload, files, day) {
+  document.getElementById("mocktext").textContent =
+    "The digest payload the app builds for Slack, drawn here. Not a screenshot of Slack.";
+  document.getElementById("panetitle").textContent = "# acquisition-brief";
+  document.getElementById("panesub").textContent = "mock channel";
+  const feed = document.getElementById("feed");
+  let html = '<div class="message" id="digest"><div class="sender">Feasibility brief<span class="time">06:00</span></div>';
+  for (const b of payload.blocks) {
+    if (b.type === "header") html += `<div class="block-header">${esc(b.text.text)}</div>`;
+    else if (b.type === "context") html += `<div class="block-context">${b.elements.map((e) => mrkdwn(e.text)).join(" ")}</div>`;
+    else if (b.type === "section") html += `<div class="block-section">${mrkdwn(b.text.text).replace(money, '<span class="fig">$1</span>')}</div>`;
+  }
+  html += '<div class="thread"><div class="thread-label">' + files.length + ' replies in thread</div>';
+  files.forEach((f, i) => { html += `<span class="file" id="file${i}"><span class="kind">PDF</span>${esc(f)}</span>`; });
+  html += "</div></div>";
+  feed.innerHTML = html;
+}
+
+function notionMock(rows, day) {
+  document.getElementById("mocktext").textContent =
+    "The rows the app writes to Notion, drawn here. Not a screenshot of Notion.";
+  document.getElementById("panetitle").textContent = "Acquisition brief " + day;
+  document.getElementById("panesub").textContent = "mock database, " + rows.length + " rows";
+  const cols = [["Rank", "num", "Rank"], ["Name", "name", "Name"], ["List price", "num", "List price"], ["ARV", "num", "ARV"], ["Profit", "num", "Profit"], ["Margin", "num", "Margin"], ["Max offer", "num", "Max offer"], ["Comps used", "num", "Comps"], ["Narrative", "sel", "Narrative"], ["Signals", "multi", "Signals"], ["Flags", "multi", "Flags"]];
+  const fmt = (name, p) => {
+    if (!p) return "";
+    if (p.title) return p.title.map((t) => t.text.content).join("");
+    if (p.select) return `<span class="chip">${esc(p.select.name)}</span>`;
+    if (p.multi_select) return p.multi_select.map((m) => `<span class="chip">${esc(m.name)}</span>`).join("");
+    if (p.number !== undefined && p.number !== null) {
+      const n = p.number;
+      if (name === "Margin") return `<span class="${n < 0 ? "neg" : ""}">${(n * 100).toFixed(2)}%</span>`;
+      if (["List price", "ARV", "Profit", "Max offer"].includes(name)) return `<span class="${n < 0 ? "neg" : ""}">${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>`;
+      return String(n);
+    }
+    return "";
+  };
+  let html = '<div class="scroller"><table class="notion"><thead><tr>' + cols.map((c) => `<th>${c[2]}</th>`).join("") + "</tr></thead><tbody>";
+  for (const r of rows) {
+    html += "<tr>" + cols.map((c) => `<td class="${c[1] === "num" ? "num" : c[1] === "name" ? "name" : c[1] === "multi" ? "wrap" : ""}">${fmt(c[0], r.properties[c[0]])}</td>`).join("") + "</tr>";
+  }
+  html += "</tbody></table></div>";
+  document.getElementById("feed").innerHTML = html;
+  document.getElementById("pane").style.maxWidth = "1460px";
+}
+
+const step = {
+  arrive: () => document.getElementById("digest").classList.add("in"),
+  fixHeight: () => {
+    // For the recording: the pane fills the window, so the digest has something to scroll in.
+    const bar = document.querySelector(".mockbar").offsetHeight;
+    document.getElementById("pane").style.height = (window.innerHeight - bar - 40) + "px";
+  },
+  fade: (v) => { const d = document.getElementById("digest"); d.style.opacity = v; d.style.transform = "none"; },
+  maxScroll: () => {
+    const digest = document.getElementById("digest");
+    const feed = document.getElementById("feed");
+    return Math.max(0, digest.offsetHeight - feed.clientHeight + 40);
+  },
+  scrollTo: (px) => { document.getElementById("digest").style.transform = `translateY(${-px}px)`; },
+  viewerScroll: (px) => { document.getElementById("vimg").style.transform = `translateY(${-px}px)`; },
+  file: (i) => document.getElementById("file" + i).classList.add("in"),
+  hot: (i, on) => document.getElementById("file" + i).classList.toggle("hot", on),
+  open: (src, name, page, pages) => {
+    document.getElementById("vimg").src = src;
+    document.getElementById("vname").textContent = name;
+    document.getElementById("vpage").textContent = "page " + page + " of " + pages;
+    document.getElementById("viewer").classList.add("on");
+  },
+  page: (src, page, pages) => { const i = document.getElementById("vimg"); i.style.transition = "none"; i.style.transform = "none"; i.src = src; document.getElementById("vpage").textContent = "page " + page + " of " + pages; },
+};
+</script>
+</body>
+</html>
