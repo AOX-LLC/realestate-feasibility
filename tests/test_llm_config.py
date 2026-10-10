@@ -6,7 +6,7 @@ import tomllib
 from decimal import Decimal
 
 import pytest
-from aox_agent_core import Tier, load_config
+from aox_agent_core import Effort, Tier, load_config
 from pydantic import SecretStr, ValidationError
 
 from feasibility.config import DEFAULT_LLM_CONFIG_PATH, REPO_ROOT, DataMode, LlmMode, Settings
@@ -199,6 +199,8 @@ def test_restating_only_max_tokens_keeps_the_packaged_model_of_each_tier() -> No
         assert config.routing.tiers[tier].provider == packaged.routing.tiers[tier].provider
     assert config.routing.tiers[Tier.SMALL].max_tokens == 1200
     assert config.routing.tiers[Tier.MID].max_tokens == 1500
+    assert config.routing.tiers[Tier.SMALL].effort is None
+    assert config.routing.tiers[Tier.MID].effort is Effort.LOW
     assert (
         config.routing.tiers[Tier.LARGE].max_tokens == packaged.routing.tiers[Tier.LARGE].max_tokens
     )

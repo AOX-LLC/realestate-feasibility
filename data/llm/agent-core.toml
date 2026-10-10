@@ -17,6 +17,9 @@ narrative_write = "mid"
 max_tokens = 1200
 [routing.tiers.mid]
 max_tokens = 1500
+# Sonnet 5.5 thinks by default (adaptive, effort "high" when unset). The recorded narrative replies
+# spent 700-900 hidden tokens on that, and four were cut off at max_tokens. See evals/scorecards/README.md.
+effort = "low"
 
 [replay]
 cassette_dir = "replays"               # data/llm/replays/prompts/<prompt_id>/v<n>/<key>.json
