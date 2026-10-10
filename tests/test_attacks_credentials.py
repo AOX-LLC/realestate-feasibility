@@ -50,9 +50,6 @@ DELIVERY_VARIABLES = {
 MODEL_VARIABLES = {"AGENT_CORE_ANTHROPIC_API_KEY", "AGENT_CORE_MODE"}
 
 
-FIX_5A = "a 5a bug the attack review found; the commit that fixes it removes this mark"
-
-
 def environment_of(service: str) -> dict[str, Any]:
     environment = SERVICES.get(service, {}).get("environment", {})
     return dict(environment)
@@ -251,24 +248,37 @@ def test_c10_a_configuration_error_names_the_variable_and_never_the_value() -> N
 
 @pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c11_the_http_transports_keep_the_token_in_the_header_only() -> None:
-    from feasibility.delivery.notion import HttpNotionTransport  # noqa: F401
-    from feasibility.delivery.slack import HttpSlackTransport  # noqa: F401
+    from feasibility.delivery.notion import HttpNotionTransport, MockNotionTransport
+    from feasibility.delivery.slack import HttpSlackTransport, MockSlackTransport
 
-    raise AssertionError("5b writes this against httpx.MockTransport")
+    # 5b replaces this with the real check against httpx.MockTransport and removes the mark.
+    assert all(
+        callable(kind)
+        for kind in (
+            HttpNotionTransport,
+            MockNotionTransport,
+            HttpSlackTransport,
+            MockSlackTransport,
+        )
+    )
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_c12_a_failing_transport_leaves_no_secret_or_upload_url_in_a_stored_error() -> None:
-    from feasibility.delivery.deliver import deliver_brief  # noqa: F401
+    from feasibility.delivery.deliver import deliver_brief
 
-    raise AssertionError("5c writes this against the delivery ledger and describe_error")
+    # 5c replaces this with the real check against the delivery ledger and removes the mark.
+    assert callable(deliver_brief)
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c13_no_token_is_in_any_payload() -> None:
-    from feasibility.delivery.slack import digest_blocks  # noqa: F401
+    from feasibility.delivery.notion import row_properties
+    from feasibility.delivery.pdf import render_pdf
+    from feasibility.delivery.slack import digest_blocks
 
-    raise AssertionError("5b writes this over the PDF, Slack and Notion payloads")
+    # 5b replaces this with the real scan over the PDF, Slack and Notion payloads.
+    assert all(callable(function) for function in (row_properties, render_pdf, digest_blocks))
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
@@ -283,9 +293,10 @@ def test_c15_tests_never_reach_the_live_services_even_with_tokens_in_the_environ
 ) -> None:
     monkeypatch.setenv("DELIVERY_MODE", "live")
     monkeypatch.setenv("SLACK_BOT_TOKEN", SLACK_SENTINEL)
-    from feasibility.delivery.slack import build_transport  # noqa: F401
+    from feasibility.delivery.slack import build_transport
 
-    raise AssertionError("5b writes this: mock transports in tests, sockets blocked")
+    # 5b replaces this with the real check: mock transports in tests, sockets blocked.
+    assert callable(build_transport)
 
 
 def test_c16_ci_masks_the_tokens_it_makes_and_never_traces_a_command() -> None:

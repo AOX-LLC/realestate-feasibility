@@ -260,3 +260,69 @@ def tamper_narratives(
             )
         )
     return updates
+
+
+# --- the invented-values scan -------------------------------------------------------------------
+
+
+def leaves(node: Any) -> list[Any]:
+    """Every scalar in a nested structure."""
+    if isinstance(node, dict):
+        return [leaf for value in node.values() for leaf in leaves(value)]
+    if isinstance(node, list | tuple):
+        return [leaf for value in node for leaf in leaves(value)]
+    return [node]
+
+
+def display_forms(value: Any) -> set[str]:
+    """Every way a surface may show a stored value: money, percent, plain with and without
+    separators, an integer, a date and its parts. Anything with a digit that is not one of these
+    for some stored value is invented."""
+    from datetime import date as date_type
+    from decimal import Decimal, InvalidOperation
+
+    from feasibility.llm import figures
+
+    forms: set[str] = set()
+    if isinstance(value, bool) or value is None:
+        return forms
+    if isinstance(value, date_type):
+        return {
+            value.isoformat(),
+            str(value.day),
+            str(value.year),
+            f"{value.month:02d}",
+            str(value.month),
+        }
+    if isinstance(value, int):
+        return {str(value), f"{value:,}"}
+    if isinstance(value, str):
+        try:
+            number = Decimal(value)
+        except InvalidOperation:
+            return forms
+        forms |= {value, f"{number:,.2f}", f"{number:,.0f}", f"{number:f}", figures.money(number)}
+        forms.add(figures.percent(number))
+        forms.add(figures.area(number))
+        forms.add(figures.months(number))
+        forms.add(f"{number.normalize():f}")
+        forms.add(f"{number:,.1f}")
+        return {f for f in forms if f}
+    return forms
+
+
+def allowed_displays(*structures: Any) -> list[str]:
+    forms: set[str] = set()
+    for structure in structures:
+        for leaf in leaves(structure):
+            forms |= display_forms(leaf)
+    return sorted(forms, key=len, reverse=True)
+
+
+def digits_left_over(text_: str, allowed: list[str]) -> list[str]:
+    """The digit runs in `text_` once every allowed string standing alone is taken out, longest
+    first. A digit that remains was not in any stored value."""
+    for form in allowed:
+        pattern = r"(?<![\d,.])" + re.escape(form) + r"(?!\d|[.,]\d)"
+        text_ = re.sub(pattern, " ", text_)
+    return re.findall(r"\d+", text_)

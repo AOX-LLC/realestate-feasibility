@@ -41,9 +41,6 @@ from feasibility.snapshot.load import seed
 LATER = "5b builds this surface; the session removes this mark when it makes the test pass"
 
 
-FIX_5A = "a 5a bug the attack review found; the commit that fixes it removes this mark"
-
-
 def profit_and_value(facts: dict[str, Any], feedback: str) -> Any:
     """A narrative that quotes two figures, so a change to either shows."""
     from feasibility.llm.narrative_check import NarrativeDraft
@@ -385,8 +382,13 @@ def test_b8_the_briefs_data_mode_is_the_runs_not_the_readers(plain: Any) -> None
 
 @pytest.mark.xfail(strict=True, reason=LATER)
 def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> None:
+    import io
+
+    from attack_support import allowed_displays, digits_left_over
+    from pypdf import PdfReader
+
     from feasibility.delivery.document import proforma_document
-    from feasibility.delivery.html import render_html
+    from feasibility.delivery.pdf import render_pdf
 
     engine, one, _ = plain
     brief = build_with(engine, one.run_id)
@@ -397,19 +399,37 @@ def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> 
         r=one.run_id,
         c=entry.candidate_id,
     )[0].result
-    html = render_html(proforma_document(brief, entry, ProformaResult.model_validate(stored)))
-    allowed = [figures.money(d) for d in decimals_in(stored)]
-    assert "7.6%" not in html
-    assert allowed
+    document = proforma_document(brief, entry, ProformaResult.model_validate(stored))
+
+    reader = PdfReader(io.BytesIO(render_pdf(document)))
+    text_ = "\n".join(page.extract_text() for page in reader.pages)
+    # Stored values, the page numbers ("Page n of m", at most three pages) and nothing else.
+    allowed = allowed_displays(brief.model_dump(mode="json"), stored, [1, 2, 3])
+
+    assert digits_left_over(text_, allowed) == []
+    assert "7.6%" not in text_
 
 
 @pytest.mark.xfail(strict=True, reason=LATER)
 def test_b14_every_visible_number_in_the_slack_payload_is_a_stored_value(plain: Any) -> None:
+    from attack_support import allowed_displays, digits_left_over
+
     from feasibility.delivery.slack import digest_blocks
 
     engine, one, _ = plain
-    blocks, fallback = digest_blocks(build_with(engine, one.run_id))
-    assert json.dumps(blocks) and fallback
+    brief = build_with(engine, one.run_id)
+
+    blocks, fallback = digest_blocks(brief)
+
+    visible = " ".join([fallback, *[leaf for leaf in leaves_of(blocks) if isinstance(leaf, str)]])
+    allowed = allowed_displays(brief.model_dump(mode="json"))
+    assert digits_left_over(visible, allowed) == []
+
+
+def leaves_of(node: Any) -> list[Any]:
+    from attack_support import leaves
+
+    return leaves(node)
 
 
 @pytest.mark.xfail(strict=True, reason=LATER)

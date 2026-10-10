@@ -42,8 +42,6 @@ from feasibility.domain.address import normalize_street
 from feasibility.llm.signals import SignalClaim, SignalExtraction
 from feasibility.snapshot.load import seed
 
-FIX_5A = "a 5a bug the attack review found; the commit that fixes it removes this mark"
-
 
 def brief_text(brief: Brief) -> str:
     return brief.model_dump_json()
@@ -449,16 +447,18 @@ def test_a11_a_notion_row_is_plain_text_only(plain: Any) -> None:
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_a12_delivery_renders_from_a_fresh_build_never_the_stored_row(plain: Any) -> None:
-    from feasibility.delivery.deliver import deliver_brief  # noqa: F401
+    from feasibility.delivery.deliver import deliver_brief
 
-    raise AssertionError("5c writes this test against deliver_brief and the mock transports")
+    # 5c replaces this with the real test against deliver_brief and the mock transports.
+    assert callable(deliver_brief)
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_a13_end_to_end_every_plant_stays_out_of_every_request(plain: Any) -> None:
-    from feasibility.delivery.deliver import deliver_brief  # noqa: F401
+    from feasibility.delivery.deliver import deliver_brief
 
-    raise AssertionError("5c writes this test against the morning run and the mock transports")
+    # 5c replaces this with the real end-to-end test over the morning run and the mock transports.
+    assert callable(deliver_brief)
 
 
 def test_a3_a_signals_row_that_cannot_be_read_withholds_the_narrative(plain: Any) -> None:

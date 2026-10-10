@@ -31,8 +31,6 @@ from feasibility.delivery import store
 from feasibility.delivery.build import build_brief
 from feasibility.snapshot.load import seed
 
-FIX_5A = "a 5a bug the attack review found; the commit that fixes it removes this mark"
-
 
 class Spy:
     """The app behind the gate: it records that it was reached and answers 200."""
