@@ -201,7 +201,7 @@ class _Problems:
         raise error
 
 
-def _end(
+def _call_and_record(
     engine: Engine,
     run_id: int,
     target: str,
@@ -273,7 +273,7 @@ def _deliver_notion(
         known = last.remote_ref if last is not None else None
         write = partial(_write_row, client, brief, entry, known, schema_checked)
         ledger.start(engine, report.run_id, "notion", item, mode, sha)
-        _end(engine, report.run_id, "notion", item, mode, write, report, problems)
+        _call_and_record(engine, report.run_id, "notion", item, mode, write, report, problems)
         if "notion" in problems.stopped:
             for later in brief.candidates[position + 1 :]:
                 report.items.append(
@@ -377,7 +377,7 @@ def _deliver_slack(
     else:
         sha = digest_of({"text": text, "blocks": blocks})
         ledger.start(engine, run_id, "slack", "digest", mode, sha)
-        thread = _end(
+        thread = _call_and_record(
             engine,
             run_id,
             "slack",
@@ -419,7 +419,7 @@ def _send_file(
     if pdf is None:
         raise BriefError(f"candidate {entry.candidate_id}: its file was not rendered")
     ledger.start(engine, report.run_id, "slack", item, mode, hashlib.sha256(pdf).hexdigest())
-    _end(
+    _call_and_record(
         engine,
         report.run_id,
         "slack",
