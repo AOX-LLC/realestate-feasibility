@@ -385,3 +385,51 @@ def clear_day_one_notion(engine: Engine, run_id: int) -> None:
         connection.execute(
             text("DELETE FROM delivery WHERE run_id = :r AND target = 'notion'"), {"r": run_id}
         )
+
+
+def test_a_recent_unfinished_file_call_stops_the_run_as_busy_with_what_was_done_reported(
+    days: Any,
+) -> None:
+    from sqlalchemy import text
+
+    from feasibility.delivery.errors import DeliveryBusyError
+
+    engine, one, _ = days
+    deliver(engine, one.run_id, MockNotionTransport(), MockSlackTransport())
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE delivery SET status = 'sending', remote_ref = NULL "
+                "WHERE item = (SELECT item FROM delivery WHERE item LIKE 'file:%' "
+                "ORDER BY id LIMIT 1) AND run_id = :r"
+            ),
+            {"r": one.run_id},
+        )
+    slack = MockSlackTransport()
+
+    with pytest.raises(DeliveryBusyError) as raised:
+        deliver(engine, one.run_id, MockNotionTransport(), slack)
+
+    assert raised.value.code == "recent_call" and raised.value.report is not None
+    assert status_of(raised.value.report, "slack", "digest") == "skipped"
+    assert slack.requests == []
+
+
+def test_a_configuration_error_in_the_middle_of_the_files_reports_the_rest_as_not_attempted(
+    days: Any,
+) -> None:
+    engine, one, _ = days
+
+    class Refusing(MockSlackTransport):
+        def request(self, method: str, path: str, **kwargs: Any) -> Any:
+            if path == "/files.getUploadURLExternal":
+                from feasibility.delivery.transport import TransportResponse
+
+                return TransportResponse(200, {"ok": False, "error": "missing_scope"})
+            return super().request(method, path, **kwargs)
+
+    with pytest.raises(DeliveryConfigError, match="missing_scope") as raised:
+        deliver(engine, one.run_id, MockNotionTransport(), Refusing())
+
+    slack_items = [i for i in raised.value.report.items if i.target == "slack"]
+    assert [i.status for i in slack_items] == ["sent", "failed"] + ["not_attempted"] * 4

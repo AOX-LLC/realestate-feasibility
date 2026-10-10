@@ -369,8 +369,7 @@ def _deliver_slack(
         report.items.append(ItemResult("slack", "digest", "skipped", None, state.remote_ref))
         thread = state.remote_ref
     elif state is not None and state.status == "sending":
-        # Written a moment ago by a call that has not ended and holds no lock: too new to call.
-        raise DeliveryBusyError("sending")
+        raise _recent_call(report)
     elif state is not None and state.status == "unknown":
         report.items.append(ItemResult("slack", "digest", "unknown", state.error_code))
         problems.unknown_slack = True
@@ -389,12 +388,24 @@ def _deliver_slack(
         )
     if thread is None:
         return  # no digest, no thread to put files in
-    for entry in brief.candidates:
+    for position, entry in enumerate(brief.candidates):
         _send_file(
             engine, report, client, mode, entry, documents.get(entry.candidate_id), thread, problems
         )
         if "slack" in problems.stopped:
+            for later in brief.candidates[position + 1 :]:
+                report.items.append(
+                    ItemResult("slack", f"file:{later.candidate_id}", "not_attempted")
+                )
             return
+
+
+def _recent_call(report: DeliveryReport) -> DeliveryBusyError:
+    """A row written a moment ago by a call that has not ended, with no lock held: too new to call
+    unknown. What was done before it stays done; try again after ten minutes."""
+    error = DeliveryBusyError("recent_call")
+    error.report = report
+    return error
 
 
 def _send_file(
@@ -412,7 +423,9 @@ def _send_file(
     if state is not None and state.status == "sent":
         report.items.append(ItemResult("slack", item, "skipped", None, state.remote_ref))
         return
-    if state is not None and state.status in ("unknown", "sending"):
+    if state is not None and state.status == "sending":
+        raise _recent_call(report)
+    if state is not None and state.status == "unknown":
         report.items.append(ItemResult("slack", item, "unknown", state.error_code))
         problems.unknown_slack = True
         return

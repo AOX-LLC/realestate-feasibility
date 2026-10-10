@@ -605,8 +605,19 @@ def brief_deliver(
         report = deliver_brief(
             engine, settings, shown_run, dry_run=dry_run, resend=resend or (), only=only, out=out
         )
-    except DeliveryBusyError:
-        typer.echo(f"run {shown_run}: another delivery of it is going; nothing was sent", err=True)
+    except DeliveryBusyError as error:
+        if error.code == "busy":
+            typer.echo(
+                f"run {shown_run}: another delivery of it is going; nothing was sent", err=True
+            )
+        else:
+            if error.report is not None:
+                _print_report(error.report)
+            typer.echo(
+                f"run {shown_run}: an earlier call left a row too new to judge; what is above was "
+                "done. Try again in ten minutes (see `brief deliveries`)",
+                err=True,
+            )
         raise typer.Exit(code=2) from None
     except BriefError as error:
         typer.echo(f"brief not built: {error}", err=True)

@@ -31,8 +31,10 @@ class DeliveryError(RuntimeError):
 
 
 class DeliveryBusyError(DeliveryError):
-    """Another delivery of this run is in the middle of its call, or a call left a row that is too
-    new to call unknown. Nothing was sent; trying again later is right."""
+    """Nothing could be decided for now. Code `busy`: another delivery of this run holds the lock,
+    and nothing was sent. Code `recent_call`: a call of an earlier delivery left a row too new to
+    call unknown; what was delivered before it stays delivered (see `report`). Trying again later
+    is right in both cases."""
 
 
 class DeliveryIncompleteError(DeliveryError):
