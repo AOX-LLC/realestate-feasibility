@@ -191,7 +191,7 @@ def latest_run_as_of(connection: Connection, market: str) -> date | None:
 def previous_fresh_run(connection: Connection, market: str, before: date) -> int | None:
     """The id of the latest completed run with a fresh sync and an as_of strictly before
     `before`. A stale or skipped run recorded nothing about absence, so a diff against it
-    would call every listing it missed relisted."""
+    would call every listing it missed relisted; a pruned run has no rows left to compare."""
     return connection.execute(
         select(sourcing_run.c.id)
         .where(
@@ -199,6 +199,8 @@ def previous_fresh_run(connection: Connection, market: str, before: date) -> int
             sourcing_run.c.status == "completed",
             sourcing_run.c.sync_status == "fresh",
             sourcing_run.c.as_of < before,
+            # A pruned run kept its summary but not the rows a diff compares against.
+            sourcing_run.c.pruned_at.is_(None),
         )
         .order_by(sourcing_run.c.as_of.desc())
         .limit(1)
@@ -221,6 +223,7 @@ def start_run(connection: Connection, market: str, as_of: date, data_mode: str =
                 "started_at": func.now(),
                 "finished_at": None,
                 "stages_finished_at": None,
+                "pruned_at": None,
                 "data_mode": data_mode,
             },
         ).returning(sourcing_run.c.id)

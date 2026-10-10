@@ -156,6 +156,9 @@ class RunOut(ResponseModel):
     counts: RunCounts
     started_at: datetime
     finished_at: datetime | None
+    # When retention deleted the run's detail (its candidates, pro-formas, brief); the run's own
+    # row and counts stay. Null for a run that still has them.
+    pruned_at: datetime | None
 
 
 class CandidateAddressOut(ResponseModel):
