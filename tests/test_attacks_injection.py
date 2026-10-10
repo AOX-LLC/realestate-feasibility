@@ -446,6 +446,24 @@ def test_a13_end_to_end_every_plant_stays_out_of_every_request(plain: Any) -> No
     raise AssertionError("5c writes this test against the morning run and the mock transports")
 
 
+def test_a3_a_signals_row_that_cannot_be_read_withholds_the_narrative(plain: Any) -> None:
+    engine, one, _ = plain
+    base = build_with(engine, one.run_id)
+    target = base.candidates[0].candidate_id
+    update = (
+        "UPDATE candidate_signals SET result = CAST('{}' AS jsonb) "
+        "WHERE run_id = :r AND candidate_id = :c",
+        {"r": one.run_id, "c": target},
+    )
+
+    brief = build_with(engine, one.run_id, update)
+
+    shown = next(e for e in brief.candidates if e.candidate_id == target)
+    assert base.candidates[0].narrative.status == "accepted"
+    assert shown.narrative.status == "withheld"
+    assert shown.signals.status == "not_available"
+
+
 # This one empties the database for itself, so it runs after every test that shares `plain`.
 def test_a4_the_same_attacks_written_by_the_model_are_withheld_at_write_time(
     migrated_engine: Engine,

@@ -55,7 +55,7 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
     counts = store.proforma_status_counts(connection, run_id)
     rows = store.top_computed(connection, run_id, MAX_CANDIDATES)
     ids = [row.candidate_id for row in rows]
-    signals = store.signals_for(connection, run_id, ids)
+    signals, unreadable = store.signals_for(connection, run_id, ids)
     narratives = store.narratives_for(connection, run_id, ids)
     remarks = store.remarks_of(connection, run_id, ids)
 
@@ -91,7 +91,11 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 ],
                 signals=signals_of(stored_signals),
                 narrative=narrative_of(
-                    narratives.get(row.candidate_id), result, stored_signals, context
+                    narratives.get(row.candidate_id),
+                    result,
+                    stored_signals,
+                    context,
+                    signals_unreadable=row.candidate_id in unreadable,
                 ),
             )
         )

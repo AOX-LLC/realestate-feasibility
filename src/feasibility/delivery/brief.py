@@ -40,6 +40,7 @@ NOTE_NOT_AVAILABLE = "Not available today."
 NOTE_REJECTED = "Withheld: the draft did not pass the figure check."
 NOTE_RECHECK_FAILED = "Withheld: the narrative no longer matches this pro-forma."
 NOTE_UNSAFE_TEXT = "Withheld: the narrative held text that is not safe to deliver."
+NOTE_SIGNALS_UNREADABLE = "Withheld: this candidate's signals could not be read."
 NOTE_FLAGGED = "Withheld: the listing text was flagged as an attempt to steer the model."
 
 DecimalString = Annotated[str, Field(pattern=r"^-?[0-9]+(\.[0-9]+)?$")]
@@ -348,6 +349,8 @@ def narrative_of(
     result: ProformaResult,
     signals: SignalsResult | None,
     context: TextContext | None = None,
+    *,
+    signals_unreadable: bool = False,
 ) -> BriefNarrative:
     """An accepted narrative is checked again against facts built from today's rows; every
     other state is a fixed note and no model text at all."""
@@ -355,6 +358,9 @@ def narrative_of(
         return BriefNarrative(status="not_available", note=NOTE_NOT_AVAILABLE)
     if narrative.status == "rejected":
         return BriefNarrative(status="withheld", note=NOTE_REJECTED)
+    if signals_unreadable:
+        # Whether the listing text was flagged is unknown, so the narrative cannot be vouched for.
+        return BriefNarrative(status="withheld", note=NOTE_SIGNALS_UNREADABLE)
     if flagged(signals):
         # Built on facts that include signals a flagged text may have chosen.
         return BriefNarrative(status="withheld", note=NOTE_FLAGGED)

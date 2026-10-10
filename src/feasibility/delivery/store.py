@@ -160,9 +160,10 @@ def top_computed(connection: Connection, run_id: int, limit: int) -> list[Comput
 
 def signals_for(
     connection: Connection, run_id: int, candidate_ids: list[int]
-) -> dict[int, SignalsResult]:
-    """Each candidate's stored signals. A row written under another shape of the model is read
-    as absent, which the brief reports as not available."""
+) -> tuple[dict[int, SignalsResult], set[int]]:
+    """Each candidate's stored signals, and the ids whose row exists but cannot be read (written
+    under another shape of the model, or a signal that disagrees with the catalogue): the
+    caller must not treat those as "no signals", because a narrative may rest on them."""
     rows = connection.execute(
         select(candidate_signals.c.candidate_id, candidate_signals.c.result).where(
             candidate_signals.c.run_id == run_id,
@@ -170,12 +171,13 @@ def signals_for(
         )
     )
     found: dict[int, SignalsResult] = {}
+    unreadable: set[int] = set()
     for row in rows:
         try:
             found[row.candidate_id] = SignalsResult.model_validate(row.result)
         except ValidationError:
-            continue
-    return found
+            unreadable.add(row.candidate_id)
+    return found, unreadable
 
 
 def narratives_for(
