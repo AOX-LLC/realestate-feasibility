@@ -88,13 +88,17 @@ jobs:
       - name: A gated route refuses a request with no token
         run: test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:4501/parcels?limit=5')" = 401
       - name: A gated route answers the read token
-        run: curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" 'http://127.0.0.1:4501/parcels?limit=5'
+        run: |
+          curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" 'http://127.0.0.1:4501/parcels?limit=5'
       - name: Health is behind the token
-        run: curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/health
+        run: |
+          curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/health
       - name: The interactive docs are not served
-        run: test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/docs)" = 404
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/docs)" = 404
       - name: The read token cannot start a run
-        run: test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_READ_TOKEN" -H 'content-type: application/json' -d '{"market":"dallas","as_of":"2026-10-01"}' http://127.0.0.1:4501/triggers/morning)" = 403
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_READ_TOKEN" -H 'content-type: application/json' -d '{"market":"dallas","as_of":"2026-10-01"}' http://127.0.0.1:4501/triggers/morning)" = 403
       - name: Show logs on failure
         if: failure()
         run: docker compose logs
