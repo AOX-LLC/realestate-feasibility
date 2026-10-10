@@ -6,16 +6,16 @@ The thesis: **LLM for judgment, code for math.** The model reads listing text an
 
 ## Status
 
-Phases 1 (foundation), 2 (sourcing and scoring) and 3 (the pro-forma) exist today; Phase 4 (the LLM layer) is partly built.
+Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma) and 4 (the LLM layer) exist today.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Schema, job queue, source adapters (county appraisal CSV, RentCast, MLS stub), mock and live modes, synthetic snapshot, market packs, read-only API, Docker Compose | Built |
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
-| 4 | LLM layer: listing-text signals and risk narratives | In progress: both run in the daily run, with a read-only API and CLI; the recorded model responses they replay are not in the repository yet (see [Signals and narratives](#signals-and-narratives)) |
+| 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
 | 5 | Delivery: the morning brief, scheduling | Not started |
-| 6 | Evals | Not started |
+| 6 | Evals and the proof kit | Started: the two model evals exist (Phase 4); more suites to come |
 
 ## Quick start
 
@@ -152,17 +152,29 @@ docker compose run --rm migrate feasibility proforma show 4 --sensitivity
 
 On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two are marginal, one loses money) and day 2 six. A run costs the same RentCast calls as before: the pro-formas add none. In live mode a day is at most one listing sync plus up to five value estimates; in mock mode the estimates come from the snapshot and no budget is touched.
 
-## Signals and narratives
+## The LLM layer
 
-After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). The model never produces a number: a signal survives only if code finds its quote verbatim in the listing's remarks, and a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). Three signals (price cut, relisted, long on the market) are computed in code from the listing's fields and need no model.
+After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). **The model never produces a number.** A signal survives only if code finds its quote verbatim in the listing's remarks; a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). The model sees no address and no listing text when it writes a narrative.
 
-Results are cached by a hash of their inputs, so a same-day re-run, or a day whose inputs did not change, makes no call. Every call has one row in the ledger (`llm_call`), and a run's spend is capped (`LLM_RUN_BUDGET_USD`, per run across all its attempts) as is a UTC month of billable calls (`LLM_MONTHLY_BUDGET_USD`). A candidate the cap cannot afford is stored as `deferred`, not as an error.
+**The twelve remarks signals** are a closed set. Risks: `as_is_sale`, `environmental_hazard`, `flood_or_drainage`, `easement_or_encroachment`, `deed_restrictions`, `conservation_or_historic_district`, `protected_trees`, `tenant_occupied`. Opportunities: `teardown_language`, `plans_or_permits`, `seller_financing`, `multiple_lots`. Negations ("no HOA", "not in a flood zone") are not signals. Three more signals (`price_reduced`, `relisted`, `long_on_market`) are computed in code from the listing's fields and need no model.
 
-**Until the recordings land, a mock-mode run records an error on purpose.** Mock mode replays recorded model responses (`AGENT_CORE_MODE=replay`, no key), and this repository has no recordings yet (a later job records them in one paid session). So the first model call finds nothing to replay, and the run, which has already stored its ranking, estimates and pro-formas, ends with `sourcing_run.error` set to `PermanentModelError: signals stage stopped at ...`, the run's status stays `completed`, `candidate_signals` and `candidate_narrative` stay empty, and `feasibility source run` exits with code 1 and says which stage stopped. Nothing falls back to a live call. The ranking and the pro-formas are unchanged, so everything above works as before.
+**The figure rule.** A narrative may contain no digit except inside a figure copied exactly from the facts sheet code builds from the stored pro-forma (money to the cent, ratios as percents with two decimals). Comparisons ("below the target", "loses money") are code facts the model is handed, not judgments it makes. Spelled-out quantities, arithmetic words next to a figure and a basis code that is not in the facts are rejected; one repair call is allowed.
+
+**Data and listing text.** Remarks come from a synthetic RESO-shaped set (`data/mls/dallas.json`), redacted for personal data at ingestion; live RentCast listings have no remarks. So in live data mode the model is called for narratives only.
+
+| | Mock data (default) | Live data |
+| --- | --- | --- |
+| `AGENT_CORE_MODE` | `replay` (default): serves the committed recordings, no key, no network, no cost. `record` calls the model and writes recordings | `live`: calls the model (needs `AGENT_CORE_ANTHROPIC_API_KEY`). With no key, narratives are `deferred` and signals are the three field signals |
+| Cost | Replay reports the cost of the call that was recorded; nothing is spent | Narratives only: about $0.015 a call, so about $0.08 for a first day of five computed candidates and about $0.03 for a day with two changed ones (a projection; see `evals/scorecards/cost.md`) |
+
+Results are cached by a hash of their inputs, so a same-day re-run, or a day whose inputs did not change, makes no call. Every call has one row in the ledger (`llm_call`), and a run's spend is capped (`LLM_RUN_BUDGET_USD`, per run across all its attempts) as is a UTC month of billable calls (`LLM_MONTHLY_BUDGET_USD`). A candidate the cap cannot afford is stored as `deferred`, not as an error. The recordings are tied to the prompts, the inputs and the pinned `anthropic` and `pydantic` versions; changing any of them means a paid re-recording (see [ARCHITECTURE](docs/ARCHITECTURE.md#recordings-and-how-to-record-again)).
+
+On the snapshot, replayed from the committed recordings: day 1 stores 12 signals rows (10 extracted, 2 fields-only) and 12 narrative rows (4 accepted, 1 rejected by the figure check, 7 not eligible); day 2 stores 17 and 17 (5 accepted, 1 rejected, 11 not eligible) with 8 calls; running day 2 again makes none.
 
 ```bash
-docker compose run --rm migrate feasibility llm cost             # the latest run's model calls: none made
-docker compose run --rm migrate feasibility llm show 4           # signals and narrative, once recorded
+docker compose run --rm migrate feasibility source run --as-of 2026-10-01
+docker compose run --rm migrate feasibility llm cost             # the run's model calls, mode replay
+docker compose run --rm migrate feasibility llm show 4           # one candidate's signals and narrative
 docker compose run --rm migrate feasibility llm cost --month 2026-10
 ```
 
@@ -177,6 +189,23 @@ docker compose run --rm migrate feasibility llm cost --month 2026-10
 | `GET /llm/spend?month=YYYY-MM` | Billable calls and cost in a UTC month against the monthly budget (the current month by default) |
 
 A rejected narrative is served as its status, its reason and the kinds of rule it broke: never the model's text and never the text of a violation. The API never calls a model.
+
+### Evals and scorecards
+
+```bash
+uv run feasibility eval signals --split all      # replay: no key, no database
+uv run feasibility eval narrative
+cat evals/scorecards/signals-holdout.md
+```
+
+`feasibility eval signals [--split dev|holdout|all]` scores extraction on 56 synthetic records against a committed answer key (per-signal precision and recall, evidence match, injection resistance, personal-data leaks); `feasibility eval narrative` scores 13 facts sheets. Both replay the recordings by default and need `--allow-spend` in record or live mode. The scorecards are in [evals/scorecards](evals/scorecards/README.md), and a test regenerates them from the recordings. What they show, from one recording session that cost about $0.53:
+
+- Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked, all 3 injection cases resisted. Precision sits on its 0.90 target.
+- Extraction, dev: micro precision 87.5%; one of its 6 injection cases fails the "signal set equals the key" check (an extra signal; no injected text reached an output).
+- Narrative: **acceptance is 8 of 9 scored cases (88.9%), under the 0.90 target, and 4 of 13 cases errored**: the mid tier's 1,500-token output limit cut their JSON off. Every accepted narrative's figures match the facts sheet exactly.
+- The answer key, prompts, catalogue and cases were not changed after seeing these numbers. Changing a prompt or a token limit is a decision that needs a new recording.
+
+The eval set is small, synthetic and written by this project, so these numbers say nothing about real listings.
 
 ## Importing real DCAD data
 
@@ -213,7 +242,8 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `market validate [files]` | Validate market pack files (all packs by default) |
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
-| `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [Signals and narratives](#signals-and-narratives)) |
+| `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [The LLM layer](#the-llm-layer)) |
+| `eval signals`, `eval narrative` | Score the model tasks against their answer keys, in replay by default (see [Evals and scorecards](#evals-and-scorecards)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
 Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.

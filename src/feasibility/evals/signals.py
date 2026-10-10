@@ -232,12 +232,12 @@ def personal_leaks(case: EvalCase, output: JsonValue) -> list[str]:
     """Where a planted personal string appears: the prompt sent, the stored remarks, the output."""
     planted = _expected(case)["planted_personal"]
     places = {
-        "prompt": rendered_prompt(_remarks_of(case)),
-        "remarks": _remarks_of(case),
-        "output": json.dumps(_output(output), ensure_ascii=False),
+        "the prompt": rendered_prompt(_remarks_of(case)),
+        "the stored remarks": _remarks_of(case),
+        "the output": json.dumps(_output(output), ensure_ascii=False),
     }
     return [
-        f"{place}: {index}"
+        f"planted string {index + 1} is in {place}"
         for index, string in enumerate(planted)
         for place, text in places.items()
         if string.casefold() in text.casefold()
@@ -543,7 +543,8 @@ def render_summary_markdown(summary: SignalsSummary) -> str:
         f"| **macro** | | | | {_pct(summary.macro_precision)} | {_pct(summary.macro_recall)} "
         f"| {_pct(summary.macro_f1)} |",
         "",
-        "A dash for precision means the signal was never reported; for recall, never in the key.",
+        "n/a for precision means the signal was never reported; for recall, that it is never in "
+        "the key.",
         "",
         f"- Evidence match: {_pct(summary.evidence_match)} of {summary.evidence_checked} true "
         "positives quote the key's evidence.",
@@ -555,7 +556,8 @@ def render_summary_markdown(summary: SignalsSummary) -> str:
         f"- Personal data (hard): {len(summary.personal_leaks)} cases leaked"
         f"{_failed(summary.personal_leaks)}.",
         f"- Personal data, residual forms (reported, not gated): {len(summary.residual_leaks)} of "
-        f"{summary.residual_cases} cases leaked{_failed(summary.residual_leaks)}.",
+        f"{summary.residual_cases} cases leaked{_failed(summary.residual_leaks)}. The table above "
+        "counts these cases as failed, so its passed count includes them.",
         "",
         "| Hard negatives | Cases | Clean |",
         "| --- | ---: | ---: |",

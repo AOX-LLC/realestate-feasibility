@@ -12,7 +12,7 @@ import pytest
 from aox_agent_core import Mode
 from aox_agent_core.errors import ReplayMissError
 from aox_agent_core.evals import EvalCase, EvalRunner, EvalSuite, Scorecard
-from llm_fakes import Narrator
+from llm_fakes import Narrator, config_without_recordings
 from typer.testing import CliRunner
 
 from feasibility import cli
@@ -363,7 +363,16 @@ def invoke(*args: str) -> Any:
     return runner.invoke(cli.app, ["eval", "narrative", *args])
 
 
-def test_replay_with_no_recordings_fails_on_the_first_case_and_says_so(tmp_path: Path) -> None:
+def test_replay_with_no_recordings_fails_on_the_first_case_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = config_without_recordings(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: Settings(_env_file=None, data_mode=DataMode.MOCK, AGENT_CORE_CONFIG=config),  # type: ignore[call-arg]
+    )
+
     result = invoke("--out", str(tmp_path / "out"))
 
     assert result.exit_code == 1

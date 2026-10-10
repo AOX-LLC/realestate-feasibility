@@ -409,7 +409,7 @@ def test_the_attack_file_stays_ascii() -> None:
     assert all(byte < 128 for byte in data)
 
 
-def test_every_attack_from_the_gatekeeper_review_is_rejected() -> None:
+def test_every_attack_from_the_security_review_is_rejected() -> None:
     from narrative_attacks import REVIEW_ATTACKS
 
     accepted = [name for name, text in REVIEW_ATTACKS if check_narrative(draft(text), FACTS).passed]
@@ -426,7 +426,7 @@ def test_plain_words_that_contain_a_number_word_still_pass() -> None:
     assert rejected == []
 
 
-# --- a figure whose meaning is changed from a distance (gatekeeper review) -----------------------
+# --- a figure whose meaning is changed from a distance (security review) -----------------------
 
 EN_DASH, EM_DASH, RSQUO = _c(0x2013), _c(0x2014), _c(0x2019)
 MEANING_CHANGES = [
@@ -499,7 +499,7 @@ def test_the_violations_kept_are_bounded_and_the_verdict_does_not_depend_on_the_
     assert len(result.violations) == MAX_VIOLATIONS
 
 
-# --- accounting parentheses: a figure inside (...) reads as a negative (gatekeeper review) -------
+# --- accounting parentheses: a figure inside (...) reads as a negative (security review) -------
 
 PARENTHESISED = [
     ("tight", "Profit ($107,560.14) is thin."),
@@ -549,7 +549,7 @@ def test_parentheses_elsewhere_in_prose_stay_allowed(text: str) -> None:
     assert kinds(draft(text)) == [], text
 
 
-# --- arithmetic on a figure: half of it, twice it (gatekeeper review) ----------------------------
+# --- arithmetic on a figure: half of it, twice it (security review) ----------------------------
 
 ARITHMETIC_WORDS = [
     "half",

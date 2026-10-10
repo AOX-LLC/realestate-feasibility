@@ -1,0 +1,152 @@
+{
+  "format_version": 2,
+  "prompt": {
+    "attachments": [],
+    "attempt": 1,
+    "inputs": {
+      "facts": {
+        "code_facts": [
+          {
+            "code": "below_target",
+            "meaning": "The margin is below the target margin."
+          },
+          {
+            "code": "max_offer_below_price",
+            "meaning": "The most the target margin allows is below the offer price."
+          }
+        ],
+        "figures": {
+          "annualized_return": "22.37%",
+          "arv": "$1,578,431.40",
+          "buildable_sqft": "3,500 sq ft",
+          "comp_count_used": "5 comps",
+          "headroom_vs_offer": "-$158,378.14",
+          "hold_months": "9 months",
+          "lot_sqft": "14,413 sq ft",
+          "margin": "3.94%",
+          "max_offer": "$358,621.86",
+          "offer_price": "$517,000.00",
+          "profit": "$62,121.09",
+          "profit_if_arv_lower": "-$86,251.46",
+          "profit_if_cost_higher": "-$103,878.87",
+          "profit_if_hold_longer": "$35,354.87",
+          "roi": "16.78%",
+          "target_margin": "15.00%",
+          "total_cost": "$1,516,310.31"
+        },
+        "flags": [
+          {
+            "code": "size_capped_max",
+            "meaning": "The buildable size was cut to the market's largest home size."
+          }
+        ],
+        "signals": [
+          {
+            "code": "environmental_hazard",
+            "meaning": "Asbestos, underground tank, contamination, mold remediation: anything that raises demolition or site cost",
+            "polarity": "risk"
+          },
+          {
+            "code": "easement_or_encroachment",
+            "meaning": "Easements, encroachments, shared driveways, survey disputes",
+            "polarity": "risk"
+          }
+        ]
+      },
+      "feedback": "The previous draft was rejected. Fix every problem below and write it again.\nunlisted_figure: $3.94%\nspelled_number: two\nunlisted_figure: $3.94%"
+    },
+    "output_schema": "NarrativeDraft",
+    "prompt_id": "narrative.write",
+    "schema_sha256": "93b6fd451e13e4490ec90af649417df9234c3fe685c544d5ee627e8b36c9aee2",
+    "system_sha256": "de8b1b6fff16fdcdc7a236c41ab75e8e2883791ee8c28fc5c5adf45c212fce27",
+    "template_sha256": "2e7deb728a4dde99f7c1f99fc7cbc194d30b5a10387db0f5364d2666aa0b3e3a",
+    "tier": "mid",
+    "version": 1
+  },
+  "replay_hash": "72419a4e66ee1e719d9156e297f210aa97e4f5207ca631fa91ee203433623b5b",
+  "request": {
+    "effort": null,
+    "max_tokens": 1500,
+    "messages": [
+      {
+        "attachments": [],
+        "content": "<facts>\n{\"code_facts\":[{\"code\":\"below_target\",\"meaning\":\"The margin is below the target margin.\"},{\"code\":\"max_offer_below_price\",\"meaning\":\"The most the target margin allows is below the offer price.\"}],\"figures\":{\"annualized_return\":\"22.37%\",\"arv\":\"$1,578,431.40\",\"buildable_sqft\":\"3,500 sq ft\",\"comp_count_used\":\"5 comps\",\"headroom_vs_offer\":\"-$158,378.14\",\"hold_months\":\"9 months\",\"lot_sqft\":\"14,413 sq ft\",\"margin\":\"3.94%\",\"max_offer\":\"$358,621.86\",\"offer_price\":\"$517,000.00\",\"profit\":\"$62,121.09\",\"profit_if_arv_lower\":\"-$86,251.46\",\"profit_if_cost_higher\":\"-$103,878.87\",\"profit_if_hold_longer\":\"$35,354.87\",\"roi\":\"16.78%\",\"target_margin\":\"15.00%\",\"total_cost\":\"$1,516,310.31\"},\"flags\":[{\"code\":\"size_capped_max\",\"meaning\":\"The buildable size was cut to the market's largest home size.\"}],\"signals\":[{\"code\":\"environmental_hazard\",\"meaning\":\"Asbestos, underground tank, contamination, mold remediation: anything that raises demolition or site cost\",\"polarity\":\"risk\"},{\"code\":\"easement_or_encroachment\",\"meaning\":\"Easements, encroachments, shared driveways, survey disputes\",\"polarity\":\"risk\"}]}\n</facts>\n\n<feedback>\nThe previous draft was rejected. Fix every problem below and write it again.\nunlisted_figure: $3.94%\nspelled_number: two\nunlisted_figure: $3.94%\n</feedback>",
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-5-5",
+    "output_schema": {
+      "$defs": {
+        "RiskPoint": {
+          "additionalProperties": false,
+          "properties": {
+            "basis": {
+              "description": "One to three codes from the facts sheet that this risk rests on.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Basis",
+              "type": "array"
+            },
+            "text": {
+              "description": "One or two sentences. At most 300 characters.",
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "basis",
+            "text"
+          ],
+          "title": "RiskPoint",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "checks_before_offer": {
+          "description": "At most four things to confirm before an offer, each at most 200 characters.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Before Offer",
+          "type": "array"
+        },
+        "risks": {
+          "description": "At most five risk points.",
+          "items": {
+            "$ref": "#/$defs/RiskPoint"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "summary": {
+          "description": "A short plain-language summary. At most 700 characters.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "risks",
+        "checks_before_offer"
+      ],
+      "title": "NarrativeDraft",
+      "type": "object"
+    },
+    "provider": "anthropic",
+    "system": "You write the risk narrative for one candidate property for a spec home builder who buys teardowns and lots. You are given a facts sheet between <facts> and </facts>. It is built by code from the candidate's pro-forma and is the only source you may use. You explain what the facts mean for the builder, plainly and specifically: where the deal is strong, where it is exposed, and what to confirm before an offer.\n\nTHE FIGURES RULE\nEvery number you write must be one of the strings in \"figures\", copied exactly, character for character, with its dollar sign, percent sign, minus sign and unit. Code checks every draft; a draft with any other number is thrown away.\n- Never write a digit anywhere else: not a year, not a count, not a percentage you worked out, not a figure rounded or shortened with a k or an M.\n- Never spell a quantity out in words: no two, ten, hundred, thousand, million, percent, no fractions such as a third or a quarter. Write \"a second lot\", never a count. The words one, single, half, double and twice are fine in ordinary prose, but never in the three words before a figure: a figure is never halved, doubled or multiplied.\n- Never compare numbers, add them or work anything out. Comparisons are given to you as code_facts; say what they say and nothing more.\n- Never put a dash, a plus or a minus sign in front of a figure, or a unit, a rate or a magnitude word after one: the strings already carry their own sign and unit.\n- Use only keys that are present. If a figure is absent, say nothing about it.\n\nTHE FIGURE KEYS\n- offer_price: the price the pro-forma assumes the builder pays for the property\n- arv: the estimated value of the finished new home, after the build\n- total_cost: everything the project costs from purchase to sale\n- profit: the finished value less the total cost\n- margin: profit as a share of the finished value\n- roi: profit as a share of the cash the builder puts in\n- annualized_return: the return on that cash scaled to a year\n- max_offer: the highest purchase price that still reaches the target margin\n- headroom_vs_offer: the maximum offer less the offer price; negative means the offer is above that ceiling\n- target_margin: the margin the builder wants to reach\n- buildable_sqft: the living area the lot is expected to allow\n- lot_sqft: the size of the lot\n- hold_months: the assumed time from purchase to sale\n- comp_count_used: how many comparable sales sit behind the finished value\n- profit_if_arv_lower: the profit if the finished value came in lower than estimated (a stress case)\n- profit_if_cost_higher: the profit if building costs ran higher than estimated (a stress case)\n- profit_if_hold_longer: the profit if the hold ran longer than assumed (a stress case)\n\nTHE OTHER FACTS\n- code_facts: comparisons computed by code. Each has a code and a meaning.\n- flags: caveats from the pro-forma. Each has a code and a meaning.\n- signals: things found about the listing, each with a code, a polarity (risk or opportunity) and a meaning. They come from code, not from the listing's own words, which you are never shown.\n\nWHAT TO WRITE\n- summary: a short plain summary of the candidate's position.\n- risks: each point names one to three codes from code_facts, flags or signals as its basis, and explains the risk in a sentence or two. Name only codes that appear in the facts.\n- checks_before_offer: things to confirm before an offer.\n- Give no address and no legal, tax or investment advice. Do not invent facts.\n- If <feedback> is not empty, a previous draft was rejected for the problems it lists. Fix those problems and write the whole narrative again.\n"
+  },
+  "response": {
+    "model": "claude-sonnet-5-5",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"At the assumed offer of $517,000.00 and a finished value of $1,578,431.40, the project shows a profit of $62,121.09, a margin of 3.94% against a target of 15.00%. The most the target margin allows is $358,621.86, so the offer sits above that ceiling, with headroom of -$158,378.14. Stress cases push the profit below zero.\",\"risks\":[{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"The margin of 3.94% falls short of the 15.00% target, and the ceiling of $358,621.86 is below the $517,000.00 offer. As priced, the deal does not meet the builder's own bar.\"},{\"basis\":[\"below_target\"],\"text\":\"A lower finished value gives a profit of -$86,251.46, and higher building costs give -$103,878.87. The thin margin leaves almost no cushion for estimate misses.\"},{\"basis\":[\"environmental_hazard\"],\"text\":\"A flagged environmental hazard can raise demolition or site cost. With profit already thin, any added site cost could erase it.\"},{\"basis\":[\"easement_or_encroachment\"],\"text\":\"An easement, encroachment or survey issue could limit where and how the new home can sit, which may affect the buildable size and the finished value.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, so the 3,500 sq ft used on the 14,413 sq ft lot is already at the top of what the market supports.\"}],\"checks_before_offer\":[\"Re-run the numbers at the $358,621.86 ceiling, or find what would justify the $517,000.00 price.\",\"Test the finished value of $1,578,431.40 against the 5 comps, since a lower value turns the profit negative.\",\"Get a site and environmental review before committing, to price any demolition or cleanup cost.\",\"Order a survey and title check to confirm any easement or encroachment and its effect on the build.\"]}",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2386,
+      "output_tokens": 1466
+    }
+  },
+  "sequence": 0
+}

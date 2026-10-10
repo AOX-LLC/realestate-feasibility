@@ -25,6 +25,7 @@ Phase 1 lays the foundation the later phases build on:
 | Database | Postgres 16 through SQLAlchemy 2 Core (no ORM), Alembic migrations, psycopg 3 (for `COPY`) |
 | HTTP client | httpx |
 | CLI | Typer |
+| Model layer | `aox-agent-core` pinned at git tag v0.1.0 (routing, prices, the Anthropic client, replay and record, eval runner); the Anthropic SDK comes with it. Only `llm/` and `evals/` import either |
 | Tooling | uv lockfile, ruff (lint and format), mypy strict on `src/`, pytest with respx |
 
 ## Module layout
@@ -46,6 +47,8 @@ sources/
   rentcast/          models.py, scrub.py, transport.py, client.py, cache.py, budget.py,
                      adapter.py, verify.py
   mls/stub.py        ListingSource that raises NotConfiguredError; maps RESO fields in its docstring
+  mls/reso.py        the RESO record model (mapped fields only), ingest_remarks, the remarks sources
+  mls/redact.py      personal-data redaction of remarks (pure)
 markets/
   schema.py          MarketPack model (extra="forbid" everywhere)
   loader.py          load, validate and register packs
@@ -84,14 +87,32 @@ proforma/            the pro-forma: the engine (pure) and its database edge
   store.py           every SQL statement of stored pro-formas
   run.py             stage 5 of a run: a pro-forma for every ranked candidate
   render.py          the terminal views behind `proforma list` and `show`
+llm/                 the model layer: stages 6 and 7 of the run and everything they need
+  client.py          build_model_client / load_llm_config from settings and data/llm/agent-core.toml
+  metered.py         MeteredClient: spend guard, ledger row and the call, in that order
+  spend.py           RunSpendGuard (run and monthly caps), SessionSpendGuard (evals)
+  ledger.py          every llm_call row; the spend sums
+  catalogue.py       the twelve remarks signals as data (code, polarity, meaning, notes)
+  field_signals.py   price_reduced, relisted, long_on_market (code)
+  untrusted.py       normalising, tag defanging and the injection scan of remarks (pure)
+  signals.py         extraction prompt v1, closed schema, build_extraction_input, verify_extraction
+  facts.py, figures.py  the narrative's facts sheet and the figure strings (pure)
+  narrative_check.py the NarrativeDraft schema and the check (pure)
+  narrative.py       narrative prompt v1, the one repair, NarrativeResult
+  results.py         SignalsResult and the other stored shapes
+  store.py           every SQL statement of results, the cache and the cost reads
+  run.py             stage 6 (run_signals) and stage 7 (run_narratives) and their failure rules
+  render.py, errors.py
+evals/               the two eval harnesses (extraction, narrative), their scorers and scorecard writers
 api/                 app factory, identity, schemas, and routers: health, markets, parcels,
-                     listings, jobs, budget, sourcing, proforma
+                     listings, jobs, budget, sourcing, proforma, llm
 cli.py               the feasibility command
 migrations/          Alembic environment and versions/ (0001 initial schema, 0002 sourcing,
-                     0003 per-run match, 0004 candidate estimates, 0005 pro-formas)
+                     0003 per-run match, 0004 candidate estimates, 0005 pro-formas, 0006 llm_call,
+                     0007 llm_result and the per-run signals and narratives, 0008 schema polish)
 ```
 
-Outside the package: `scripts/generate_snapshot.py`, `scripts/check_rentcast_docs.py`, `data/snapshot/`, `tests/`.
+Outside the package: `scripts/` (`generate_snapshot.py`, `check_rentcast_docs.py`, `build_narrative_cases.py`), `data/snapshot/`, `data/mls/` (the synthetic RESO records), `data/llm/` (the model config and the recordings), `evals/` (answer key, eval-only records, narrative cases, scorecards), `tests/`.
 
 ### Phase slots reserved for later
 
@@ -99,13 +120,12 @@ No empty modules exist. These are the planned locations.
 
 | Phase | Module | Purpose |
 | --- | --- | --- |
-| 4 | `llm/` | Signal extraction and risk narratives |
 | 5 | `delivery/` | Brief rendering and delivery |
-| 6 | `evals/` | Eval runner over the snapshot |
+| 6 | `evals/` (exists for the two model tasks) | More suites and the cost per daily run |
 
 ## Schema
 
-Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`), `0004_candidate_estimate` and `0005_proforma` (the sourcing tables are described under [Sourcing](#sourcing), the pro-forma table under [Pro-forma](#pro-forma)).
+Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_match` (each run's match on `run_listing`), `0004_candidate_estimate`, `0005_proforma`, `0006_llm_call`, `0007_llm_results` and `0008_schema_polish` (the sourcing tables are described under [Sourcing](#sourcing), the pro-forma table under [Pro-forma](#pro-forma), the model tables under [Signals and narratives in the run](#signals-and-narratives-in-the-run-stages-6-and-7)).
 
 | Table | Purpose | Key points |
 | --- | --- | --- |
@@ -120,7 +140,16 @@ Alembic revisions `0001_initial_schema`, `0002_sourcing`, `0003_run_listing_matc
 
 No owner, mailing-address or agent-contact column exists anywhere. The JSON columns (`listing.raw`, `api_cache.body`) store only fields the RentCast models declare; undeclared fields are dropped and only their names are logged. Two more JSON columns hold comparable sales from the value estimate (address, price, size): `candidate_estimate.comps` and `proforma.result`.
 
-Later phases add their own tables in their own migrations: signals and risk narratives (4), briefs and deliveries (5).
+Phase 4 added four tables:
+
+| Table | Purpose | Key points |
+| --- | --- | --- |
+| `llm_call` | The ledger: one row per model call, in every outcome | `run_id` and `candidate_id` (null for eval calls), `stage` (`signals`, `narrative`, `eval`), prompt id and version, `input_sha256` (our cache key, not the library's replay key), `tier`, `model`, `mode` (`replay`, `record`, `live`), `billable` (exactly the record and live modes), `outcome`, token counts, `cost_usd` (null when the call raised), `reserved_usd`, `latency_ms`. A row is `ok` exactly when it has a cost. Never cleared by a re-run. No prompt text, remarks or output is stored in it. |
+| `llm_result` | The cache of verified results, not run-scoped | Primary key (prompt id, version, tier, input hash); `result` jsonb; `llm_call_id` of the call that made it. |
+| `candidate_signals` | One row per ranked candidate and run | `status` (`extracted`, `fields_only`, `failed`, `deferred`), `reason`, the primary `listing_id` read, `result` (`SignalsResult`). Composite foreign key to `run_candidate`, `ON DELETE CASCADE`. |
+| `candidate_narrative` | One row per ranked candidate and run | `status` (`accepted`, `rejected`, `failed`, `deferred`, `not_eligible`), `reason`, `input_sha256`, `result` (`NarrativeResult`). Same key and cascade. |
+
+Later phases add their own tables in their own migrations: briefs and deliveries (5).
 
 ## Job queue
 
@@ -407,20 +436,52 @@ Remarks are free text from a listing feed, so they are personal-data-bearing and
 
 What a failure says is built from the error's class and never from its text, so nothing a listing, the model or the provider said reaches `sourcing_run.error`, a job's `last_error` or a log line.
 
-**Until the recordings are committed**, a mock-mode run replays nothing, so its first call raises a replay miss and the run ends as the table's fourth row says: ranking, estimates and pro-formas stored, the run `completed` with the error set, signals and narratives empty. The recording session (Phase 4 job G) removes this.
+**Without a recording**, a mock-mode run cannot replay: its first call raises a replay miss and the run ends as the table's fourth row says (ranking, estimates and pro-formas stored, the run `completed` with the error set, signals and narratives empty). The repository now holds recordings for the snapshot, so this happens only after something they depend on changed (next section).
 
 `candidate_signals.result` is `SignalsResult` and `candidate_narrative.result` is `NarrativeResult` (both in `llm/results.py` and `llm/narrative.py`). `RemarksInfo.removed_invisible_count` is the number of `[invisible characters removed]` markers in the stored remarks, because only the stored text is kept after ingestion.
 
-## Where agent-core attaches (phase 4)
+## Routing, caps and the ledger
 
-agent-core is a phase 4 dependency, to be pinned to a release tag. Nothing in this repository imports it today.
+`data/llm/agent-core.toml` is merged over agent-core's packaged defaults, which hold the model ids and prices per tier; no model id or price appears in our code or TOML. Task `signals_extract` routes to tier `small` (Haiku 4.5, `max_tokens` 1,200) and `narrative_write` to tier `mid` (Sonnet 5.5, `max_tokens` 1,500). Task names are snake_case because the library refuses dots in them (prompt ids keep dots). `budget_usd_per_call` is $0.05: the library refuses a call whose worst case exceeds it, and it is also the amount reserved before each call. There is no escalation to a larger tier, so cost stays predictable.
 
-| Capability | Attach point |
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| `AGENT_CORE_MODE` | `replay` (recordings, no key), `record` (call the model, write recordings), `live` | `replay` |
+| `AGENT_CORE_ANTHROPIC_API_KEY` | The only place a key is read (`ANTHROPIC_API_KEY` is ignored). Needed in `record` and `live` only; never given to the `api` service | none |
+| `LLM_RUN_BUDGET_USD` | Cap for one run, over every attempt of it | 1.00 |
+| `LLM_MONTHLY_BUDGET_USD` | Cap for billable calls in a UTC month | 10.00 |
+
+Mock data allows `replay` and `record` only; live data allows `live` only (replay would miss on real data, and record would write real data into the repository). **Caps are hard by reservation:** before each call the guard refuses if spent plus the reservation would pass the cap; a call that raised after spending counts at its reservation, so recorded spend can never pass a cap. Calls are serial in record and live mode. The ledger row is written before the call, under an advisory lock, and updated after.
+
+## Recordings and how to record again
+
+A recording is a format-2 JSON file under `data/llm/replays/prompts/<prompt id>/v<n>/<key>.json`; its key is content-addressed (prompt id, version, tier, template, system prompt, schema, inputs). `aox-agent-core cassettes check data/llm/replays` validates them, and CI runs it. A recording holds the request (the redacted remarks or the facts sheet, never an address), the model's reply and its token usage, and no key.
+
+**What breaks them.** Changing a prompt, its inputs, the catalogue, the facts sheet, the pro-forma numbers of a computed candidate, the redactor, or the `anthropic` or `pydantic` version in `uv.lock` leaves a call with no recording or a stale one. Replay then raises `ReplayMissError` or `StaleRecordingError`; it never calls a model.
+
+**To record again** (a paid session, on the host, never in a container, with mock data):
+
+1. Use a dedicated key with a console spend limit. Put it in a gitignored `.env` as `AGENT_CORE_ANTHROPIC_API_KEY`, and a fresh scratch database in `DATABASE_URL` (migrated and seeded), used for nothing else.
+2. Set `AGENT_CORE_MODE=record`, `DATA_MODE=mock`, and caps: `LLM_RUN_BUDGET_USD`, `LLM_MONTHLY_BUDGET_USD`, and `--max-usd` on each eval. Evals also need `--allow-spend`.
+3. Run `feasibility eval signals --split all`, day 1 and day 2 of `feasibility source run`, then `feasibility eval narrative`.
+4. Delete the key line from `.env`. **Then regenerate the scorecards in replay** (`feasibility eval signals --split all --out evals/scorecards`, `feasibility eval narrative --out evals/scorecards`) and commit those, not the record-time ones.
+
+Step 4 matters because record mode calls the model every time and overwrites the recording at its key, and a snapshot record's remarks (or a candidate's facts sheet) are the same input in an eval case and in a run. The last answer made for a key is the one kept, so scorecards written during recording cannot be reproduced from the files that remain. `tests/test_eval_scorecards.py` fails when the committed scorecards are not what replay produces. To keep an eval's recordings, run it last.
+
+**The recorded session** (2026-10-09) cost about $0.53; the figures, and what the scorecards show, are in `evals/scorecards/README.md` and `cost.md`.
+
+## Where agent-core attaches
+
+agent-core v0.1.0 is pinned by git tag; its lockfile entry also pins `anthropic` and `pydantic`.
+
+| Capability | How it is used here |
 | --- | --- |
-| Model client | New `llm/` job handlers (signal extraction, risk narrative) registered in `jobs/handlers.py`. Input is `domain.Listing.remarks` plus parcel facts. |
-| Tracing | Wraps `jobs/worker.run_job()`, one span per job carrying job id and kind. |
-| Audit log | agent-core's own, written for each model call and keyed by job id and listing id. This repository adds no table for it. |
-| Eval runner | `evals/` (phase 6) uses the committed snapshot as its fixture corpus. |
+| Model client, routing and prices | `llm/client.py` builds `AgentClient` from settings and `data/llm/agent-core.toml`. The stages are part of `run_sourcing` (stages 6 and 7), not separate job handlers; the daily run's one job kind, `sourcing.run`, already carries them. |
+| Replay and record | Recordings in `data/llm/replays`; the mode is `AGENT_CORE_MODE`. |
+| Spend control | Ours: `llm/metered.py`, `llm/spend.py` and the `llm_call` ledger, in front of every call (agent-core only refuses a single call over its per-call budget). |
+| Eval runner | `evals/` builds `EvalSuite` / `EvalRunner` / `Scorecard` with our own scorers and summaries. |
+| Tracing | Not wired. No exporter is configured; `[tracing] capture_content = false` keeps prompts and replies out of any span that is created. |
+| Audit log | Not used. The ledger records every call; the library's hash-chained log would need its own schema and adds nothing the ledger lacks. A Phase 6 candidate. |
 
 ## Compose and CI
 
@@ -441,8 +502,8 @@ Every service sets `mem_limit`, each at least twice the peak working set a seede
 
 CI (`.github/workflows/ci.yml`) runs four jobs:
 
-- lint: ruff check, ruff format check, mypy strict
-- test: pytest against a Postgres 16 service container on a separate test database
+- lint: ruff check, ruff format check, mypy strict, and `aox-agent-core cassettes check` on the recordings
+- test: pytest against a Postgres 16 service container on a separate test database (this includes the tests that regenerate the eval scorecards from the recordings, in replay with no key)
 - gitleaks: scans the full history
 - compose smoke: `docker compose up -d --wait --build`, then `curl` on `/health` and `/parcels?limit=5`
 
@@ -460,7 +521,7 @@ Pre-commit runs gitleaks and ruff.
 - **Run one worker.** Leases are 30 minutes with no renewal. With two or more workers, a job running longer than its lease (a full county import on a slow disk) can be claimed and run twice. Compose runs one worker.
 - **The billing period is computed in UTC.** RentCast's reset time zone is unknown, so requests within hours of the boundary may count against the neighbouring period.
 - **`/health` reports `commit: null` under compose unless `GIT_COMMIT` and `GIT_BRANCH` are exported before the build.** Null is deliberate: the image cannot know its revision otherwise.
-- **Listing text.** RentCast listings have no description field. Phase 4 needs either a synthetic RESO-shaped set with `PublicRemarks` or a client's MLS feed.
+- **Listing text.** RentCast listings have no description field, so live data has no remarks and a live day's model work is narratives only. Remarks extraction runs only on the synthetic RESO-shaped set (`data/mls/dallas.json`) and on a client's MLS feed, which is not built.
 - **AVM comps** are filtered by `listingType` because the published schema has no sale/rent flag. The list of sale types is taken from the documentation.
 - **No update schedule and no downloader for DCAD.** The operator downloads files by hand. DCAD publishes no redistribution license that we found, so its files are never committed.
 - **A listing with no directional never matches a parcel that has one.** `5521 WEXCOMBE AVE` against parcels `5521 N WEXCOMBE AVE` and `5521 S WEXCOMBE AVE` is `unmatched`: the stem keeps the directional (`N WEXCOMBE`), so neither the exact nor the stem lookup finds anything. It is left unmatched, not guessed, and a test asserts it.
@@ -483,7 +544,7 @@ Pre-commit runs gitleaks and ruff.
 - **The property tax rate is for Dallas ISD addresses inside the city.** Richardson ISD and other districts differ. Only the City of Dallas component was read from an official page.
 - **Live `/avm/value` has never been called.** Whether comps' `listingType` values match the sale types, how often there are three or more sale comps, and whether an estimate of a vacant lot returns comps are unverified.
 - **Estimates are used for up to 30 days** (reused for `ttl_days`); a market move inside that window is not seen. A ranked candidate below the top N has no estimate by design and shows `no_arv`. On day 2 of the snapshot six candidates compute, not five: the sixth-ranked one still has day 1's estimate.
-- **The model results have no retention or deletion path.** `llm_result` keeps verified remarks quotes and accepted narratives by input hash, indefinitely, and re-serves them for identical inputs; `candidate_signals` and `candidate_narrative` grow by a run's rows and are never pruned; `llm_call` is spend and is kept. A quote is redacted listing text, so a future retention or deletion rule must cover `llm_result` as well as the run tables. `llm_result.llm_call_id` has no index, so deleting a ledger row scans the cache (not measured; deletes are rare).
+- **The model results have no retention or deletion path.** `llm_result` keeps verified remarks quotes and accepted narratives by input hash, indefinitely, and re-serves them for identical inputs; `candidate_signals` and `candidate_narrative` grow by a run's rows and are never pruned; `llm_call` is spend and is kept. A quote is redacted listing text, so a future retention or deletion rule must cover `llm_result` as well as the run tables. `llm_result.llm_call_id` has no index, so deleting a ledger row scans the cache (not measured; deletes are rare). Both were decided as gaps in Phase 4d and are still open.
 - **A rejected narrative is cached as rejected and is not re-checked on reuse**, because its draft text is deliberately not kept; an accepted one is checked again by the current figure check before it is reused, and a cached signal is verified again by the current verifier.
 - **A 400-class provider error fails its candidate once and is not retried by the job**; a 429 or a 5xx defers the rest of the stage and retries the job.
 - **Retention is undecided for `proforma` and `candidate_estimate`**, like the other run tables. A comp's address is stored twice, in `candidate_estimate.comps` and in `proforma.result`, so any future retention or deletion path must cover both. The API serves the full result with the comparables' addresses left out; the `proforma show` command, which is local, prints them.
@@ -500,3 +561,12 @@ Pre-commit runs gitleaks and ruff.
 - **Upgrade a database to 0008 before downgrading it.** A database built before 0008 has doubled check-constraint names (`ck_x_ck_x_y`); the downgrade steps of 0003 to 0005 drop the single names, so they fail on such a database until 0008 has renamed them. A database built from scratch is not affected.
 - **`source show` exits 1 when there is no run, `proforma list|show` exit 2.**
 - **Retention duties for flagged accounts are unconfirmed.** If `EXCLUDE_OWNER` marks a confidential address (Texas Tax Code §25.025), what applies to copies already held is a question for counsel. The importer deletes them on the next load that flags them.
+- **Two eval targets are missed, and the numbers rest on a small set.** The narrative eval's acceptance is 8 of 9 scored cases (88.9%) against a 0.90 target, and 4 of its 13 cases errored because the mid tier's 1,500-token limit cut the JSON off (each recorded reply ended at exactly 1,500 output tokens, and 8 of the 13 replies that finished used 1,222 or more, so the limit has little headroom and the live cost projection, which assumes success, may be optimistic; the cut-off replies hold little text for their token count, so the cause may not be the visible text alone); the extraction eval's dev split fails one injection case on its "signal set equals the key" check. Extraction precision on the holdout (90.2%) is on its target. The eval set (56 extraction and 13 narrative cases) is synthetic and written by this project, so precision and recall on real listings are unknown. See `evals/scorecards/README.md`.
+- **Recordings are tied to the prompts, the inputs and the `anthropic` and `pydantic` versions in `uv.lock`.** Changing any of them means a paid re-recording. Record mode overwrites a recording at its key, so scorecards must be regenerated in replay after recording (see "Recordings and how to record again").
+- **A failed call's true cost is unknown.** The library raises without usage, so the ledger counts the reservation: spend is over-stated, never under-stated. The four cut-off narrative calls of the recording session are counted at $0.20 against about $0.08 that their recorded usage implies.
+- **The monthly cap is a UTC month and covers only this app's ledger.** Other use of the same key is not seen; use a dedicated key with a console spend limit.
+- **The narrative is checked for figures, basis codes and length, not for quality or tone.** No model judges another. Quality rests on a person reading samples.
+- **The figure check has known gaps** (decided in Phase 4c). Arithmetic words are read only *before* a figure and only for the listed words, within three words of it: an inflected word after a figure (`$107,560.14 doubled`, `halved`, `tripled`, `doubling`), and an arithmetic word more than three words before a figure, get through. Only `(` and `)` count as an accounting negative: `[$107,560.14]` and `{...}` do not. Angle-bracket lookalikes are a list of code points and entities that are folded before defanging and the injection scan; other code points that look like `<` or `>`, entities without a semicolon, double-encoded `&amp;lt;` and other encodings (`%3C`, `\x3c`, `\u003c`) are not folded. Number words are a blocklist: a number in a language or slang the lists lack is out of reach of a list. The structural defences do not depend on these: a closed schema, any ASCII digit outside an exact standing-alone figure rejected, ASCII-only text, no listing text in the facts sheet.
+- **The injection scan is a heuristic list.** The structural defences (closed schema, verified quotes, no digits from quotes, no tools) are the real guard.
+- **Haiku-tier extraction is the routing choice and its quality on real remarks is unmeasured.** Moving extraction to the mid tier is a config change plus a re-recording.
+- **Tracing and the library's audit log are not used.** The ledger is the only record of calls.

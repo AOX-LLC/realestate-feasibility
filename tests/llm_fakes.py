@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from aox_agent_core import CallResult, Mode, PromptRef, Provider, Tier, Usage
@@ -256,3 +257,19 @@ class RunModel:
 
     async def call(self, prompt: PromptRef, *, inputs: Mapping[str, JsonValue], **_: Any) -> Any:
         return self._answer(prompt, inputs)
+
+
+def config_without_recordings(tmp_path: Path) -> Path:
+    """The project's model config with its recordings folder swapped for an empty one, so a
+    replay finds nothing, whatever the repository has recorded."""
+    from feasibility.config import DEFAULT_LLM_CONFIG_PATH
+
+    empty = tmp_path / "no-recordings"
+    empty.mkdir()
+    text = DEFAULT_LLM_CONFIG_PATH.read_text(encoding="utf-8")
+    assert 'cassette_dir = "replays"' in text
+    config = tmp_path / "agent-core.toml"
+    config.write_text(
+        text.replace('cassette_dir = "replays"', f'cassette_dir = "{empty}"'), encoding="utf-8"
+    )
+    return config

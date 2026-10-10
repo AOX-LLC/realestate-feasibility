@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from aox_agent_core import Mode
-from llm_fakes import Extractor
+from llm_fakes import Extractor, config_without_recordings
 from mls_data import EXTRA_FILE, KEY_FILE, MLS_FILE
 from typer.testing import CliRunner
 
@@ -73,7 +73,15 @@ def use_extractor(monkeypatch: pytest.MonkeyPatch, extractor: Extractor) -> None
 # --- no recordings: the plan's check that nothing falls back to a live call ---------------------
 
 
-def test_replay_with_no_recordings_fails_on_the_first_case_and_says_so(tmp_path: Path) -> None:
+def test_replay_with_no_recordings_fails_on_the_first_case_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = config_without_recordings(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: Settings(_env_file=None, data_mode=DataMode.MOCK, AGENT_CORE_CONFIG=config),  # type: ignore[call-arg]
+    )
     out = tmp_path / "scorecards"
 
     result = invoke("--split", "dev", "--out", str(out))
