@@ -159,7 +159,7 @@ class Settings(BaseSettings):
             ("API_READ_TOKEN", self.api_read_token),
             ("API_TRIGGER_TOKEN", self.api_trigger_token),
         ):
-            if token is not None and not API_TOKEN_PATTERN.match(token.get_secret_value()):
+            if token is not None and not API_TOKEN_PATTERN.fullmatch(token.get_secret_value()):
                 raise ValueError(
                     f"{variable} must be 32 to 256 characters from A-Z a-z 0-9 . _ ~ + / = -"
                 )
