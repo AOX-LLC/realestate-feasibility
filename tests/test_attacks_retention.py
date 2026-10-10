@@ -389,3 +389,34 @@ def test_r6_the_page_record_of_a_candidate_that_no_longer_exists_goes_too(engine
 
     assert count(engine, "candidate", f"id = {old.candidate_id}") == 0
     assert count(engine, "delivery", f"run_id = {old.run_id}") == 0
+
+
+def test_r3_a_comp_address_in_the_response_cache_goes_with_the_estimate_it_came_from(
+    engine: Engine,
+) -> None:
+    """`api_cache.body` keeps the scrubbed value-estimate response, comps' addresses included: a
+    third place beside the estimate and the pro-forma. It is pruned by when it was fetched, not by
+    when it would have expired, so a long-lived entry does not outlast the estimate."""
+    add_run(engine, age=1, tag="newest")
+    for key, fetched, expires in (
+        ("old-short-ttl", days_ago(100), days_ago(93)),
+        ("old-long-ttl", days_ago(100), days_ago(-200)),  # still valid for months
+        ("recent", days_ago(60), days_ago(53)),
+    ):
+        run_sql(
+            engine,
+            "INSERT INTO api_cache (provider, request_key, endpoint, params, body, fetched_at, "
+            "expires_at) VALUES ('rentcast', :k, '/avm/value', CAST(:p AS jsonb), "
+            "CAST(:b AS jsonb), :f, :e)",
+            k=key,
+            p='{"address": "SUBJECT-' + key + ' ST"}',
+            b='{"comparables": [{"formattedAddress": "CACHEDCOMP-' + key + ' ST"}]}',
+            f=at(fetched),
+            e=at(expires),
+        )
+
+    purge(engine)
+
+    assert rows_with(engine, "CACHEDCOMP-old") == {}
+    assert rows_with(engine, "SUBJECT-old") == {}
+    assert set(rows_with(engine, "CACHEDCOMP-recent")) == {"api_cache"}

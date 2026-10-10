@@ -56,8 +56,9 @@ def populate(engine: Engine, *, spend: bool = True) -> None:
     add_job(engine, finished=days_ago(60))
     run_sql(
         engine,
-        "INSERT INTO api_cache (provider, request_key, endpoint, params, body, expires_at) "
-        "VALUES ('rentcast', 'k', '/x', CAST('{}' AS jsonb), CAST('{}' AS jsonb), :t)",
+        "INSERT INTO api_cache (provider, request_key, endpoint, params, body, fetched_at, "
+        "expires_at) VALUES ('rentcast', 'k', '/x', CAST('{}' AS jsonb), CAST('{}' AS jsonb), "
+        ":t, :t)",
         t=at(days_ago(120)),
     )
 

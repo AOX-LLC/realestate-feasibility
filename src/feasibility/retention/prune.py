@@ -138,6 +138,7 @@ class Cutoffs:
     job: datetime
     listing: datetime
     run_time: datetime
+    estimate_time: datetime
 
     @classmethod
     def of(cls, policy: RetentionPolicy, as_of: date) -> "Cutoffs":
@@ -155,6 +156,7 @@ class Cutoffs:
             job=midnight(as_of - timedelta(days=policy.job_days)),
             listing=midnight(as_of - timedelta(days=policy.listing_days)),
             run_time=midnight(run),
+            estimate_time=midnight(as_of - timedelta(days=policy.estimate_days)),
         )
 
 
@@ -285,7 +287,9 @@ _ESTIMATE_OLD = "fetched_on < :cutoff"
 _RESULT_OLD = "created_at < :cutoff"
 _CALL_OLD = "called_at < :cutoff"
 _JOB_OLD = "status IN ('done', 'dead') AND finished_at IS NOT NULL AND finished_at < :cutoff"
-_CACHE_OLD = "expires_at < :cutoff"
+# By when it was fetched, not when it would expire: a response holds the comparable sales of an
+# estimate, so it goes with that estimate whatever its time to live.
+_CACHE_OLD = "fetched_at < :cutoff"
 
 
 def _batched_rule(
@@ -409,7 +413,7 @@ def prune(
     # Spend rows: only those older than the ledger months, which the monthly cap never reads.
     _batched_rule(engine, report, "llm_call", "llm_call", _CALL_OLD, cutoffs.ledger)
     _batched_rule(engine, report, "job", "job", _JOB_OLD, cutoffs.job)
-    _batched_rule(engine, report, "api_cache", "api_cache", _CACHE_OLD, cutoffs.run_time)
+    _batched_rule(engine, report, "api_cache", "api_cache", _CACHE_OLD, cutoffs.estimate_time)
     _prune_listings(engine, cutoffs, report)
     _prune_candidates(engine, cutoffs, report)
     log.info(
