@@ -602,3 +602,36 @@ def test_a_period_boundary_crossed_mid_loop_defers_the_rest(spend: Spend) -> Non
 
     assert spend.transport.addresses == spend.one_lines()[:2]
     assert counts == EstimateCounts(estimates_targeted=5, estimates_called=2, estimates_deferred=3)
+
+
+def test_units_another_spender_takes_mid_loop_defer_the_rest_so_the_sync_reserve_holds(
+    spend: Spend,
+) -> None:
+    """Five calls fit on Oct 27 (12 units, four days of reserve to keep). During the second call
+    another caller (the listing sync) takes seven units; the stage reads the budget again before
+    the third call and sees that only the reserve is left."""
+    spend.monthly_budget = 12
+    spend.set_used(0)
+
+    def another_spender_takes_seven() -> None:
+        spend.set_used(9)  # this call's own unit and the seven the other caller took
+
+    spend.transport.before_call[2] = another_spender_takes_seven
+
+    counts = spend.spend(date(2026, 10, 27))
+
+    assert spend.transport.addresses == spend.one_lines()[:2]
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_called=2, estimates_deferred=3)
+    assert spend.used() == 9  # nothing spent on the reserve
+
+
+def test_a_budget_that_nobody_else_touches_is_read_again_without_changing_what_is_bought(
+    spend: Spend,
+) -> None:
+    spend.monthly_budget = 12
+    spend.set_used(0)
+
+    counts = spend.spend(date(2026, 10, 27))
+
+    assert spend.transport.addresses == spend.one_lines()
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_called=5)

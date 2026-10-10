@@ -181,7 +181,18 @@ def _spend(
     tally = _Tally(reused=len(plan.reuse), deferred=len(plan.defer))
     run_period = budget.period_start(as_of, billing_anchor_day) if client.live else None
     try:
-        _call_all(engine, client, plan.call, tally, run_id, as_of, run_period, secrets)
+        _call_all(
+            engine,
+            client,
+            policy,
+            plan.call,
+            tally,
+            run_id,
+            as_of,
+            billing_anchor_day,
+            run_period,
+            secrets,
+        )
     except Exception:
         # The failure in flight must reach the caller as it is: a bookkeeping error here
         # would replace it, and a job retry of an unclassified error spends again.
@@ -217,18 +228,40 @@ def _limits(
     )
 
 
+def _may_still_spend(
+    engine: Engine, client: RentCastClient, policy: Estimates, as_of: date, anchor_day: int
+) -> bool:
+    """Read the budget and the cap again and say whether one more call fits under both and the
+    sync reserve. The plan was made from numbers read before the first call; the budget is shared,
+    so they can be out of date by the Nth."""
+    with engine.connect() as connection:
+        limits = _limits(connection, client, as_of, anchor_day)
+    return limits is None or spendable_calls(1, policy, as_of, anchor_day, limits) >= 1
+
+
 def _call_all(
     engine: Engine,
     client: RentCastClient,
+    policy: Estimates,
     calls: Sequence[EstimateTarget],
     tally: _Tally,
     run_id: int,
     as_of: date,
+    billing_anchor_day: int,
     run_period: date | None,
     secrets: Sequence[str],
 ) -> None:
     for position, target in enumerate(calls):
         waiting = len(calls) - position - 1
+        if (
+            run_period is not None
+            and position > 0
+            and not _may_still_spend(engine, client, policy, as_of, billing_anchor_day)
+        ):
+            # Another caller (the listing sync, a manual check) took units since the headroom was
+            # read: what is left may be only the sync reserve, which a call here must not eat.
+            tally.deferred += waiting + 1
+            return
         if run_period is not None and client.billing_period() != run_period:
             # The clock crossed a period boundary since the headroom was read: a call now would
             # be reserved in a period whose cap and reserve were never consulted.
