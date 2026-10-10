@@ -25,16 +25,10 @@ def _imports() -> dict[str, object]:
     return {"llm_rows": llm_rows, "cases": proforma_cases}
 
 
-def generate() -> dict[str, str]:
-    """File name -> text, for every fixture."""
-    from feasibility.delivery.brief import (
-        Brief,
-        NotShown,
-        TextContext,
-    )
+def sample_brief() -> tuple[object, dict[str, tuple[object, object]]]:
+    """One brief of the three scenarios (ranks 1 to 3), and each scenario's entry and result."""
+    from feasibility.delivery.brief import Brief, NotShown, TextContext
     from feasibility.delivery.build import make_candidate
-    from feasibility.delivery.document import proforma_document
-    from feasibility.delivery.html import render_html
     from feasibility.llm.facts import build_facts
     from feasibility.llm.narrative import NarrativeResult
     from feasibility.llm.narrative_check import QuotedFigure
@@ -88,7 +82,7 @@ def generate() -> dict[str, str]:
             "deferred",
         ),
     }
-    out: dict[str, str] = {}
+    entries: dict[str, tuple[object, object]] = {}
     for rank, (name, (inputs, signals, kind)) in enumerate(scenarios.items(), start=1):
         result = result_of(inputs)
         narrative = {
@@ -96,31 +90,45 @@ def generate() -> dict[str, str]:
             "rejected": rows.rejected_narrative,
             "deferred": rows.deferred_narrative,
         }[kind]()
-        entry = make_candidate(
-            candidate_id=rank,
-            rank=rank,
-            score=Decimal("71.25"),
-            street=f"{4000 + rank * 11} FIXTURE ST",
-            zip5="75209",
-            offer_price=inputs.price,
-            result=result,
-            signals=signals,
-            narrative=narrative,
-            context=TextContext(),
+        entries[name] = (
+            make_candidate(
+                candidate_id=rank,
+                rank=rank,
+                score=Decimal("71.25"),
+                street=f"{4000 + rank * 11} FIXTURE ST",
+                zip5="75209",
+                offer_price=inputs.price,
+                result=result,
+                signals=signals,
+                narrative=narrative,
+                context=TextContext(),
+            ),
+            result,
         )
-        brief = Brief(
-            market="dallas",
-            as_of=AS_OF,
-            run_id=1,
-            data_mode="mock",
-            completeness="complete",
-            notice=None,
-            ranked=1,
-            shown=1,
-            not_shown=NotShown(no_arv=0, unsizable=0, over_the_cap=0, no_pro_forma=0),
-            candidates=[entry],
-        )
-        document = proforma_document(brief, entry, result)
+    brief = Brief(
+        market="dallas",
+        as_of=AS_OF,
+        run_id=1,
+        data_mode="mock",
+        completeness="complete",
+        notice=None,
+        ranked=len(entries) + 7,
+        shown=len(entries),
+        not_shown=NotShown(no_arv=7, unsizable=0, over_the_cap=0, no_pro_forma=0),
+        candidates=[entry for entry, _ in entries.values()],  # type: ignore[misc]
+    )
+    return brief, entries
+
+
+def generate() -> dict[str, str]:
+    """File name -> text, for every fixture."""
+    from feasibility.delivery.document import proforma_document
+    from feasibility.delivery.html import render_html
+
+    brief, entries = sample_brief()
+    out: dict[str, str] = {}
+    for name, (entry, result) in entries.items():
+        document = proforma_document(brief, entry, result)  # type: ignore[arg-type]
         out[f"{name}.json"] = document.model_dump_json(indent=2) + "\n"
         out[f"{name}.html"] = render_html(document)
     return out

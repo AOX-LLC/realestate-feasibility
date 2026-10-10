@@ -430,35 +430,76 @@ def test_a9_the_pdf_renders_every_attack_string_as_literal_text(plain: Any) -> N
                 assert "/URI" not in str(annotation.get_object())
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
 def test_a10_the_slack_payload_is_defused(plain: Any) -> None:
     from feasibility.delivery.slack import digest_blocks
 
     engine, one, _ = plain
-    brief = attack_brief(engine, one.run_id, ATTACK_TEXT[2])
+    for said in ATTACK_TEXT:
+        brief = attack_brief(engine, one.run_id, said)
 
-    blocks, fallback = digest_blocks(brief)
+        blocks, fallback = digest_blocks(brief)
 
-    document = json.dumps(blocks) + fallback
-    assert "<!channel>" not in document and "<!here>" not in document and "<@U" not in document
-    assert "#ANNOUNCEMENTS" not in document or '"verbatim": true' in document
-    assert "http" not in fallback
+        visible = " ".join(strings_of(blocks)) + fallback
+        for markup in ("<!", "<@", "<#", "<http", "<mailto"):
+            assert markup not in visible, (said, markup)
+        assert "&" not in visible.replace("&amp;", "").replace("&lt;", "").replace("&gt;", "")
+        assert all(o["verbatim"] is True for o in mrkdwn_objects(blocks)), said
+        assert fallback == blocks[0]["text"]["text"] and "http" not in fallback
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
+def test_a6c_a_hash_in_a_street_cannot_become_a_channel_link(plain: Any) -> None:
+    from feasibility.delivery.slack import digest_blocks
+
+    engine, one, _ = plain
+    brief = attack_brief(engine, one.run_id, "A plain sentence.")
+    assert brief.candidates[0].street == "100 ELM ST #ANNOUNCEMENTS"
+
+    blocks, _ = digest_blocks(brief)
+
+    section = next(b for b in blocks if "#ANNOUNCEMENTS" in json.dumps(b))
+    assert section["text"]["type"] == "mrkdwn" and section["text"]["verbatim"] is True
+
+
+def strings_of(node: Any) -> list[str]:
+    from attack_support import leaves
+
+    return [leaf for leaf in leaves(node) if isinstance(leaf, str)]
+
+
+def mrkdwn_objects(node: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(node, dict):
+        if node.get("type") == "mrkdwn":
+            found.append(node)
+        for value in node.values():
+            found += mrkdwn_objects(value)
+    elif isinstance(node, list):
+        for value in node:
+            found += mrkdwn_objects(value)
+    return found
+
+
 def test_a11_a_notion_row_is_plain_text_only(plain: Any) -> None:
     from feasibility.delivery.notion import row_properties
 
     engine, one, _ = plain
-    brief = attack_brief(engine, one.run_id, ATTACK_TEXT[1])
+    for said in ATTACK_TEXT:
+        brief = attack_brief(engine, one.run_id, said)
 
-    properties = row_properties(brief, brief.candidates[0])
+        properties = row_properties(brief, brief.candidates[0])
 
-    assert "Decision" not in properties
-    for value in properties.values():
-        for item in value.get("rich_text", []) + value.get("title", []):
-            assert set(item) == {"type", "text"} and set(item["text"]) == {"content"}
-    assert scan(json.dumps(properties)) == []
+        assert "Decision" not in properties
+        for value in properties.values():
+            for item in value.get("rich_text", []) + value.get("title", []):
+                assert set(item) == {"type", "text"} and set(item["text"]) == {"content"}
+            for option in value.get("multi_select", []):
+                assert "," not in option["name"] and option["name"] == option["name"].strip()
+        # Plain text, shown as text by Notion: the summary may hold the characters of an attack
+        # only because the brief's own text rules already withheld them; here the brief is
+        # forged to hold them, so the row must carry them as text and never as a link or mention.
+        assert [
+            k for v in properties.values() for k in v if k in ("link", "mention", "equation")
+        ] == []
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)

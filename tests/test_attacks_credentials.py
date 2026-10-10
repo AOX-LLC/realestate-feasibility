@@ -4,6 +4,7 @@ The tokens here are built at runtime. `xfail(strict=True)` marks an attack that 
 session's feature can defeat; that session removes the mark when it makes the test pass.
 """
 
+import json
 import logging
 import re
 import sys
@@ -244,21 +245,42 @@ def test_c10_a_configuration_error_names_the_variable_and_never_the_value() -> N
     assert SLACK_SENTINEL not in str(raised.value)
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5B)
-def test_c11_the_http_transports_keep_the_token_in_the_header_only() -> None:
-    from feasibility.delivery.notion import HttpNotionTransport, MockNotionTransport
-    from feasibility.delivery.slack import HttpSlackTransport, MockSlackTransport
+def test_c11_the_http_transports_keep_the_token_in_the_header_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import httpx
 
-    # 5b replaces this with the real check against httpx.MockTransport and removes the mark.
-    assert all(
-        callable(kind)
-        for kind in (
-            HttpNotionTransport,
-            MockNotionTransport,
-            HttpSlackTransport,
-            MockSlackTransport,
-        )
+    from feasibility.delivery.notion import HttpNotionTransport
+    from feasibility.delivery.slack import HttpSlackTransport
+
+    caplog.set_level(logging.DEBUG)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True, "results": []})
+
+    notion = HttpNotionTransport(
+        NOTION_SENTINEL,
+        client=httpx.Client(
+            base_url="https://api.notion.com", transport=httpx.MockTransport(handler)
+        ),
     )
+    slack = HttpSlackTransport(
+        SLACK_SENTINEL,
+        client=httpx.Client(
+            base_url="https://slack.com/api", transport=httpx.MockTransport(handler)
+        ),
+    )
+    notion.request("POST", "/v1/pages", json={"properties": {}})
+    slack.request("POST", "/chat.postMessage", json={"text": "t"})
+
+    assert len(seen) == 2
+    for request, token in zip(seen, (NOTION_SENTINEL, SLACK_SENTINEL), strict=True):
+        assert request.headers["authorization"] == f"Bearer {token}"
+        assert token not in str(request.url) and token not in request.content.decode()
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert NOTION_SENTINEL not in logged and SLACK_SENTINEL not in logged
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
@@ -269,14 +291,37 @@ def test_c12_a_failing_transport_leaves_no_secret_or_upload_url_in_a_stored_erro
     assert callable(deliver_brief)
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c13_no_token_is_in_any_payload() -> None:
+    import zlib
+
+    from delivery_support import sample
+
+    from feasibility.delivery.document import proforma_document
     from feasibility.delivery.notion import row_properties
     from feasibility.delivery.pdf import render_pdf
     from feasibility.delivery.slack import digest_blocks
 
-    # 5b replaces this with the real scan over the PDF, Slack and Notion payloads.
-    assert all(callable(function) for function in (row_properties, render_pdf, digest_blocks))
+    brief, entries = sample()
+    tokens = (READ_BEARER, TRIGGER_BEARER, SLACK_SENTINEL, NOTION_SENTINEL)
+    payloads = [brief.model_dump_json()]
+    for entry, result in entries.values():
+        payloads.append(json.dumps(row_properties(brief, entry)))
+        document = proforma_document(brief, entry, result)
+        payloads.append(document.model_dump_json())
+        pdf = render_pdf(document)
+        payloads.append(pdf.decode("latin-1"))
+        # The streams are compressed: look inside them too.
+        for chunk in pdf.split(b"stream\r\n")[1:] + pdf.split(b"stream\n")[1:]:
+            try:
+                payloads.append(zlib.decompress(chunk.split(b"endstream")[0]).decode("latin-1"))
+            except zlib.error:
+                continue
+    blocks, text = digest_blocks(brief)
+    payloads += [json.dumps(blocks), text]
+
+    for payload in payloads:
+        assert not [t for t in tokens if t in payload]
+        assert "Authorization" not in payload and "Bearer " not in payload
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
@@ -285,16 +330,46 @@ def test_c14_the_n8n_workflow_holds_no_secret() -> None:
     assert not re.search(r"Bearer [A-Za-z0-9]|xoxb-|ntn_|secret_", text)
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c15_tests_never_reach_the_live_services_even_with_tokens_in_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DELIVERY_MODE", "live")
-    monkeypatch.setenv("SLACK_BOT_TOKEN", SLACK_SENTINEL)
-    from feasibility.delivery.slack import build_transport
+    import socket
 
-    # 5b replaces this with the real check: mock transports in tests, sockets blocked.
-    assert callable(build_transport)
+    from feasibility.delivery.notion import MockNotionTransport, build_notion_transport
+    from feasibility.delivery.slack import MockSlackTransport, build_transport
+
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("a test opened a socket")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setenv("SLACK_BOT_TOKEN", SLACK_SENTINEL)
+    monkeypatch.setenv("NOTION_TOKEN", NOTION_SENTINEL)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    # The process environment is read, but delivery is mock unless a test says otherwise, so the
+    # transports are the in-memory ones and the tokens are dropped.
+    assert isinstance(build_transport(settings), MockSlackTransport)
+    assert isinstance(build_notion_transport(settings), MockNotionTransport)
+    assert settings.slack_bot_token is None and settings.notion_token is None
+
+
+def test_c15_the_test_session_starts_with_no_delivery_or_service_token_in_its_environment() -> None:
+    import os
+
+    held = [
+        name
+        for name in (
+            "DELIVERY_MODE",
+            "NOTION_TOKEN",
+            "NOTION_DATABASE_ID",
+            "SLACK_BOT_TOKEN",
+            "SLACK_CHANNEL_ID",
+        )
+        if name in os.environ
+    ]
+
+    assert held == []
 
 
 def test_c16_ci_masks_the_tokens_it_makes_and_never_traces_a_command() -> None:

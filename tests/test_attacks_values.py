@@ -420,7 +420,6 @@ def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> 
     assert "7.6%" not in text_
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
 def test_b14_every_visible_number_in_the_slack_payload_is_a_stored_value(plain: Any) -> None:
     from attack_support import allowed_displays, digits_left_over
 
@@ -442,7 +441,6 @@ def leaves_of(node: Any) -> list[Any]:
     return leaves(node)
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
 def test_b15_the_notion_numbers_equal_the_stored_decimals(plain: Any) -> None:
     from feasibility.delivery.notion import row_properties
 
