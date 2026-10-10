@@ -162,7 +162,6 @@ def test_a2_the_canary_and_planted_personal_data_are_never_delivered(injected: A
     ]
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a3_an_injection_cannot_choose_which_signal_codes_are_delivered(injected: Any) -> None:
     engine, _, two = injected
     candidate = candidate_id_of(engine, INJECTED_ACCOUNT)

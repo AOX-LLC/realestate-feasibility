@@ -36,6 +36,7 @@ NARRATIVE_LABEL = (
 NOTE_NOT_AVAILABLE = "Not available today."
 NOTE_REJECTED = "Withheld: the draft did not pass the figure check."
 NOTE_RECHECK_FAILED = "Withheld: the narrative no longer matches this pro-forma."
+NOTE_FLAGGED = "Withheld: the listing text was flagged as an attempt to steer the model."
 
 DecimalString = Annotated[str, Field(pattern=r"^-?[0-9]+(\.[0-9]+)?$")]
 
@@ -86,6 +87,9 @@ class BriefSignal(BriefModel):
 class BriefSignals(BriefModel):
     status: Literal["extracted", "fields_only", "not_available"]
     items: list[BriefSignal]
+    # True when the listing's text was flagged as an attempt to steer the model: nothing read
+    # from it is delivered, because a flagged text could have chosen which signals it shows.
+    remarks_withheld: bool = False
 
 
 class BriefRisk(BriefModel):
@@ -187,16 +191,25 @@ def comps_of(result: ProformaResult) -> BriefComps:
     )
 
 
+def flagged(signals: SignalsResult | None) -> bool:
+    """The listing text was marked suspicious by the injection scan, or the model said so."""
+    if signals is None or signals.remarks is None:
+        return False
+    return signals.remarks.suspicious or signals.model_flagged_injection is True
+
+
 def signals_of(signals: SignalsResult | None) -> BriefSignals:
     """The signals that held. `fields_only` means only the three signals computed from the
     listing's fields: the remarks had none, or were not read (a failed or deferred stage keeps
     its field signals)."""
     if signals is None:
         return BriefSignals(status="not_available", items=[])
+    withheld = flagged(signals)
     status: Literal["extracted", "fields_only"] = (
-        "extracted" if signals.status == "extracted" else "fields_only"
+        "extracted" if signals.status == "extracted" and not withheld else "fields_only"
     )
     return BriefSignals(
+        remarks_withheld=withheld,
         status=status,
         items=[
             BriefSignal(
@@ -210,6 +223,7 @@ def signals_of(signals: SignalsResult | None) -> BriefSignals:
                 ),
             )
             for signal in signals.signals
+            if not (withheld and signal.source == "remarks")
         ],
     )
 
@@ -223,6 +237,9 @@ def narrative_of(
         return BriefNarrative(status="not_available", note=NOTE_NOT_AVAILABLE)
     if narrative.status == "rejected":
         return BriefNarrative(status="withheld", note=NOTE_REJECTED)
+    if flagged(signals):
+        # Built on facts that include signals a flagged text may have chosen.
+        return BriefNarrative(status="withheld", note=NOTE_FLAGGED)
     facts = build_facts(result, signals)
     if not check_narrative(draft_of(narrative), facts).passed:
         return BriefNarrative(status="withheld", note=NOTE_RECHECK_FAILED)
