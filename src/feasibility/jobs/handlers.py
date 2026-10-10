@@ -154,7 +154,11 @@ def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
     try:
         result = run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
     except PermanentModelError:
-        run_date, _ = resolve_run_date(context.settings, get_pack(payload.market), payload.as_of)
+        # The date the trigger resolved; asking again could answer differently (a live run that
+        # crossed midnight) and lose the brief.
+        run_date = (
+            payload.as_of or resolve_run_date(context.settings, get_pack(payload.market), None)[0]
+        )
         with context.engine.connect() as connection:
             run_id = sourcing_store.run_id_of(connection, payload.market, run_date)
         if run_id is not None:

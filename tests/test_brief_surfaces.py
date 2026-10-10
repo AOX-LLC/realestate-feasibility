@@ -215,3 +215,21 @@ def test_a_brief_for_a_missing_run_goes_straight_to_dead(seeded: Engine) -> None
     Worker(seeded, _settings(), build_registry(), worker_id="w").run_once()
 
     assert [(j.kind, j.status) for j in _job_rows(seeded)] == [("brief.deliver", "dead")]
+
+
+def test_the_partial_brief_uses_the_date_the_job_carries_and_does_not_resolve_it_again(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broken = RunModel(failures={1: ReplayMissError("no recording", key="k", path="p")}, **FREE)
+    monkeypatch.setattr("feasibility.llm.run.default_model", lambda settings: broken)
+
+    def must_not_resolve(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the date was resolved a second time")
+
+    monkeypatch.setattr("feasibility.jobs.handlers.resolve_run_date", must_not_resolve)
+    _queue_morning(seeded, DAY_ONE)
+    worker = Worker(seeded, _settings(), build_registry(), worker_id="w")
+
+    worker.run_once()
+
+    assert [(j.kind) for j in _job_rows(seeded)] == ["morning.run", "brief.deliver"]

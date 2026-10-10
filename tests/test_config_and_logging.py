@@ -175,3 +175,8 @@ def test_media_out_is_unset_by_default_and_must_be_absolute_and_outside_the_repo
     for bad in ("media-out", str(REPO_ROOT / "media-out"), str(REPO_ROOT)):
         with pytest.raises(ValidationError, match="MEDIA_OUT"):
             _api_settings(media_out=bad)
+
+
+def test_a_token_with_a_trailing_newline_is_refused() -> None:
+    with pytest.raises(ValidationError, match="API_READ_TOKEN"):
+        _api_settings(api_read_token="r" * 40 + "\n")
