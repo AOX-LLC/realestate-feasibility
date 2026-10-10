@@ -85,8 +85,14 @@ class ApiGate:
         self._ip_header = settings.api_client_ip_header
 
     async def __call__(self, scope: AsgiScope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "lifespan":
             await self._app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            # No websocket route exists, and a future one must not be reachable without a token
+            # just because the gate only knew about http: refuse the connection.
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         path = scope["path"]
         address = client_address(scope, self._ip_header)

@@ -94,7 +94,6 @@ def bearer(token: str) -> list[tuple[bytes, bytes]]:
     return [(b"authorization", f"Bearer {token}".encode())]
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o1_a_websocket_does_not_reach_the_app_through_the_gate() -> None:
     gate, spy = gated()
 
