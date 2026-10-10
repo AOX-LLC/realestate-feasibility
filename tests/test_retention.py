@@ -2,6 +2,7 @@
 and the run lock."""
 
 import threading
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -27,6 +28,7 @@ from feasibility.api.app import create_app
 from feasibility.config import DataMode, Settings
 from feasibility.jobs import queue
 from feasibility.jobs.handlers import (
+    PERMANENT_ERRORS,
     JobContext,
     build_registry,
     run_retention_prune,
@@ -282,3 +284,61 @@ def test_a_prune_from_a_chosen_day_is_refused_by_the_command_where_there_is_real
     assert refused.exit_code == 2 and "refused" in refused.output
     assert dry.exit_code == 0 and "llm_call" in dry.output
     assert count(cli_engine_, "llm_call") == 3  # a chosen future day would have deleted them all
+
+
+# --- a pruned run cannot be briefed or delivered -------------------------------------------------
+
+
+def test_a_pruned_run_cannot_be_built_into_a_brief_or_delivered(engine: Engine) -> None:
+    from delivery_harness import deliver
+
+    from feasibility.delivery.build import RunPrunedError, build_brief_snapshot
+    from feasibility.delivery.notion import MockNotionTransport
+    from feasibility.delivery.slack import MockSlackTransport
+
+    add_run(engine, age=1, tag="newest")
+    old = add_run(engine, age=100, tag="old")
+    prune(engine, POLICY, as_of=AS_OF)
+    slack, notion = MockSlackTransport(), MockNotionTransport()
+
+    with pytest.raises(RunPrunedError):
+        build_brief_snapshot(engine, old.run_id)
+    with pytest.raises(RunPrunedError):
+        deliver(engine, old.run_id, notion, slack)
+
+    assert slack.requests == [] and notion.requests == []
+    assert count(engine, "brief", f"run_id = {old.run_id}") == 0
+    assert issubclass(RunPrunedError, PERMANENT_ERRORS)
+
+
+# --- a prune from a chosen day, queued ------------------------------------------------------------
+
+
+def test_a_queued_prune_from_a_chosen_day_is_refused_where_spend_is_real(engine: Engine) -> None:
+    from feasibility.retention.prune import RetentionRefusedError
+
+    add_run(engine, age=1, tag="newest")
+    add_llm_call(engine, called=AS_OF)
+    run_sql(engine, "UPDATE llm_call SET billable = true, mode = 'live'")
+    context = JobContext(engine, _settings(), 1)
+    far = AS_OF + timedelta(days=900)
+
+    with pytest.raises(RetentionRefusedError):
+        run_retention_prune(RetentionPrunePayload(as_of=far), context)
+    run_retention_prune(RetentionPrunePayload(as_of=far, dry_run=True), context)
+
+    assert count(engine, "llm_call") == 1  # the month's spend is still there
+    assert issubclass(RetentionRefusedError, PERMANENT_ERRORS)
+
+
+def test_a_database_that_ever_held_live_runs_refuses_it_even_in_mock_mode(engine: Engine) -> None:
+    from feasibility.retention.prune import RetentionRefusedError, check_as_of_allowed
+
+    add_run(engine, age=1, tag="newest")
+    check_as_of_allowed(engine, _settings(), AS_OF, False)  # synthetic data only: allowed
+    run_sql(engine, "UPDATE sourcing_run SET data_mode = 'live'")
+
+    with pytest.raises(RetentionRefusedError):
+        check_as_of_allowed(engine, _settings(), AS_OF, False)
+    check_as_of_allowed(engine, _settings(), AS_OF, True)  # a dry run deletes nothing
+    check_as_of_allowed(engine, _settings(), None, False)  # today's date is the normal case
