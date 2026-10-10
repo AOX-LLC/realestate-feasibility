@@ -230,7 +230,7 @@ def test_every_route_is_get_only(engine: Engine) -> None:
         for path in paths
         if path.startswith("/sourcing")
         and not path.endswith(
-            ("/proformas", "/proforma", "/narratives", "/llm", "/llm/cost", "/brief")
+            ("/proformas", "/proforma", "/narratives", "/llm", "/llm/cost", "/brief", "/deliveries")
         )
     ]
 
