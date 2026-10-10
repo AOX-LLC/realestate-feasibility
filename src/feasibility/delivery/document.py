@@ -228,7 +228,7 @@ def proforma_document(
         rank=entry.rank,
         street=entry.street,
         zip5=entry.zip5 or "",
-        score=f"{Decimal(entry.score):.2f}",
+        score=format(Decimal(entry.score).normalize(), "f"),
         list_price=_money(Decimal(entry.list_price)),
         synthetic=brief.data_mode == "mock",
         flags=[DocFlag(code=flag.code, meaning=flag.meaning) for flag in entry.flags],

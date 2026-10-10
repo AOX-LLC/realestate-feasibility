@@ -188,3 +188,19 @@ def test_a_document_is_refused_when_the_pro_forma_no_longer_matches_the_brief() 
     with pytest.raises(ValueError, match="build the brief again"):
         proforma_document(brief, changed, result)
     assert proforma_document(brief, entry, result).street == entry.street
+
+
+@pytest.mark.parametrize(
+    ("stored", "shown"), [("71.2500", "71.25"), ("71.257", "71.257"), ("70", "70")]
+)
+def test_the_score_is_shown_as_stored_not_rounded(stored: str, shown: str) -> None:
+    from delivery_support import sample
+
+    from feasibility.delivery.document import proforma_document
+
+    brief, entries = sample()
+    entry, result = next(iter(entries.values()))
+
+    document = proforma_document(brief, entry.model_copy(update={"score": stored}), result)
+
+    assert document.score == shown
