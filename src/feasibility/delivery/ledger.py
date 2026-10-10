@@ -68,17 +68,24 @@ def run_lock(engine: Engine, run_id: int) -> Generator[None]:
     worker and a person at the command line, say) cannot post a second digest while the first is
     in the middle of its call."""
     connection = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    held = False
     key = text("SELECT hashtextextended('delivery:' || CAST(:run AS text), 0)")
     try:
         lock = connection.execute(key, {"run": run_id}).scalar_one()
         taken = connection.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock})
         if not taken.scalar_one():
             raise DeliveryBusyError("busy")
+        held = True
         try:
             yield
         finally:
             connection.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock})
+            held = False
     finally:
+        if held:
+            # The unlock did not happen: end the session, which drops the lock, instead of
+            # handing a connection that still holds it back to the pool.
+            connection.invalidate()
         connection.close()
 
 

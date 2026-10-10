@@ -2,6 +2,7 @@
 runs, and the lock that keeps two deliveries of a run apart."""
 
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, insert, text
@@ -204,3 +205,30 @@ def test_no_ledger_statement_is_inside_a_transaction_the_lock_holds(engine: Engi
             seen = other.execute(text("SELECT count(*) FROM delivery")).scalar_one()
 
     assert seen == 1
+
+
+def test_a_connection_that_could_not_unlock_is_ended_not_returned_to_the_pool(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.engine import Connection
+
+    run = make_run(engine)
+    original = Connection.execute
+
+    def failing_unlock(self: Connection, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        if "pg_advisory_unlock" in str(statement):
+            raise RuntimeError("the unlock failed")
+        return original(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Connection, "execute", failing_unlock)
+    with pytest.raises(RuntimeError, match="the unlock failed"), ledger.run_lock(engine, run):
+        pass
+    monkeypatch.undo()
+
+    # The session that held the lock is gone, so the lock is too. (Asking for it again would not
+    # show it: an advisory lock is re-entrant in its own session.)
+    with engine.connect() as connection:
+        held = connection.execute(
+            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted")
+        ).scalar_one()
+    assert held == 0
