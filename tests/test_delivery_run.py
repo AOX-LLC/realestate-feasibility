@@ -474,3 +474,16 @@ def test_the_http_transports_close_their_connections() -> None:
     HttpSlackTransport("t", client=slack_http, upload_client=upload_http).close()
 
     assert notion_http.is_closed and slack_http.is_closed and upload_http.is_closed
+
+
+def test_no_outbound_call_is_made_inside_a_database_transaction(days: Any) -> None:
+    from delivery_harness import WatchedNotion, WatchedSlack, open_transactions
+
+    engine, one, _ = days
+    assert open_transactions(engine) == 0  # the control: nothing of ours is open to begin with
+    notion, slack = WatchedNotion(engine), WatchedSlack(engine)
+
+    deliver(engine, one.run_id, notion, slack)
+
+    assert len(notion.open_during_calls) == 11 and len(slack.open_during_calls) == 16
+    assert set(notion.open_during_calls + slack.open_during_calls) == {0}

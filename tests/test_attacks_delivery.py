@@ -243,6 +243,7 @@ def test_d7_the_ledger_refuses_values_that_are_not_what_it_is_for(days: Any) -> 
 
 
 def test_d8_what_a_service_says_is_not_kept_but_its_code_is(days: Any) -> None:
+    from feasibility.delivery.errors import DeliveryIncompleteError
     from feasibility.logging import describe_error
 
     engine, one, _ = days
@@ -250,16 +251,21 @@ def test_d8_what_a_service_says_is_not_kept_but_its_code_is(days: Any) -> None:
     slack = LossySlack(Faults(statuses={"/files.getUploadURLExternal": [500] * 12}))
     mock = MockSlackTransport(error=TOKEN)
 
-    for transports in ((notion, MockSlackTransport()), (MockNotionTransport(), slack)):
-        try:
-            deliver(engine, one.run_id, *transports)
-        except Exception as error:
-            printed = describe_error(error)
-            assert TOKEN not in printed and "files.slack.com" not in printed
-    try:
-        deliver(engine, one.run_id, MockNotionTransport(), mock, resend=frozenset({"slack"}))
-    except Exception as error:
-        assert TOKEN not in describe_error(error)
+    # Notion refuses every create and Slack's upload step fails: one delivery, both services.
+    with pytest.raises(DeliveryIncompleteError) as raised:
+        deliver(engine, one.run_id, notion, slack)
+    printed = describe_error(raised.value)
+    assert TOKEN not in printed and "files.slack.com" not in printed
+    failed = {i.status for i in raised.value.report.items}
+    assert failed == {"failed", "sent"}  # the digest and the last file went; the rest said no
+    # And a service that puts the token in its own error text: the code is kept, the text is not.
+    clear_ledger(engine)
+    with pytest.raises(DeliveryIncompleteError) as raised:
+        deliver(engine, one.run_id, MockNotionTransport(), mock)
+    assert TOKEN not in describe_error(raised.value)
+    assert ("slack", "digest", "failed", "unknown") in {
+        (r.target, r.item, r.status, r.error_code) for r in raised.value.report.items
+    }
 
     kept = json.dumps([dict(row, updated_at=None, created_at=None) for row in ledger(engine)])
     assert TOKEN not in kept and "files.slack.com" not in kept and "://" not in kept

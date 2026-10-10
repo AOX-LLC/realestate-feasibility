@@ -197,3 +197,44 @@ def run_two_days(engine: Engine) -> tuple[Any, Any]:
     one = run_sourcing(engine, settings(), "dallas", DAY_ONE, model=model)
     two = run_sourcing(engine, settings(), "dallas", DAY_TWO, model=model)
     return one, two
+
+
+def open_transactions(engine: Engine) -> int:
+    """Other sessions of this database that sit inside an open transaction right now."""
+    with engine.connect() as connection:
+        return int(
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                    "AND pid <> pg_backend_pid() AND state LIKE 'idle in transaction%'"
+                )
+            ).scalar_one()
+        )
+
+
+class WatchedNotion(MockNotionTransport):
+    """Notes, at every request, how many sessions hold an open transaction."""
+
+    def __init__(self, engine: Engine) -> None:
+        super().__init__()
+        self._engine = engine
+        self.open_during_calls: list[int] = []
+
+    def request(self, method: str, path: str, **kwargs: Any) -> TransportResponse:
+        self.open_during_calls.append(open_transactions(self._engine))
+        return super().request(method, path, **kwargs)
+
+
+class WatchedSlack(MockSlackTransport):
+    def __init__(self, engine: Engine) -> None:
+        super().__init__()
+        self._engine = engine
+        self.open_during_calls: list[int] = []
+
+    def request(self, method: str, path: str, **kwargs: Any) -> TransportResponse:
+        self.open_during_calls.append(open_transactions(self._engine))
+        return super().request(method, path, **kwargs)
+
+    def upload(self, url: str, content: bytes) -> TransportResponse:
+        self.open_during_calls.append(open_transactions(self._engine))
+        return super().upload(url, content)
