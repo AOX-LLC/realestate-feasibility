@@ -48,3 +48,13 @@ class BriefDeliverPayload(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     run_id: int = Field(ge=1, le=2**63 - 1)
+
+
+class RetentionPrunePayload(BaseModel):
+    """Delete what is older than its retention window, or with `dry_run` only count it. `as_of`
+    is the day the windows are measured from (None: today, UTC); it is for the command line."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dry_run: bool = False
+    as_of: date | None = None

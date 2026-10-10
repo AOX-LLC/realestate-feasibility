@@ -250,7 +250,7 @@ def test_the_trigger_routes_take_post_and_nothing_else(engine: Engine) -> None:
         path: set(methods) for path, methods in paths.items() if path.startswith("/triggers/")
     }
 
-    assert triggers == {"/triggers/morning": {"post"}}
+    assert triggers == {"/triggers/morning": {"post"}, "/triggers/retention": {"post"}}
 
 
 def test_the_trigger_takes_the_markets_run_lock_before_it_checks_the_date(

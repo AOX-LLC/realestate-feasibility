@@ -56,6 +56,10 @@ llm_app = typer.Typer(no_args_is_help=True, help="Model results and their cost (
 app.add_typer(llm_app, name="llm")
 brief_app = typer.Typer(no_args_is_help=True, help="The brief of a run: build it, read it.")
 app.add_typer(brief_app, name="brief")
+retention_app = typer.Typer(
+    no_args_is_help=True, help="Delete stored data past its retention window."
+)
+app.add_typer(retention_app, name="retention")
 eval_app = typer.Typer(no_args_is_help=True, help="Model evals: replay by default, no live calls.")
 app.add_typer(eval_app, name="eval")
 
@@ -696,6 +700,44 @@ def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) 
     except DeliveryError as error:
         typer.echo(f"smoke failed: {error}", err=True)
         raise typer.Exit(code=1) from None
+
+
+@retention_app.command("prune")
+def retention_prune(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Count what would be deleted; delete nothing")
+    ] = False,
+    as_of: Annotated[
+        str | None,
+        typer.Option(
+            "--as-of",
+            help="Measure the windows from this day, YYYY-MM-DD (default: today, UTC). "
+            "With live data only together with --dry-run.",
+        ),
+    ] = None,
+) -> None:
+    """Delete everything older than its retention window (RETENTION_* settings), or with
+    --dry-run say what would go. A market's latest run, a run being built and any spend record
+    inside its months are never touched. Copies already sent to Notion and Slack are out of
+    reach."""
+    from datetime import UTC, datetime
+
+    from feasibility.retention.prune import RULES, policy_from, prune
+
+    settings = get_settings()
+    try:
+        day = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else datetime.now(UTC).date()
+    except ValueError:
+        raise typer.BadParameter("--as-of must be a date such as 2026-12-15") from None
+    if as_of and settings.is_live and not dry_run:
+        typer.echo("--as-of without --dry-run is refused with live data", err=True)
+        raise typer.Exit(code=2)
+    report = prune(get_engine(), policy_from(settings), as_of=day, dry_run=dry_run)
+    verb = "would delete" if dry_run else "deleted"
+    typer.echo(f"retention as of {day}: {verb}")
+    for rule in RULES:
+        typer.echo(f"  {rule:<22} {report.counts[rule]:>8}")
+    typer.echo("dry run: nothing deleted" if dry_run else f"{report.total()} rows deleted")
 
 
 @app.command("verify-rentcast")
