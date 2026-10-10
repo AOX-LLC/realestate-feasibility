@@ -298,9 +298,15 @@ def display_forms(value: Any) -> set[str]:
         return {str(value), f"{value:,}"}
     if isinstance(value, str):
         try:
+            return display_forms(date_type.fromisoformat(value))
+        except ValueError:
+            pass
+        # Any stored string stands for itself (a street, a zoning rule), as a whole.
+        forms.add(value)
+        try:
             number = Decimal(value)
         except InvalidOperation:
-            return forms
+            return {f for f in forms if f}
         forms |= {value, f"{number:,.2f}", f"{number:,.0f}", f"{number:f}", figures.money(number)}
         forms.add(figures.percent(number))
         forms.add(figures.area(number))

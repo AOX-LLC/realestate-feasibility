@@ -380,7 +380,17 @@ def test_b8_the_briefs_data_mode_is_the_runs_not_the_readers(plain: Any) -> None
 # --- the surfaces 5b builds ---------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
+def test_b13_control_the_digit_scan_finds_an_invented_number() -> None:
+    from attack_support import allowed_displays, digits_left_over
+
+    allowed = allowed_displays({"profit": "107560.14", "margin": "0.0757", "rank": 3})
+
+    assert digits_left_over("Profit $107,560.14, margin 7.57%, rank 3.", allowed) == []
+    assert digits_left_over("Profit $108,000.00 and rank 3.", allowed) == ["108", "000", "00"]
+    assert digits_left_over("Margin 7.6%.", allowed) == ["7", "6"]
+    assert digits_left_over("Profit $7,560.14.", allowed) != []  # not a piece of a longer figure
+
+
 def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> None:
     import io
 

@@ -390,11 +390,15 @@ def attack_brief(engine: Engine, run_id: int, said: str) -> Brief:
     return brief.model_copy(update={"candidates": [changed, *brief.candidates[1:]]})
 
 
-@pytest.mark.xfail(strict=True, reason=LATER)
 def test_a9_the_pdf_renders_every_attack_string_as_literal_text(plain: Any) -> None:
+    import io
+
+    from markupsafe import escape
+    from pypdf import PdfReader
+
     from feasibility.delivery.document import proforma_document
     from feasibility.delivery.html import render_html
-    from feasibility.delivery.pdf import render_pdf  # noqa: F401
+    from feasibility.delivery.pdf import render_pdf
     from feasibility.proforma.model import ProformaResult
 
     engine, one, _ = plain
@@ -409,9 +413,21 @@ def test_a9_the_pdf_renders_every_attack_string_as_literal_text(plain: Any) -> N
         )[0].result
         document = proforma_document(brief, entry, ProformaResult.model_validate(stored))
         html = render_html(document)
-        assert "<script" not in html and "<img" not in html and "<a " not in html
-        assert "{{ config" not in html.replace("&#123;", "{")  # rendered as text, not evaluated
-        assert "http://" not in html and "https://" not in html
+
+        # Escaped, so the page shows the characters and parses none of them.
+        assert str(escape(said.split("\n")[0])) in html, said
+        for tag in ("<script", "<img", "<a ", "<svg", "<style@"):
+            assert tag not in html, (said, tag)
+        assert html.count("<style") == 0
+        assert "http://" not in html.replace("&lt;", "").split("<body>")[0]
+        # And in the PDF it is text, with no link annotation to follow.
+        reader = PdfReader(io.BytesIO(render_pdf(document)))
+        words = " ".join(" ".join(p.extract_text() for p in reader.pages).split())
+        # Lines may break inside a long word, so compare without any whitespace.
+        assert "".join(said.split()) in "".join(words.split()), said
+        for page in reader.pages:
+            for annotation in page.get("/Annots", []) or []:
+                assert "/URI" not in str(annotation.get_object())
 
 
 @pytest.mark.xfail(strict=True, reason=LATER)
