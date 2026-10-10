@@ -26,6 +26,7 @@ from feasibility.delivery.brief import Brief, BriefCandidate
 from feasibility.delivery.errors import (
     DeliveryConfigError,
     SlackError,
+    SlackOutcomeUnknownError,
     TransportError,
     safe_code,
 )
@@ -179,6 +180,7 @@ class SlackClient:
             sleep=self._sleep,
             repeatable=repeatable,
             fail=SlackError,
+            unknown=SlackOutcomeUnknownError,
         )
         return self._checked(response)
 
@@ -209,7 +211,8 @@ class SlackClient:
         )
         ts = body.get("ts")
         if not isinstance(ts, str):
-            raise SlackError("no_ts")
+            # The message was posted; without its ts nothing can be threaded under it.
+            raise SlackOutcomeUnknownError("no_ts")
         return ts
 
     def upload_file(self, name: str, content: bytes, title: str, thread_ts: str) -> str:

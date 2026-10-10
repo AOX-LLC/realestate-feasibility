@@ -45,3 +45,17 @@ class TransportError(DeliveryError):
 class PdfRenderError(DeliveryError):
     """The renderer refused the document (it asked for something outside the package). The same
     document renders the same way again, so a retry cannot fix it."""
+
+
+class OutcomeUnknownError(DeliveryError):
+    """A request that creates or posts something failed in a way that may have succeeded (the
+    answer was lost, or the service said 5xx). It is not retried by the client; the delivery
+    ledger records it as `unknown` and decides."""
+
+
+class NotionOutcomeUnknownError(NotionError, OutcomeUnknownError):
+    pass
+
+
+class SlackOutcomeUnknownError(SlackError, OutcomeUnknownError):
+    pass

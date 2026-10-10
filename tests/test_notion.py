@@ -11,7 +11,12 @@ import pytest
 from delivery_support import sample
 
 from feasibility.delivery.brief import Brief, BriefCandidate
-from feasibility.delivery.errors import DeliveryConfigError, NotionError, TransportError
+from feasibility.delivery.errors import (
+    DeliveryConfigError,
+    NotionError,
+    NotionOutcomeUnknownError,
+    TransportError,
+)
 from feasibility.delivery.notion import (
     DECISION_PROPERTY,
     NOTION_VERSION,
@@ -329,10 +334,23 @@ def test_a_row_is_never_created_twice_after_a_server_error_or_a_lost_connection(
     for failure in (TransportResponse(503), TransportError("network_error")):
         transport = Scripted(failure)
 
-        with pytest.raises(NotionError):
+        with pytest.raises(NotionOutcomeUnknownError) as raised:
             client(transport).create_row({})
 
         assert transport.calls == 1
+        assert isinstance(raised.value, NotionError)
+
+
+def test_a_created_page_without_an_id_is_an_unknown_outcome() -> None:
+    with pytest.raises(NotionOutcomeUnknownError, match="no_page_id"):
+        client(Scripted(TransportResponse(200, {}))).create_row({})
+
+
+def test_a_definite_refusal_of_a_create_is_not_an_unknown_outcome() -> None:
+    with pytest.raises(NotionError) as raised:
+        client(Scripted(TransportResponse(400, {"code": "validation_error"}))).create_row({})
+
+    assert not isinstance(raised.value, NotionOutcomeUnknownError)
 
 
 def test_an_update_is_retried_after_a_server_error() -> None:

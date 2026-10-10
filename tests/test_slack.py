@@ -9,7 +9,12 @@ import pytest
 from delivery_support import sample
 
 from feasibility.delivery.brief import Brief, BriefCandidate
-from feasibility.delivery.errors import DeliveryConfigError, SlackError, TransportError
+from feasibility.delivery.errors import (
+    DeliveryConfigError,
+    SlackError,
+    SlackOutcomeUnknownError,
+    TransportError,
+)
 from feasibility.delivery.slack import (
     MAX_BLOCKS,
     MAX_TEXT,
@@ -306,10 +311,42 @@ def test_a_post_is_never_sent_twice_after_a_server_error_or_a_lost_connection() 
     for failure in (TransportResponse(503), TransportError("network_error")):
         transport = Scripted(failure)
 
-        with pytest.raises(SlackError):
+        with pytest.raises(SlackOutcomeUnknownError) as raised:
             client(transport).post_digest([], "digest")
 
         assert transport.calls == 1
+        assert isinstance(raised.value, SlackError)  # and still what callers already catch
+        assert raised.value.code in ("http_503", "network_error")
+
+
+def test_a_reply_without_a_ts_is_an_unknown_outcome_because_the_message_was_posted() -> None:
+    transport = Scripted(TransportResponse(200, {"ok": True}))
+
+    with pytest.raises(SlackOutcomeUnknownError, match="no_ts"):
+        client(transport).post_digest([], "digest")
+
+
+def test_a_definite_refusal_of_a_post_is_not_an_unknown_outcome() -> None:
+    transport = Scripted(TransportResponse(200, {"ok": False, "error": "msg_too_long"}))
+
+    with pytest.raises(SlackError) as raised:
+        client(transport).post_digest([], "digest")
+
+    assert not isinstance(raised.value, SlackOutcomeUnknownError)
+
+
+def test_completing_an_upload_is_not_repeated_either() -> None:
+    transport = Scripted(
+        TransportResponse(
+            200, {"ok": True, "upload_url": "https://files.slack.com/upload/v1/u", "file_id": "F1"}
+        ),
+        TransportResponse(503),
+    )
+
+    with pytest.raises(SlackOutcomeUnknownError):
+        client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0")
+
+    assert transport.calls == 2  # the URL and one completion (the bytes go by `upload`)
 
 
 def test_a_read_only_style_call_is_still_retried_after_a_server_error() -> None:

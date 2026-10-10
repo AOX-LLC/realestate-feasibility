@@ -82,14 +82,17 @@ def send_with_retries(
     sleep: Callable[[float], None],
     repeatable: bool,
     fail: Callable[[str], DeliveryError],
+    unknown: Callable[[str], DeliveryError],
 ) -> TransportResponse:
     """One request, with the retries that are safe, for both services.
 
     A 429 means the service did not process the request, so it is always waited out (up to
     `RATE_LIMIT_TRIES` times). A 5xx or a lost connection may have been processed, so it is
     retried only for a request that is safe to send twice (`repeatable`), never for one that
-    creates or posts something. When retries run out, a lost connection raises
-    `fail("network_error")` and a 5xx response is returned for the caller to classify."""
+    creates or posts something. When retries run out on a repeatable request, a lost connection
+    raises `fail("network_error")` and a 5xx response is returned for the caller to classify. On a
+    request that is not repeatable, a lost connection or a 5xx raises `unknown(code)`: the service
+    may have done it."""
     server_pauses = list(SERVER_RETRY_PAUSES) if repeatable else []
     limited = 0
     while True:
@@ -98,7 +101,7 @@ def send_with_retries(
             response = send()
         except TransportError:
             if not server_pauses:
-                raise fail("network_error") from None
+                raise (fail if repeatable else unknown)("network_error") from None
             sleep(server_pauses.pop(0))
             continue
         if response.status == 429 and limited < RATE_LIMIT_TRIES:
@@ -108,4 +111,6 @@ def send_with_retries(
         if response.status >= 500 and server_pauses:
             sleep(server_pauses.pop(0))
             continue
+        if response.status >= 500 and not repeatable:
+            raise unknown(f"http_{response.status}")
         return response

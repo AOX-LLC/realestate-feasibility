@@ -23,6 +23,7 @@ from feasibility.delivery.brief import Brief, BriefCandidate
 from feasibility.delivery.errors import (
     DeliveryConfigError,
     NotionError,
+    NotionOutcomeUnknownError,
     TransportError,
 )
 from feasibility.delivery.transport import (
@@ -151,6 +152,7 @@ class NotionClient:
             sleep=self._sleep,
             repeatable=repeatable,
             fail=NotionError,
+            unknown=NotionOutcomeUnknownError,
         )
         return self._checked(response, path)
 
@@ -208,7 +210,8 @@ class NotionClient:
         )
         page_id = created.get("id")
         if not isinstance(page_id, str):
-            raise NotionError("no_page_id")
+            # The page may exist; without its id the row cannot be found by the update.
+            raise NotionOutcomeUnknownError("no_page_id")
         return page_id
 
     def update_row(self, page_id: str, properties: dict[str, Any]) -> None:
