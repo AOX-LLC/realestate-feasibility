@@ -29,7 +29,8 @@ def test_mock_mode_ignores_a_key_that_is_present() -> None:
     settings = _settings(DataMode.MOCK, SecretStr(SENTINEL))
 
     assert settings.rentcast_api_key is None
-    assert settings.secret_values() == []
+    # Ignored, but still redacted: compose puts it in the container's environment.
+    assert settings.secret_values() == [SENTINEL]
 
 
 @pytest.mark.parametrize("key", [None, ""])
@@ -72,3 +73,110 @@ def test_configured_logging_redacts_child_logger_records(
     assert SENTINEL not in captured
     assert REDACTED in captured
     assert logging.getLogger("httpx").level == logging.WARNING
+
+
+# --- the API's bearer tokens -------------------------------------------------------------------
+
+READ_TOKEN = "r" * 40  # built at runtime: a literal secret-looking string trips the secret scanner
+TRIGGER_TOKEN = "t" * 40
+
+
+def _api_settings(**values: object) -> Settings:
+    return Settings(_env_file=None, **values)  # type: ignore[call-arg]
+
+
+def test_no_api_tokens_is_valid_and_means_nothing_is_open() -> None:
+    settings = _api_settings()
+
+    assert settings.api_read_token is None
+    assert settings.api_trigger_token is None
+
+
+def test_both_tokens_are_read_from_their_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("API_READ_TOKEN", READ_TOKEN)
+    monkeypatch.setenv("API_TRIGGER_TOKEN", TRIGGER_TOKEN)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.api_read_token is not None
+    assert settings.api_read_token.get_secret_value() == READ_TOKEN
+    assert settings.api_trigger_token is not None
+    assert settings.api_trigger_token.get_secret_value() == TRIGGER_TOKEN
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_token_is_unset(blank: str) -> None:
+    assert _api_settings(api_read_token=blank).api_read_token is None
+
+
+def test_a_short_token_is_refused_by_variable_name_and_not_by_value() -> None:
+    short = "s" * 31
+
+    with pytest.raises(ValidationError) as raised:
+        _api_settings(api_read_token=short)
+
+    assert "API_READ_TOKEN" in str(raised.value)
+    assert short not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "bad", ["a" * 31, "a" * 257, "a" * 31 + " ", "a" * 31 + "!", "a" * 31 + "é"]
+)
+def test_a_token_outside_the_allowed_shape_is_refused(bad: str) -> None:
+    with pytest.raises(ValidationError, match="API_TRIGGER_TOKEN"):
+        _api_settings(api_trigger_token=bad)
+
+
+def test_the_two_tokens_must_differ() -> None:
+    with pytest.raises(ValidationError, match="must differ") as raised:
+        _api_settings(api_read_token=READ_TOKEN, api_trigger_token=READ_TOKEN)
+
+    assert READ_TOKEN not in str(raised.value)
+
+
+def test_both_tokens_are_in_the_secret_values_and_out_of_the_repr() -> None:
+    settings = _api_settings(api_read_token=READ_TOKEN, api_trigger_token=TRIGGER_TOKEN)
+
+    assert {READ_TOKEN, TRIGGER_TOKEN} <= set(settings.secret_values())
+    assert READ_TOKEN not in repr(settings)
+    assert TRIGGER_TOKEN not in repr(settings)
+
+
+def test_a_client_address_header_must_be_a_header_name() -> None:
+    ok = _api_settings(api_client_ip_header="CF-Connecting-IP", api_trusted_proxies="10.0.0.0/8")
+    assert ok.api_client_ip_header == "CF-Connecting-IP"
+    assert _api_settings(api_client_ip_header="").api_client_ip_header is None
+    with pytest.raises(ValidationError):
+        _api_settings(api_client_ip_header="X-Real IP: 1", api_trusted_proxies="10.0.0.1")
+
+
+def test_a_client_address_header_needs_the_proxies_that_may_set_it() -> None:
+    with pytest.raises(ValidationError, match="API_TRUSTED_PROXIES"):
+        _api_settings(api_client_ip_header="CF-Connecting-IP")
+    with pytest.raises(ValidationError, match="API_TRUSTED_PROXIES"):
+        _api_settings(api_trusted_proxies="not-an-address")
+    assert _api_settings(api_trusted_proxies="10.0.0.1, 192.168.0.0/16").api_trusted_proxies
+
+
+def test_the_rate_limits_have_the_planned_defaults_and_bounds() -> None:
+    settings = _api_settings()
+
+    assert (settings.api_reads_per_minute, settings.api_triggers_per_hour) == (120, 12)
+    with pytest.raises(ValidationError):
+        _api_settings(api_reads_per_minute=0)
+
+
+def test_media_out_is_unset_by_default_and_must_be_absolute_and_outside_the_repository() -> None:
+    from feasibility.config import REPO_ROOT
+
+    assert _api_settings().media_out is None
+    assert _api_settings(media_out="").media_out is None
+    assert str(_api_settings(media_out="/srv/media-out").media_out) == "/srv/media-out"
+    for bad in ("media-out", str(REPO_ROOT / "media-out"), str(REPO_ROOT)):
+        with pytest.raises(ValidationError, match="MEDIA_OUT"):
+            _api_settings(media_out=bad)
+
+
+def test_a_token_with_a_trailing_newline_is_refused() -> None:
+    with pytest.raises(ValidationError, match="API_READ_TOKEN"):
+        _api_settings(api_read_token="r" * 40 + "\n")

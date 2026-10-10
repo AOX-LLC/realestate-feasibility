@@ -26,12 +26,12 @@ from feasibility.logging import describe_error, redact
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import MarketPack, RentCastListings
 from feasibility.proforma.run import ProformaCounts, run_proformas
-from feasibility.snapshot.days import snapshot_day, snapshot_days
 from feasibility.sources.mls.reso import remarks_source_for
 from feasibility.sources.rentcast.client import BudgetExhaustedError, RentCastClient
 from feasibility.sourcing import diff, estimates, store
 from feasibility.sourcing.counts import FilteredByReason, RunCounts
-from feasibility.sourcing.errors import LiveDateError, NoSnapshotForDateError, RunOutOfOrderError
+from feasibility.sourcing.dates import resolve_run_date
+from feasibility.sourcing.errors import RunOutOfOrderError
 from feasibility.sourcing.estimates import EstimateCounts
 from feasibility.sourcing.filters import (
     ListingFacts,
@@ -88,28 +88,6 @@ class Evaluation:
     breakdown: ScoreBreakdown | None = None
 
 
-def resolve_run_date(
-    settings: Settings, pack: MarketPack, as_of: date | None
-) -> tuple[date, str | None]:
-    """The date to source for and, in mock mode, the snapshot overlay that holds its feed.
-
-    Live mode sources today (in the market's time zone) only. Mock mode needs a date the
-    snapshot holds; the next date is never inferred.
-    """
-    market = pack.market.id
-    if settings.is_live:
-        today = datetime.now(ZoneInfo(pack.market.timezone)).date()
-        if as_of is not None and as_of != today:
-            raise LiveDateError(f"live mode sources for today only ({today}), not {as_of}")
-        return today, None
-    if as_of is None:
-        available = ", ".join(day.as_of.isoformat() for day in snapshot_days(settings, market))
-        raise NoSnapshotForDateError(
-            f"mock mode needs an explicit date; available dates: {available or 'none'}"
-        )
-    return as_of, snapshot_day(settings, market, as_of)
-
-
 def run_sourcing(
     engine: Engine,
     settings: Settings,
@@ -125,7 +103,7 @@ def run_sourcing(
     client the model stages call; by default the library's, in the settings' mode."""
     pack = get_pack(market)
     run_date, overlay = resolve_run_date(settings, pack, as_of)
-    run_id = _start_run(engine, market, run_date)
+    run_id = _start_run(engine, market, run_date, settings.data_mode.value)
     if client is not None:
         return _source(engine, settings, pack, run_id, run_date, client, model)
     # The response cache would answer a later snapshot day with the earlier day's body.
@@ -165,6 +143,9 @@ def _source(
     estimate_counts = _spend_estimates(engine, settings, pack, run_id, run_date, client)
     proforma_counts = _price_proformas(engine, settings, pack, run_id, run_date)
     model_counts = _read_and_write_up(engine, settings, pack, run_id, run_date, model, attempt)
+    # Every stage has ended. A brief built before this would be missing the later stages' rows.
+    with engine.begin() as connection:
+        store.mark_stages_finished(connection, run_id, attempt)
     late_counts = {**asdict(estimate_counts), **asdict(proforma_counts), **model_counts}
     return SourcingResult(run_id, run_date, sync_status, counts.model_copy(update=late_counts))
 
@@ -262,11 +243,11 @@ def _refuse_if_out_of_order(connection: Connection, market: str, as_of: date) ->
         )
 
 
-def _start_run(engine: Engine, market: str, as_of: date) -> int:
+def _start_run(engine: Engine, market: str, as_of: date, data_mode: str = "mock") -> int:
     with engine.begin() as connection:
         store.lock_market_runs(connection, market)
         _refuse_if_out_of_order(connection, market, as_of)
-        return store.start_run(connection, market, as_of)
+        return store.start_run(connection, market, as_of, data_mode)
 
 
 def _sync(

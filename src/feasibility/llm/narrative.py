@@ -26,6 +26,7 @@ from feasibility.llm.narrative_check import (
     Check,
     NarrativeDraft,
     QuotedFigure,
+    RiskPoint,
     Violation,
     check_narrative,
 )
@@ -317,6 +318,15 @@ def _model_info(attempt: NarrativeAttempt, reused: bool) -> NarrativeModelInfo:
         input_sha256=attempt.input_sha256,
         reused=reused,
         llm_call_ids=attempt.llm_call_ids,
+    )
+
+
+def draft_of(accepted: NarrativeResult) -> NarrativeDraft:
+    """The draft an accepted result was made from, to check it again."""
+    return NarrativeDraft(
+        summary=accepted.summary or "",
+        risks=[RiskPoint(basis=list(risk.basis), text=risk.text) for risk in accepted.risks],
+        checks_before_offer=list(accepted.checks_before_offer),
     )
 
 

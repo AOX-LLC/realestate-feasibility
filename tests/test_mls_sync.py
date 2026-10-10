@@ -6,10 +6,12 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
+from test_api import READ_HEADERS, with_tokens
 
 from feasibility.api.app import create_app
 from feasibility.config import DataMode, Settings
-from feasibility.jobs.handlers import JobContext, ListingsSyncPayload, run_listings_sync
+from feasibility.jobs.handlers import JobContext, run_listings_sync
+from feasibility.jobs.payloads import ListingsSyncPayload
 from feasibility.listings import listing_query
 from feasibility.markets.loader import get_pack
 from feasibility.sources.mls.reso import DROPPED_FIELDS
@@ -167,7 +169,9 @@ def test_the_api_serves_the_redacted_remarks_and_nothing_planted(
     _write_records(tmp_path, [RECORD])
     _sync(engine, tmp_path)
 
-    with TestClient(create_app(_settings(tmp_path), engine)) as client:
+    with TestClient(
+        create_app(with_tokens(_settings(tmp_path)), engine), headers=READ_HEADERS
+    ) as client:
         listing_id = client.get("/listings").json()["items"][0]["id"]
         bodies = [client.get("/listings").text, client.get(f"/listings/{listing_id}").text]
         detail = client.get(f"/listings/{listing_id}").json()

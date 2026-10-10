@@ -2,7 +2,7 @@
 and requeue jobs whose worker lease expired."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel
@@ -54,6 +54,24 @@ def enqueue(
         },
     ).first()
     return None if row is None else int(row.id)
+
+
+def latest_active_morning_date(connection: Connection, market: str) -> date | None:
+    """The latest date a queued or running `morning.run` job of the market is for."""
+    found: date | None = connection.execute(
+        text(
+            """
+            SELECT max(CAST(payload->>'as_of' AS date))
+            FROM job
+            WHERE kind = 'morning.run'
+              AND status IN ('queued', 'running')
+              AND payload->>'market' = :market
+              AND payload->>'as_of' IS NOT NULL
+            """
+        ),
+        {"market": market},
+    ).scalar_one()
+    return found
 
 
 def claim(connection: Connection, worker_id: str, lease: timedelta) -> ClaimedJob | None:

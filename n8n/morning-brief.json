@@ -1,0 +1,177 @@
+{
+  "id": "morningBrief0001",
+  "name": "Morning brief",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "5f0c1a52-7d6e-4f0a-9a31-2c8d5e1b7a01",
+      "name": "Every morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1f0b6a4-3e52-4a8e-8d1b-6f2a9c4d7e11",
+              "name": "market",
+              "value": "dallas",
+              "type": "string"
+            },
+            {
+              "id": "c1f0b6a4-3e52-4a8e-8d1b-6f2a9c4d7e12",
+              "name": "as_of",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9a7d2e63-1b4c-4d5f-8e70-3a6b8c0d1e02",
+      "name": "Markets",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4501/triggers/morning",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ market: $json.market, as_of: $json.as_of || null }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "e3b8f4c1-6a92-4e07-9c15-8d2f4a6b0c03",
+      "name": "Start the morning run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 60000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "feasibility-trigger",
+          "name": "feasibility trigger"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "7d2a9c40-5b13-4e8f-a6c2-91f0e3b4d505",
+      "name": "Every Sunday night",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4501/triggers/retention",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ dry_run: false }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b4e6d1f2-8a37-4c09-b5d8-2f7a1c3e9606",
+      "name": "Start the retention prune",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        240
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 60000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "feasibility-trigger",
+          "name": "feasibility trigger"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every morning": {
+      "main": [
+        [
+          {
+            "node": "Markets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markets": {
+      "main": [
+        [
+          {
+            "node": "Start the morning run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Sunday night": {
+      "main": [
+        [
+          {
+            "node": "Start the retention prune",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chicago"
+  }
+}

@@ -29,7 +29,15 @@ RUN uv sync --frozen --no-dev
 FROM ${PYTHON_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    XDG_CACHE_HOME=/tmp/.cache
+
+# The PDF renderer (WeasyPrint) needs Pango and HarfBuzz; fontconfig keeps a cache, which lives in
+# the writable /tmp (the root filesystem is read-only at run time).
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

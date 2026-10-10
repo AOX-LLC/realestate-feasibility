@@ -153,7 +153,7 @@ def test_show_lists_a_runs_candidates_by_status(seeded: Engine) -> None:
 
 def test_show_without_a_run_says_so(seeded: Engine) -> None:
     result = _invoke("show")
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "no completed run" in result.output
 
 

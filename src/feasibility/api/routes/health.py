@@ -1,6 +1,7 @@
 import time
 
 from fastapi import APIRouter, Request, Response, status
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from feasibility.api.deps import EngineDep, SettingsDep
@@ -36,3 +37,16 @@ def health(
         mode=settings.data_mode.value,
         rentcast_key_configured=settings.rentcast_api_key is not None,
     )
+
+
+@router.get("/livez")
+def livez(response: Response, engine: EngineDep) -> dict[str, str]:
+    """The one open route: is the process up and the database reachable. It says nothing about
+    the revision, the mode or any key; `/health` does, behind the read token."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "degraded"}
+    return {"status": "ok"}
