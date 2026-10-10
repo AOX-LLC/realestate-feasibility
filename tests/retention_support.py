@@ -42,7 +42,8 @@ def run_sql(engine: Engine, sql: str, **params: Any) -> Any:
 
 
 def scalar(engine: Engine, sql: str, **params: Any) -> Any:
-    with engine.connect() as connection:
+    """One value; committed, so an INSERT ... RETURNING here is kept."""
+    with engine.begin() as connection:
         return connection.execute(text(sql), params).scalar_one()
 
 
@@ -80,10 +81,10 @@ def add_run(
         ).scalar_one()
         candidate_id = c.execute(
             text(
-                "INSERT INTO candidate (market, property_key, street_key, first_as_of) "
-                "VALUES (:m, :k, :k, :d) RETURNING id"
+                "INSERT INTO candidate (market, property_key, street_key, first_as_of, created_at) "
+                "VALUES (:m, :k, :k, :d, :t) RETURNING id"
             ),
-            {"m": market, "k": f"acct:{tag}", "d": as_of},
+            {"m": market, "k": f"acct:{tag}", "d": as_of, "t": at(as_of)},
         ).scalar_one()
         listing_id = c.execute(
             text(
