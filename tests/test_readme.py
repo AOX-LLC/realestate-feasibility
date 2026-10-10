@@ -84,37 +84,66 @@ def test_the_frozen_snapshot_statement_is_on_the_front_page() -> None:
     assert "No message has been sent to a real Notion or Slack" in top
 
 
+def _front_page() -> str:
+    text = README.read_text(encoding="utf-8")
+    return text[: text.index("\n## Status")]
+
+
+def _summary(name: str) -> dict:  # type: ignore[type-arg]
+    return json.loads((SCORECARDS / name).read_text("utf-8"))["summary"]
+
+
 def test_the_numbers_on_the_front_page_are_the_scorecards() -> None:
-    top = README.read_text(encoding="utf-8")
-    holdout = json.loads((SCORECARDS / "signals-holdout.json").read_text("utf-8"))["summary"]
-    dev = json.loads((SCORECARDS / "signals-dev.json").read_text("utf-8"))["summary"]
-    narrative = json.loads((SCORECARDS / "narrative.json").read_text("utf-8"))["summary"]
+    top = _front_page()
+    holdout, dev = _summary("signals-holdout.json"), _summary("signals-dev.json")
+    narrative = _summary("narrative.json")
+    teardown = next(r for r in holdout["per_signal"] if r["code"] == "teardown_language")
 
     assert f"precision {holdout['micro_precision'] * 100:.1f}%" in top
-    assert f"{holdout['cases_scored']} records" in top
+    assert f"recall {holdout['micro_recall'] * 100:.0f}%" in top
+    assert f"evidence match {holdout['evidence_match'] * 100:.0f}%" in top
+    assert (
+        f"injection resisted {holdout['injection_passed']} of {holdout['injection_cases']}" in top
+    )
+    assert f"({holdout['cases_scored']} records)" in top
     assert f"precision {dev['micro_precision'] * 100:.1f}%" in top
     assert f"({dev['cases_scored']} records)" in top
     assert f"({dev['injection_passed']} of {dev['injection_cases']})" in top
     assert f"accepted {narrative['accepted']} of {narrative['cases_scored']}" in top
-    false_positives = {
-        r["code"]: r["false_positives"] for r in holdout["per_signal"] if r["false_positives"]
-    }
-    assert f"{false_positives['teardown_language']} false positives" in top
+    assert (
+        f"{teardown['false_positives']} false positives against {teardown['true_positives']}" in top
+    )
+    assert f"(precision {teardown['precision'] * 100:.0f}%)" in top
 
 
-def test_the_front_page_cost_and_test_counts_are_the_reports() -> None:
-    top = README.read_text(encoding="utf-8")
+def test_the_personal_data_claim_carries_the_residual_cases_it_depends_on() -> None:
+    holdout = _summary("signals-holdout.json")
+    assert holdout["personal_leaks"] == {}  # the gated claim is true...
+    assert holdout["residual_leaks"]  # ...and the residual forms did leak, so say so
+
+    for text in (_front_page(), README.read_text(encoding="utf-8")):
+        for line in text.splitlines():
+            if "no personal data leaked" in line:
+                assert "residual" in line, line
+                assert f"{len(holdout['residual_leaks'])} of {holdout['residual_cases']}" in line
+
+
+def test_the_front_page_cost_speed_and_test_counts_are_the_reports_and_the_measurement() -> None:
+    top = _front_page()
     report = EVALS.read_text(encoding="utf-8")
+    stack = json.loads((SCORECARDS / "stack-run.json").read_text("utf-8"))
+    narrative = _summary("narrative.json")
     total = re.search(r"\*\*All `test_proforma_\*\.py`\*\* \| \*\*(\d+)\*\*", report)
     both_days = re.search(r"\*\*Both days\*\* \| \| \*\*(\d+)\*\* .* \*\*\$([\d.]+)\*\*", report)
+    seconds = [d["trigger_to_delivered_seconds"] for d in stack["days"].values()]
 
     assert total is not None
     assert both_days is not None
     assert f"{total.group(1)} tests" in top
-    assert (
-        f"${float(both_days.group(2)):.4f} in model calls ({both_days.group(1)} recorded calls)"
-        in top
-    )
+    cost = f"${float(both_days.group(2)):.4f} in model calls ({both_days.group(1)} recorded calls)"
+    assert cost in top
+    assert f"about ${5 * float(narrative['cost_per_case_usd']):.2f}" in top
+    assert f"{min(seconds):.1f} to {max(seconds):.1f} seconds" in top
 
 
 # --- the capture script -------------------------------------------------------------------------

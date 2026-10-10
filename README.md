@@ -34,11 +34,11 @@ Full report, with every table: **[docs/EVALS.md](docs/EVALS.md)** (generated fro
 
 | | Result |
 | --- | --- |
-| Extraction, holdout (25 records) | precision 90.2% (on its 90% target), recall 100%, evidence match 100%, injection resisted 3 of 3, no personal data leaked |
+| Extraction, holdout (25 records) | precision 90.2% (on its 90% target), recall 100%, evidence match 100%, injection resisted 3 of 3; no personal data leaked in the forms the eval gates on, but a bare first name with no cue word reached the prompt in 2 of 2 residual cases (reported, not gated) |
 | Extraction, dev (31 records) | precision 87.5%; **one injection case missed** (5 of 6): the answer carried an extra signal, and no injected text reached an output |
 | Narrative (13 cases) | accepted 13 of 13, all on the first attempt; every figure exactly the facts sheet's; both injection cases resisted. Before the mid tier was set to low effort it was 8 of 9 scored (88.9%, under its 90% target) with 4 cases cut off |
 | Pro-forma math | 270 tests, including an independent reference workbook held to the cent |
-| Cost and speed | the two snapshot days cost $0.1277 in model calls (23 recorded calls); a projected live day about $0.05; a morning run takes about 5 seconds on the stack with replayed model calls |
+| Cost and speed | the two snapshot days cost $0.1277 in model calls (23 recorded calls); a projected live day about $0.05; trigger to delivered takes 5.3 to 5.6 seconds on the stack with replayed model calls |
 
 **Honest misses.** The weakest signal is `teardown_language`: on the holdout it has 3 false positives against 3 true ones (precision 50%), and the holdout's overall precision sits on its target, so one more false positive would put it under. The dev split's injection case `SYN000103` failed. The narrative's tone and quality are not scored by anything. The eval set is 56 extraction records and 13 narrative cases, written by this project; it says nothing about real listings.
 
@@ -60,8 +60,7 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM l
 Needs Docker with Compose. A fresh clone needs no `.env` and mock mode needs no model key and no network. **Every API route except `/livez` needs a bearer token**, so make two (any 32 or more characters of `A-Za-z0-9._~+/=-`; they must differ) and put them in `.env`:
 
 ```bash
-printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
-chmod 600 .env
+(umask 077; printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env)
 docker compose up -d --wait
 set -a; . ./.env; set +a
 R="Authorization: Bearer $API_READ_TOKEN"
@@ -206,7 +205,7 @@ On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two a
 
 ## The LLM layer
 
-After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). **The model never produces a number.** A signal survives only if code finds its quote verbatim in the listing's remarks; a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). The model sees no address and no listing text when it writes a narrative.
+After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). **The model never originates a number.** A signal survives only if code finds its quote verbatim in the listing's remarks; a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). The model sees no address and no listing text when it writes a narrative.
 
 **The twelve remarks signals** are a closed set. Risks: `as_is_sale`, `environmental_hazard`, `flood_or_drainage`, `easement_or_encroachment`, `deed_restrictions`, `conservation_or_historic_district`, `protected_trees`, `tenant_occupied`. Opportunities: `teardown_language`, `plans_or_permits`, `seller_financing`, `multiple_lots`. Negations ("no HOA", "not in a flood zone") are not signals. Three more signals (`price_reduced`, `relisted`, `long_on_market`) are computed in code from the listing's fields and need no model.
 
@@ -252,7 +251,7 @@ cat evals/scorecards/signals-holdout.md
 
 `feasibility eval signals [--split dev|holdout|all]` scores extraction on 56 synthetic records against a committed answer key (per-signal precision and recall, evidence match, injection resistance, personal-data leaks); `feasibility eval narrative` scores 13 facts sheets. Both replay the recordings by default and need `--allow-spend` in record or live mode. The scorecards are in [evals/scorecards](evals/scorecards/README.md), and a test regenerates them from the recordings. What they show, from a recording session that cost about $0.53 and a second, narrative-only one that cost about $0.13:
 
-- Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked, all 3 injection cases resisted. Precision sits on its 0.90 target.
+- Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked in the gated forms (a bare first name with no cue word reached the prompt in 2 of 2 residual cases, reported and not gated), all 3 injection cases resisted. Precision sits on its 0.90 target.
 - Extraction, dev: micro precision 87.5%; one of its 6 injection cases fails the "signal set equals the key" check (an extra signal; no injected text reached an output).
 - Narrative: **acceptance is 13 of 13 cases (100%), all on the first attempt**, with every accepted narrative's figures matching the facts sheet exactly and both injection cases resisted. It was 8 of 9 scored (88.9%, under the 0.90 target) with 4 of 13 cases cut off at the 1,500-token limit before the mid tier was set to low effort (hidden thinking was using the output tokens) and the narrative eval was recorded again. The new replies are about 8% shorter; tone and quality are not scored.
 - The answer key, prompts, catalogue and cases were not changed after seeing these numbers; the one change was the mid tier's effort setting, which needed the narrative recording again. Changing a prompt or a token limit is a decision that needs a new recording.
