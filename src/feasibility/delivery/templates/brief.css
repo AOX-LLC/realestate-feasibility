@@ -53,6 +53,7 @@ p { margin: 0 0 var(--space-1); }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.9mm 0; vertical-align: top; text-align: left; }
 tr { break-inside: avoid; }
+table.grid, .keep { break-inside: avoid; }
 td.value, th.value { text-align: right; font-family: var(--font-figure); font-size: var(--size-figure); font-variant-numeric: tabular-nums; }
 table.pairs td { border-bottom: 0.3pt solid var(--rule); }
 table.grid th { font: 500 var(--size-small) var(--font-figure); color: var(--muted); border-bottom: 0.4pt solid var(--ink); }

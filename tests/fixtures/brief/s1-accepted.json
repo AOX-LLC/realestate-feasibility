@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "as_of": "2026-10-02",
+  "rank": 1,
+  "street": "4011 FIXTURE ST",
+  "zip5": "75209",
+  "score": "71.25",
+  "list_price": "$420,000.00",
+  "synthetic": true,
+  "flags": [],
+  "verdict": [
+    "The margin is below the target margin.",
+    "The most the target margin allows is below the offer price."
+  ],
+  "key_figures": [
+    {
+      "label": "After-repair value",
+      "value": "$1,420,799.85"
+    },
+    {
+      "label": "Total cost",
+      "value": "$1,313,239.71"
+    },
+    {
+      "label": "Profit",
+      "value": "$107,560.14"
+    },
+    {
+      "label": "Margin",
+      "value": "7.57%"
+    },
+    {
+      "label": "Target margin",
+      "value": "15.00%"
+    },
+    {
+      "label": "Return on cash",
+      "value": "33.69%"
+    },
+    {
+      "label": "Annualised return",
+      "value": "44.92%"
+    },
+    {
+      "label": "Maximum offer",
+      "value": "$324,271.50"
+    },
+    {
+      "label": "Headroom against the offer",
+      "value": "-$95,728.50"
+    }
+  ],
+  "cost_stack": [
+    {
+      "label": "Offer price",
+      "value": "$420,000.00"
+    },
+    {
+      "label": "Closing on the purchase",
+      "value": "$4,200.00"
+    },
+    {
+      "label": "Demolition",
+      "value": "$11,700.00"
+    },
+    {
+      "label": "Hard cost",
+      "value": "$601,920.00"
+    },
+    {
+      "label": "Contingency",
+      "value": "$30,096.00"
+    },
+    {
+      "label": "Soft costs",
+      "value": "$72,230.40"
+    },
+    {
+      "label": "Financing",
+      "value": "$74,059.58"
+    },
+    {
+      "label": "Holding",
+      "value": "$13,785.74"
+    },
+    {
+      "label": "Selling",
+      "value": "$85,247.99"
+    },
+    {
+      "label": "Total cost",
+      "value": "$1,313,239.71"
+    }
+  ],
+  "sizing": [
+    {
+      "label": "Lot",
+      "value": "6,400 sq ft"
+    },
+    {
+      "label": "Buildable size",
+      "value": "3,168 sq ft"
+    },
+    {
+      "label": "Sizing rule",
+      "value": "R-7.5(A)"
+    },
+    {
+      "label": "Size limit",
+      "value": "not capped"
+    },
+    {
+      "label": "Hold",
+      "value": "9 months"
+    }
+  ],
+  "arv_basis": [
+    {
+      "label": "Sales used",
+      "value": "7 comps"
+    },
+    {
+      "label": "Median price per sq ft",
+      "value": "$448.48"
+    },
+    {
+      "label": "Lowest sale price",
+      "value": "$1,190,000.00"
+    },
+    {
+      "label": "Highest sale price",
+      "value": "$1,520,000.00"
+    },
+    {
+      "label": "Estimate fetched on",
+      "value": "2026-10-01"
+    },
+    {
+      "label": "Estimate is stale",
+      "value": "no"
+    }
+  ],
+  "grid_columns": [
+    "Hard cost -10%",
+    "Hard cost 0%",
+    "Hard cost +10%",
+    "Hard cost +20%"
+  ],
+  "grid_rows": [
+    {
+      "label": "Value -10%",
+      "cells": [
+        "$49,131.79",
+        "-$25,995.04",
+        "-$101,121.90",
+        "-$176,248.73"
+      ]
+    },
+    {
+      "label": "Value -5%",
+      "cells": [
+        "$115,909.38",
+        "$40,782.55",
+        "-$34,344.31",
+        "-$109,471.14"
+      ]
+    },
+    {
+      "label": "Value 0%",
+      "cells": [
+        "$182,686.97",
+        "$107,560.14",
+        "$32,433.28",
+        "-$42,693.55"
+      ]
+    },
+    {
+      "label": "Value +5%",
+      "cells": [
+        "$249,464.56",
+        "$174,337.73",
+        "$99,210.87",
+        "$24,084.04"
+      ]
+    },
+    {
+      "label": "Value +10%",
+      "cells": [
+        "$316,242.16",
+        "$241,115.33",
+        "$165,988.47",
+        "$90,861.64"
+      ]
+    }
+  ],
+  "grid_note": "Profit at a hold of 9 months.",
+  "signals": [
+    {
+      "polarity": "risk",
+      "source": "listing remarks",
+      "meaning": "Sold as-is; seller makes no repairs"
+    },
+    {
+      "polarity": "opportunity",
+      "source": "listing fields",
+      "meaning": "The property has been listed longer than the market's threshold."
+    }
+  ],
+  "signals_note": "Signals read from the listing; the listing's own words are not shown.",
+  "narrative_status": "accepted",
+  "narrative_note": "Written by a language model. Every figure in it was checked against this pro-forma by code.",
+  "summary": "The pro-forma earns $107,560.14 on a finished value of $1,420,799.85, a margin of 7.57% against a target of 15.00%.",
+  "risks": [
+    {
+      "text": "The value rests on the comparable sales holding.",
+      "basis": "below_target"
+    }
+  ],
+  "checks": [
+    "Confirm the survey and the sizing rule before an offer."
+  ],
+  "assumptions_note": "The cost assumptions are illustrative defaults for this market, not quotes and not a builder's actuals.",
+  "footer": "Every cost value is illustrative, not a builder's actuals."
+}

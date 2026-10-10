@@ -41,6 +41,7 @@
 </section>
 </div>
 
+<section class="keep">
 <h2>Sensitivity</h2>
 {% if d.grid_rows %}
 <table class="grid">
@@ -49,6 +50,7 @@
 {% endfor %}</table>
 {% endif %}
 <p class="muted">{{ d.grid_note }}</p>
+</section>
 
 <h2>Signals</h2>
 {% for signal in d.signals %}<p class="signal {{ signal.polarity }}"><span class="tag">{{ signal.polarity }}</span> {{ signal.meaning }} <span class="source">({{ signal.source }})</span></p>
