@@ -11,6 +11,7 @@ create endpoints; this client uses the database endpoints of the version it pins
 recorded in docs/ARCHITECTURE.md. Not checked against Notion's current reference in this build.
 """
 
+import hashlib
 import time
 from collections.abc import Callable
 from decimal import Decimal
@@ -24,8 +25,10 @@ from feasibility.delivery.errors import (
     DeliveryConfigError,
     NotionError,
     NotionOutcomeUnknownError,
+    NotionPageGoneError,
     TransportError,
 )
+from feasibility.delivery.outbox import Outbox
 from feasibility.delivery.transport import (
     Pacer,
     RecordedRequest,
@@ -160,6 +163,8 @@ class NotionClient:
         if 200 <= response.status < 300:
             return response.body or {}
         # A service's own message and code text are not kept: the status says what happened.
+        if response.status == 404 and path.startswith("/v1/pages/"):
+            raise NotionPageGoneError("http_404")
         if response.status in (401, 403) or (
             response.status == 404 and path.startswith(f"/v1/databases/{self._database_id}")
         ):
@@ -270,7 +275,14 @@ class MockNotionTransport:
     It is stateless across processes: a PATCH to any `mock-page-*` id succeeds, and the delivery
     ledger carries continuity between runs."""
 
-    def __init__(self, *, missing: tuple[str, ...] = (), wrong_type: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        missing: tuple[str, ...] = (),
+        wrong_type: tuple[str, ...] = (),
+        outbox: Outbox | None = None,
+    ) -> None:
+        self._outbox = outbox
         self.requests: list[RecordedRequest] = []
         self.pages: dict[str, dict[str, Any]] = {}
         self._missing = set(missing)
@@ -286,6 +298,8 @@ class MockNotionTransport:
         data: dict[str, Any] | None = None,
     ) -> TransportResponse:
         self.requests.append(RecordedRequest(method, path, json))
+        if self._outbox is not None:
+            self._outbox.record("notion", method, path, json)
         if method == "GET" and path.startswith("/v1/databases/"):
             return TransportResponse(200, {"object": "database", "properties": self._schema()})
         if method == "PATCH" and path.startswith("/v1/databases/"):
@@ -302,8 +316,11 @@ class MockNotionTransport:
             return TransportResponse(200, {"object": "list", "results": hits[:1]})
         if method == "POST" and path == "/v1/pages":
             self._counter += 1
-            page_id = f"mock-page-{self._counter}"
-            self.pages[page_id] = (json or {}).get("properties", {})
+            properties = (json or {}).get("properties", {})
+            # From the row's key, so two processes never hand out the same page id to two rows.
+            key = _key_of(properties) or str(self._counter)
+            page_id = "mock-page-" + hashlib.sha256(key.encode()).hexdigest()[:12]
+            self.pages[page_id] = properties
             return TransportResponse(200, {"object": "page", "id": page_id})
         if method == "PATCH" and path.startswith("/v1/pages/mock-page-"):
             page_id = path.rsplit("/", 1)[1]
@@ -328,8 +345,8 @@ def _key_of(properties: dict[str, Any]) -> str | None:
     return rich[0]["text"]["content"] if rich else None
 
 
-def build_notion_transport(settings: Settings) -> Transport:
+def build_notion_transport(settings: Settings, outbox: Outbox | None = None) -> Transport:
     """The mock transport, or the real one when delivery is live (which needs its token)."""
     if settings.delivery_mode is DeliveryMode.LIVE and settings.notion_token is not None:
         return HttpNotionTransport(settings.notion_token.get_secret_value())
-    return MockNotionTransport()
+    return MockNotionTransport(outbox=outbox)

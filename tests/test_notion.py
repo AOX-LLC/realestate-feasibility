@@ -155,14 +155,26 @@ def test_a_first_brief_creates_a_row_and_a_second_updates_it(
     second = notion.upsert_row(brief, entries[0])
 
     assert first[1] == "created" and second == (first[0], "updated")
-    assert first[0] == "mock-page-1"
+    assert re.fullmatch(r"mock-page-[0-9a-f]{12}", first[0])
     methods = [(r.method, r.path.split("/")[-1]) for r in transport.requests]
     assert methods == [
         ("POST", "query"),
         ("POST", "pages"),
         ("POST", "query"),
-        ("PATCH", "mock-page-1"),
+        ("PATCH", first[0]),
     ]
+
+
+def test_a_mock_page_id_comes_from_the_rows_key_so_no_two_rows_or_processes_share_one(
+    brief_and_entries: tuple[Brief, list[BriefCandidate]],
+) -> None:
+    brief, entries = brief_and_entries
+
+    one = client(MockNotionTransport()).upsert_row(brief, entries[0])[0]
+    again = client(MockNotionTransport()).upsert_row(brief, entries[0])[0]
+    other = client(MockNotionTransport()).upsert_row(brief, entries[1])[0]
+
+    assert one == again and one != other
 
 
 def test_the_query_filters_on_the_candidate_key_property(

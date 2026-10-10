@@ -5,6 +5,7 @@ scans what would be delivered. `xfail(strict=True)` marks an attack that only a 
 defeat; the session named in its reason removes the mark when it makes the test pass.
 """
 
+import io
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -33,11 +34,13 @@ from attack_support import (
 from conftest import empty_database
 from fastapi.testclient import TestClient
 from llm_fakes import RunModel
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from test_api import READ_HEADERS, _settings
 
 from feasibility.api.app import create_app
 from feasibility.delivery.brief import Brief, BriefCode, BriefRisk
+from feasibility.delivery.notion import MockNotionTransport
+from feasibility.delivery.slack import MockSlackTransport
 from feasibility.domain.address import normalize_street
 from feasibility.llm.signals import SignalClaim, SignalExtraction
 from feasibility.snapshot.load import seed
@@ -53,6 +56,22 @@ def all_remarks(engine: Engine) -> list[str]:
 
 def candidate_id_of(engine: Engine, key: str) -> int:
     return int(rows(engine, "SELECT id FROM candidate WHERE property_key = :k", k=key)[0].id)
+
+
+def everything_sent(engine: Engine, run_id: int) -> str:
+    """Every request it made to Notion and Slack and the text of every PDF, as one string."""
+    from delivery_harness import clear_ledger, deliver
+    from pypdf import PdfReader
+
+    clear_ledger(engine)
+    notion, slack = MockNotionTransport(), MockSlackTransport()
+    deliver(engine, run_id, notion, slack)
+    parts = [json.dumps([r.json for r in notion.requests]), json.dumps(slack.posted)]
+    parts += [json.dumps(r.json) for r in slack.requests]
+    for pdf in slack.uploads:
+        reader = PdfReader(io.BytesIO(pdf))
+        parts.append(" ".join(page.extract_text() for page in reader.pages))
+    return "\n".join(parts)
 
 
 # --- a run on the snapshot with a marker sentence in every remarks text -------------------------
@@ -98,6 +117,26 @@ def test_a1_remarks_text_never_reaches_the_brief(marked: Any) -> None:
         body = client.get(f"/sourcing/runs/{two.run_id}/brief", headers=READ_HEADERS).text
     assert "QZXMARKER" not in body
     assert scan(body) == []
+
+
+def test_a13_end_to_end_a_marker_in_every_remarks_text_reaches_no_request(marked: Any) -> None:
+    engine, one, two = marked
+    quotes = {
+        signal["quote"]
+        for row in rows(engine, "SELECT result FROM candidate_signals")
+        for signal in row.result["signals"]
+        if signal.get("quote")
+    }
+    assert quotes, "the plant must have produced stored quotes, or this test proves nothing"
+
+    for run in (one, two):
+        sent = everything_sent(engine, run.run_id)
+
+        assert "QZXMARKER" not in sent
+        assert not [quote for quote in quotes if quote in sent]
+        for remarks in all_remarks(engine):
+            assert window_hits(sent, remarks, width=24) == []
+        assert scan(sent.replace("\\n", " ")) == []
 
 
 # --- the injected record (account 015, day two) -------------------------------------------------
@@ -178,6 +217,24 @@ def test_a3_an_injection_cannot_choose_which_signal_codes_are_delivered(injected
     assert [s for s in entry.signals.items if s.source == "remarks"] == []
     assert entry.narrative.status == "withheld"
     assert entry.narrative.summary is None
+
+
+def test_a13_end_to_end_the_injected_record_and_its_personal_data_reach_no_request(
+    injected: Any,
+) -> None:
+    engine, one, two = injected
+    key = json.loads((REPO / "evals" / "signals" / "answer_key.json").read_text())["SYN000103"]
+
+    for run in (one, two):
+        sent = everything_sent(engine, run.run_id)
+
+        assert not [c for c in CANARIES if c in sent]
+        for planted in key["planted_personal"]:
+            digits = "".join(ch for ch in planted if ch.isdigit())
+            assert planted not in sent
+            assert not digits or digits not in "".join(ch for ch in sent if ch.isdigit())
+        for remarks in all_remarks(engine):
+            assert window_hits(sent, remarks, width=24) == []
 
 
 # --- hostile narrative text, written into accepted rows -----------------------------------------
@@ -367,7 +424,6 @@ def test_a8_a_stored_signal_that_disagrees_with_the_catalogue_is_not_delivered(p
 # --- the surfaces 5b builds ---------------------------------------------------------------------
 
 LATER = "5b builds this surface; the session removes this mark when it makes the test pass"
-LATER_5C = "5c builds delivery; the session removes this mark when it makes the test pass"
 
 
 def attack_brief(engine: Engine, run_id: int, said: str) -> Brief:
@@ -502,20 +558,41 @@ def test_a11_a_notion_row_is_plain_text_only(plain: Any) -> None:
         ] == []
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_a12_delivery_renders_from_a_fresh_build_never_the_stored_row(plain: Any) -> None:
-    from feasibility.delivery.deliver import deliver_brief
+    from delivery_harness import clear_ledger, deliver
+    from pypdf import PdfReader
 
-    # 5c replaces this with the real test against deliver_brief and the mock transports.
-    assert callable(deliver_brief)
+    engine, one, _ = plain
+    with engine.begin() as connection:
+        from feasibility.delivery import store
 
+        store.write_brief(connection, build_with(engine, one.run_id))
+    hostile = "Details at https://evil.example/offer now. <!channel> {{ config }}"
+    with engine.begin() as connection:
+        # Tampered content with a hash that matches it: the worst a person with write access does.
+        stored = connection.execute(
+            text("SELECT content FROM brief WHERE run_id = :r"), {"r": one.run_id}
+        ).scalar_one()
+        for entry in stored["candidates"]:
+            entry["street"] = hostile
+            entry["narrative"] = {**entry["narrative"], "status": "accepted", "summary": hostile}
+        connection.execute(
+            text("UPDATE brief SET content = CAST(:c AS jsonb) WHERE run_id = :r"),
+            {"c": json.dumps(stored), "r": one.run_id},
+        )
+    clear_ledger(engine)
+    notion, slack = MockNotionTransport(), MockSlackTransport()
 
-@pytest.mark.xfail(strict=True, reason=LATER_5C)
-def test_a13_end_to_end_every_plant_stays_out_of_every_request(plain: Any) -> None:
-    from feasibility.delivery.deliver import deliver_brief
+    deliver(engine, one.run_id, notion, slack)
 
-    # 5c replaces this with the real end-to-end test over the morning run and the mock transports.
-    assert callable(deliver_brief)
+    sent = json.dumps([r.json for r in notion.requests]) + json.dumps(slack.posted)
+    assert "evil.example" not in sent and "{{ config }}" not in sent and "<!channel>" not in sent
+    for pdf in slack.uploads:
+        text_ = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+        assert "evil.example" not in text_ and "{{" not in text_
+    # And the stored copy is the fresh one now: delivery rebuilt it.
+    rebuilt = rows(engine, "SELECT content::text AS c FROM brief WHERE run_id = :r", r=one.run_id)
+    assert "evil.example" not in rebuilt[0].c
 
 
 def test_a3_a_signals_row_that_cannot_be_read_withholds_the_narrative(plain: Any) -> None:

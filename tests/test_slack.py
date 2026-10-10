@@ -336,22 +336,26 @@ def test_the_upload_url_is_not_logged_once_logging_is_configured(
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200)
 
-    # The control: httpx itself logs the full request line at INFO, URL included, so the
-    # configuration is what keeps a capability URL out of the log.
-    caplog.set_level(logging.INFO)
-    upload_transport(handler).upload(UPLOAD, b"x")
-    assert "CAPSENTINEL" in " ".join(r.getMessage() for r in caplog.records)
-    caplog.clear()
-
-    root_handlers = logging.getLogger().handlers[:]
+    # Other tests may have configured logging already: start from httpx's own default.
+    saved_handlers = logging.getLogger().handlers[:]
+    saved_levels = {name: logging.getLogger(name).level for name in NOISY_HTTP_LOGGERS}
     try:
+        for name in NOISY_HTTP_LOGGERS:
+            logging.getLogger(name).setLevel(logging.NOTSET)
+        # The control: httpx itself logs the full request line at INFO, URL included, so the
+        # configuration is what keeps a capability URL out of the log.
+        caplog.set_level(logging.INFO)
+        upload_transport(handler).upload(UPLOAD, b"x")
+        assert "CAPSENTINEL" in " ".join(r.getMessage() for r in caplog.records)
+        capfd.readouterr()
+
         configure_logging([TOKEN], level=logging.DEBUG)
         upload_transport(handler).upload(UPLOAD, b"x")
         printed = capfd.readouterr().err
     finally:
-        logging.getLogger().handlers = root_handlers
-        for name in NOISY_HTTP_LOGGERS:
-            logging.getLogger(name).setLevel(logging.NOTSET)
+        logging.getLogger().handlers = saved_handlers
+        for name, level in saved_levels.items():
+            logging.getLogger(name).setLevel(level)
 
     assert "CAPSENTINEL" not in printed and "files.slack.com" not in printed
 

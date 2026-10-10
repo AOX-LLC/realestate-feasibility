@@ -12,7 +12,7 @@ from feasibility.config import Settings
 from feasibility.delivery.errors import TransportError
 from feasibility.delivery.notion import MockNotionTransport, NotionClient
 from feasibility.delivery.slack import MockSlackTransport, SlackClient
-from feasibility.delivery.transport import Pacer, TransportResponse
+from feasibility.delivery.transport import Pacer, RecordedRequest, TransportResponse
 
 DATABASE_ID = "0" * 32
 CHANNEL_ID = "C0MOCKCHAN"
@@ -85,13 +85,14 @@ def paths(transport: Any, *, only: Iterable[str] | None = None) -> list[str]:
 
 class Faults:
     """What a transport should do wrong, by path. `lose_reply` lets the service act and then loses
-    the answer; `statuses` answers the next requests to a path with those statuses instead."""
+    the answer; `statuses` answers the next requests to a path with those statuses instead (a
+    `None` lets that request through), and then the path behaves again."""
 
     def __init__(
         self,
         *,
         lose_reply: Iterable[str] = (),
-        statuses: dict[str, list[int]] | None = None,
+        statuses: dict[str, list[int | None]] | None = None,
     ) -> None:
         self.lose_reply = set(lose_reply)
         self.statuses = {path: list(codes) for path, codes in (statuses or {}).items()}
@@ -100,10 +101,11 @@ class Faults:
         """A planned status for this request, or None to let it through."""
         queue = self.statuses.get(path)
         if queue:
-            from feasibility.delivery.transport import RecordedRequest
-
+            status = queue.pop(0)
+            if status is None:
+                return None
             owner.requests.append(RecordedRequest(method, path, None))
-            return TransportResponse(queue.pop(0), None, {"Retry-After": "0"})
+            return TransportResponse(status, None, {"Retry-After": "0"})
         return None
 
 
@@ -178,3 +180,20 @@ class GateSlack(MockSlackTransport):
             self.entered.set()
             assert self.release.wait(30), "the test never released the post"
         return super().request(method, path, json=json, data=data)
+
+
+def run_two_days(engine: Engine) -> tuple[Any, Any]:
+    """The snapshot's day one and day two, run with a model that quotes remarks (so there are
+    signals and accepted narratives to deliver). Empties the database first."""
+    from brief_support import DAY_ONE, DAY_TWO, quoting_model
+    from conftest import empty_database
+
+    from feasibility.snapshot.load import seed
+    from feasibility.sourcing.run import run_sourcing
+
+    empty_database(engine)
+    seed(engine, settings())
+    model = quoting_model()
+    one = run_sourcing(engine, settings(), "dallas", DAY_ONE, model=model)
+    two = run_sourcing(engine, settings(), "dallas", DAY_TWO, model=model)
+    return one, two

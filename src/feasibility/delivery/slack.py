@@ -30,6 +30,7 @@ from feasibility.delivery.errors import (
     TransportError,
     safe_code,
 )
+from feasibility.delivery.outbox import Outbox
 from feasibility.delivery.transport import (
     Pacer,
     RecordedRequest,
@@ -302,7 +303,9 @@ class MockSlackTransport:
     """Answers like Slack from memory: deterministic ids, every request kept. The upload URL is
     a made-up address that is never requested, and it is not kept."""
 
-    def __init__(self, *, error: str | None = None) -> None:
+    def __init__(self, *, error: str | None = None, outbox: Outbox | None = None) -> None:
+        self._outbox = outbox
+        self._file_name = ""
         self.requests: list[RecordedRequest] = []
         self.posted: list[dict[str, Any]] = []
         self.uploads: list[bytes] = []
@@ -319,6 +322,10 @@ class MockSlackTransport:
         data: dict[str, Any] | None = None,
     ) -> TransportResponse:
         self.requests.append(RecordedRequest(method, path, json or data))
+        if self._outbox is not None:
+            self._outbox.record("slack", method, path, json or data)
+        if path == "/files.getUploadURLExternal":
+            self._file_name = str((data or {}).get("filename", ""))
         if self._error is not None:
             return TransportResponse(200, {"ok": False, "error": self._error})
         if path == "/chat.postMessage":
@@ -342,11 +349,13 @@ class MockSlackTransport:
     def upload(self, url: str, content: bytes) -> TransportResponse:
         self.requests.append(RecordedRequest("POST", "upload", None, len(content)))
         self.uploads.append(content)
+        if self._outbox is not None:
+            self._outbox.save_file(self._file_name, content)
         return TransportResponse(200, None, {})
 
 
-def build_slack_transport(settings: Settings) -> SlackTransport:
+def build_slack_transport(settings: Settings, outbox: Outbox | None = None) -> SlackTransport:
     """The mock transport, or the real one when delivery is live (which needs its token)."""
     if settings.delivery_mode is DeliveryMode.LIVE and settings.slack_bot_token is not None:
         return HttpSlackTransport(settings.slack_bot_token.get_secret_value())
-    return MockSlackTransport()
+    return MockSlackTransport(outbox=outbox)

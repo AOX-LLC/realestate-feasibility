@@ -1,8 +1,7 @@
 """Attack tests for what delivery exposes: the ledger, the at-most-once post, the errors it keeps,
 two deliveries at once, and the deliveries endpoint.
 
-Written before the feature (5c). Until it lands each test fails on a missing module and is marked
-`xfail(strict=True)`; the session removes the module-level mark when the tests pass.
+Written before the feature, as strict `xfail`s that failed on a missing module; they pass now.
 """
 
 import json
@@ -37,11 +36,6 @@ from feasibility.delivery.notion import MockNotionTransport
 from feasibility.delivery.slack import MockSlackTransport
 from feasibility.snapshot.load import seed
 from feasibility.sourcing.run import SourcingResult, run_sourcing
-
-pytestmark = pytest.mark.xfail(
-    strict=True,
-    reason="5c builds delivery; the session removes this mark when the tests pass",
-)
 
 TOKEN = "xoxb-not-a-real-credential"
 UPLOAD_URL = "https://files.slack.com/upload/v1/" + "u" * 24
@@ -340,6 +334,7 @@ def test_d11_a_run_whose_brief_cannot_be_built_delivers_nothing(days: Any) -> No
 # --- the deliveries endpoint --------------------------------------------------------------------
 
 
+@pytest.mark.xfail(strict=True, reason="the endpoint is the next commit")
 def test_d12_the_deliveries_endpoint_needs_the_read_token_and_serves_no_payload(days: Any) -> None:
     engine, one, _ = days
     deliver(engine, one.run_id, MockNotionTransport(), MockSlackTransport())

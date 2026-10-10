@@ -283,12 +283,105 @@ def test_c11_the_http_transports_keep_the_token_in_the_header_only(
     assert NOTION_SENTINEL not in logged and SLACK_SENTINEL not in logged
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5C)
-def test_c12_a_failing_transport_leaves_no_secret_or_upload_url_in_a_stored_error() -> None:
-    from feasibility.delivery.deliver import deliver_brief
+@pytest.fixture(scope="module")
+def two_days(migrated_engine: Engine) -> Iterator[Any]:
+    from delivery_harness import run_two_days
 
-    # 5c replaces this with the real check against the delivery ledger and removes the mark.
-    assert callable(deliver_brief)
+    one, two = run_two_days(migrated_engine)
+    yield migrated_engine, one, two
+    empty_database(migrated_engine)
+
+
+def live_settings() -> Settings:
+    from delivery_harness import settings
+
+    from feasibility.config import DeliveryMode
+
+    return settings(
+        delivery_mode=DeliveryMode.LIVE,
+        notion_token=SecretStr(NOTION_SENTINEL),
+        notion_database_id="0" * 32,
+        slack_bot_token=SecretStr(SLACK_SENTINEL),
+        slack_channel_id="C0MOCKCHAN",
+    )
+
+
+def http_clients(handler: Any) -> Any:
+    """The real HTTP transports, holding the sentinel tokens, over a fake network."""
+    import httpx
+    from delivery_harness import notion_client, slack_client
+
+    from feasibility.delivery.deliver import Clients
+    from feasibility.delivery.notion import BASE_URL as NOTION_URL
+    from feasibility.delivery.notion import HttpNotionTransport
+    from feasibility.delivery.slack import BASE_URL as SLACK_URL
+    from feasibility.delivery.slack import HttpSlackTransport
+
+    network = httpx.MockTransport(handler)
+    return Clients(
+        notion=notion_client(
+            HttpNotionTransport(
+                NOTION_SENTINEL, client=httpx.Client(base_url=NOTION_URL, transport=network)
+            )
+        ),
+        slack=slack_client(
+            HttpSlackTransport(
+                SLACK_SENTINEL,
+                client=httpx.Client(base_url=SLACK_URL, transport=network),
+                upload_client=httpx.Client(transport=network),
+            )
+        ),
+    )
+
+
+@pytest.mark.parametrize("digest_posts", [False, True])
+def test_c12_failing_transports_leave_no_secret_or_upload_url_in_a_stored_error(
+    two_days: Any, caplog: pytest.LogCaptureFixture, digest_posts: bool
+) -> None:
+    """Every failure says what it can (the token, the upload URL, a workspace's words). In one
+    run the digest is refused, so nothing is uploaded; in the other it posts and each upload's
+    connection fails with the URL in the exception text."""
+    import httpx
+    from delivery_harness import clear_ledger, ledger
+
+    from feasibility.delivery.deliver import deliver_brief
+    from feasibility.delivery.errors import DeliveryError
+    from feasibility.logging import describe_error
+
+    engine, one, _ = two_days
+    upload = "https://files.slack.com/upload/v1/" + "u" * 24
+    reached: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        reached.append(request.url.host or "")
+        echo = {"error": f"{SLACK_SENTINEL} {NOTION_SENTINEL} {upload}", "message": SLACK_SENTINEL}
+        if request.url.host == "files.slack.com":
+            raise httpx.ConnectError(f"cannot reach {request.url} with {SLACK_SENTINEL}")
+        if request.url.host == "api.notion.com":
+            return httpx.Response(500, json=echo)
+        if request.url.path == "/api/chat.postMessage" and digest_posts:
+            return httpx.Response(200, json={"ok": True, "ts": "1700000000.000100"})
+        if request.url.path == "/api/files.getUploadURLExternal":
+            return httpx.Response(200, json={"ok": True, "upload_url": upload, "file_id": "F1"})
+        return httpx.Response(200, json={"ok": False, "error": SLACK_SENTINEL})
+
+    caplog.set_level(logging.DEBUG)
+    clear_ledger(engine)
+
+    with pytest.raises(DeliveryError) as raised:
+        deliver_brief(engine, live_settings(), one.run_id, clients=http_clients(handler))
+
+    printed = describe_error(raised.value)
+    assert not [t for t in (SLACK_SENTINEL, NOTION_SENTINEL, "files.slack.com") if t in printed]
+    assert ("files.slack.com" in reached) == digest_posts  # the upload path really ran
+    kept = json.dumps([dict(r, created_at=None, updated_at=None) for r in ledger(engine)])
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    for secret in (SLACK_SENTINEL, NOTION_SENTINEL, upload, "files.slack.com", "u" * 24):
+        assert secret not in kept, secret
+        assert secret not in logged, secret
+    codes = {r["error_code"] for r in ledger(engine)}
+    assert codes <= {None, "http_500", "unknown", "network_error"}
+    assert codes - {None}  # something did fail, and said only its code
 
 
 def test_c13_no_token_is_in_any_payload() -> None:
@@ -322,6 +415,59 @@ def test_c13_no_token_is_in_any_payload() -> None:
     for payload in payloads:
         assert not [t for t in tokens if t in payload]
         assert "Authorization" not in payload and "Bearer " not in payload
+
+
+def test_c13_no_token_is_in_any_request_of_a_real_delivery(two_days: Any) -> None:
+    """The check above feeds the payload builders; this one runs a delivery over the real HTTP
+    transports, which hold the tokens, and reads every request they put on the wire."""
+    import json as json_module
+    import zlib
+
+    import httpx
+    from delivery_harness import clear_ledger
+
+    from feasibility.delivery.deliver import deliver_brief
+    from feasibility.delivery.notion import MockNotionTransport
+    from feasibility.delivery.slack import MockSlackTransport
+
+    engine, one, _ = two_days
+    notion_service, slack_service = MockNotionTransport(), MockSlackTransport()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        body = json_module.loads(request.content) if request.content[:1] == b"{" else None
+        if request.url.host == "api.notion.com":
+            answer = notion_service.request(request.method, request.url.path, json=body)
+        elif request.url.host == "files.slack.com":
+            return httpx.Response(slack_service.upload(str(request.url), request.content).status)
+        else:
+            form = None if body else dict(httpx.QueryParams(request.content.decode()))
+            path = request.url.path.removeprefix("/api")
+            answer = slack_service.request(request.method, path, json=body, data=form)
+        return httpx.Response(answer.status, json=answer.body)
+
+    clear_ledger(engine)
+
+    deliver_brief(engine, live_settings(), one.run_id, clients=http_clients(handler))
+
+    assert len(seen) == 27  # 11 for Notion, and a digest with five files for Slack
+    for request in seen:
+        host = request.url.host
+        wanted = {"api.notion.com": NOTION_SENTINEL, "slack.com": SLACK_SENTINEL}.get(host)
+        assert request.headers.get("authorization") == (f"Bearer {wanted}" if wanted else None)
+        wire = [str(request.url), request.content.decode("latin-1")]
+        for chunk in request.content.split(b"stream\n")[1:]:
+            try:
+                wire.append(zlib.decompress(chunk.split(b"endstream")[0]).decode("latin-1"))
+            except zlib.error:
+                continue
+        for sent in wire:
+            assert SLACK_SENTINEL not in sent and NOTION_SENTINEL not in sent
+            assert "Bearer" not in sent and READ_BEARER not in sent and TRIGGER_BEARER not in sent
+    # The upload URL is only ever requested over TLS at Slack's upload host, with no credentials.
+    uploads = [r for r in seen if r.url.host == "files.slack.com"]
+    assert len(uploads) == 5 and {r.url.scheme for r in uploads} == {"https"}
 
 
 @pytest.mark.xfail(strict=True, reason=LATER_5C)
