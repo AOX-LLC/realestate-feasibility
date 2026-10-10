@@ -18,7 +18,8 @@ max_tokens = 1200
 [routing.tiers.mid]
 max_tokens = 1500
 # Sonnet 5.5 thinks by default (adaptive, effort "high" when unset). The recorded narrative replies
-# spent 700-900 hidden tokens on that, and four were cut off at max_tokens. See evals/scorecards/README.md.
+# spent 700-900 hidden tokens on that, and four were cut off at max_tokens. Recorded again at
+# effort "low" on 2026-10-10: replies of 488-620 output tokens, none cut off. See evals/scorecards/README.md.
 effort = "low"
 
 [replay]

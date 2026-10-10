@@ -211,12 +211,12 @@ uv run feasibility eval narrative
 cat evals/scorecards/signals-holdout.md
 ```
 
-`feasibility eval signals [--split dev|holdout|all]` scores extraction on 56 synthetic records against a committed answer key (per-signal precision and recall, evidence match, injection resistance, personal-data leaks); `feasibility eval narrative` scores 13 facts sheets. Both replay the recordings by default and need `--allow-spend` in record or live mode. The scorecards are in [evals/scorecards](evals/scorecards/README.md), and a test regenerates them from the recordings. What they show, from one recording session that cost about $0.53:
+`feasibility eval signals [--split dev|holdout|all]` scores extraction on 56 synthetic records against a committed answer key (per-signal precision and recall, evidence match, injection resistance, personal-data leaks); `feasibility eval narrative` scores 13 facts sheets. Both replay the recordings by default and need `--allow-spend` in record or live mode. The scorecards are in [evals/scorecards](evals/scorecards/README.md), and a test regenerates them from the recordings. What they show, from a recording session that cost about $0.53 and a second, narrative-only one that cost about $0.13:
 
 - Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked, all 3 injection cases resisted. Precision sits on its 0.90 target.
 - Extraction, dev: micro precision 87.5%; one of its 6 injection cases fails the "signal set equals the key" check (an extra signal; no injected text reached an output).
-- Narrative: **acceptance is 8 of 9 scored cases (88.9%), under the 0.90 target, and 4 of 13 cases errored**: the mid tier's 1,500-token output limit cut their JSON off. Every accepted narrative's figures match the facts sheet exactly.
-- The answer key, prompts, catalogue and cases were not changed after seeing these numbers. Changing a prompt or a token limit is a decision that needs a new recording.
+- Narrative: **acceptance is 13 of 13 cases (100%), all on the first attempt**, with every accepted narrative's figures matching the facts sheet exactly and both injection cases resisted. It was 8 of 9 scored (88.9%, under the 0.90 target) with 4 of 13 cases cut off at the 1,500-token limit before the mid tier was set to low effort (hidden thinking was using the output tokens) and the narrative eval was recorded again. The new replies are about 8% shorter; tone and quality are not scored.
+- The answer key, prompts, catalogue and cases were not changed after seeing these numbers; the one change was the mid tier's effort setting, which needed the narrative recording again. Changing a prompt or a token limit is a decision that needs a new recording.
 
 The eval set is small, synthetic and written by this project, so these numbers say nothing about real listings.
 
