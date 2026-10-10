@@ -33,8 +33,6 @@ from feasibility.config import DataMode, Settings
 from feasibility.logging import configure_logging
 from feasibility.snapshot.load import seed
 
-LATER_5B = "5b builds this; the session removes this mark when it makes the test pass"
-LATER_5C = "5c builds this; the session removes this mark when it makes the test pass"
 SLACK_SENTINEL = "xoxb-not-a-real-credential"
 NOTION_SENTINEL = "ntn_" + "n" * 40
 COMPOSE = yaml.safe_load((REPO / "docker-compose.yml").read_text())
@@ -92,12 +90,15 @@ def test_c2_delivery_variables_are_in_worker_and_migrate_only() -> None:
             assert DELIVERY_VARIABLES.isdisjoint(environment_of(service)), service
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_c4_n8n_gets_nothing_from_the_app() -> None:
     n8n = SERVICES["n8n"]
-    assert set(n8n.get("environment", {})) <= {"GENERIC_TIMEZONE", "TZ"} | {
+    # n8n's own settings only: the time zone, its N8N_* switches and NODES_EXCLUDE (the node types
+    # it may not load). None of this application's variables.
+    assert set(n8n.get("environment", {})) <= {"GENERIC_TIMEZONE", "TZ", "NODES_EXCLUDE"} | {
         key for key in n8n.get("environment", {}) if key.startswith("N8N_")
     }
+    for variable in API_TOKENS | DELIVERY_VARIABLES | MODEL_VARIABLES | {"DATABASE_URL"}:
+        assert variable not in json.dumps(n8n)
     assert "env_file" not in n8n
     assert n8n["ports"] == ["127.0.0.1:4503:5678"]
 
@@ -470,7 +471,6 @@ def test_c13_no_token_is_in_any_request_of_a_real_delivery(two_days: Any) -> Non
     assert len(uploads) == 5 and {r.url.scheme for r in uploads} == {"https"}
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5C)
 def test_c14_the_n8n_workflow_holds_no_secret() -> None:
     text = (REPO / "n8n" / "morning-brief.json").read_text()
     assert not re.search(r"Bearer [A-Za-z0-9]|xoxb-|ntn_|secret_", text)

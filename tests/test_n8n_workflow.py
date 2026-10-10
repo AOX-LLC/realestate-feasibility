@@ -1,24 +1,17 @@
 """n8n starts the morning run and does nothing else: the workflow is a schedule, a fixed market and
 one POST with a credential kept in n8n, and its service sees none of the app's variables.
 
-Written before the feature (5c), as attack tests: n8n is the one component here that could be
+Written before the feature (5c) as attack tests: n8n is the one component here that could be
 turned into a way in (an inbound webhook, a code node, a stored token, a network that reaches the
-database). Until the files exist each test fails and is marked `xfail(strict=True)`; the session
-removes the module-level mark when they pass.
+database). They were strict `xfail`s until the files existed.
 """
 
 import json
 import re
 from typing import Any
 
-import pytest
 import yaml
 from attack_support import REPO
-
-pytestmark = pytest.mark.xfail(
-    strict=True,
-    reason="5c builds the n8n service and workflow; the session removes this mark when they pass",
-)
 
 WORKFLOW_PATH = REPO / "n8n" / "morning-brief.json"
 COMPOSE = yaml.safe_load((REPO / "docker-compose.yml").read_text())

@@ -19,8 +19,13 @@ def _services() -> dict[str, dict[str, Any]]:
     return services
 
 
-def test_the_compose_file_defines_the_four_services() -> None:
-    assert sorted(_services()) == ["api", "db", "migrate", "worker"]
+def test_the_compose_file_defines_four_services_and_the_scheduler_as_an_opt_in_profile() -> None:
+    services = _services()
+
+    assert sorted(services) == ["api", "db", "migrate", "n8n", "worker"]
+    # A plain `docker compose up` (and CI) starts the four; n8n only with --profile schedule.
+    assert [name for name, s in services.items() if s.get("profiles")] == ["n8n"]
+    assert services["n8n"]["profiles"] == ["schedule"]
 
 
 @pytest.mark.parametrize("service", sorted(_services()))
@@ -115,3 +120,14 @@ def test_the_api_and_the_database_get_no_delivery_setting(service: str) -> None:
     environment = _services()[service].get("environment", {})
 
     assert DELIVERY_VARIABLES.isdisjoint(environment)
+
+
+def test_only_the_worker_and_migrate_get_the_media_folder() -> None:
+    services = _services()
+
+    for name in ("worker", "migrate"):
+        assert "/media" in " ".join(services[name]["volumes"])
+        assert "MEDIA_OUT" in services[name]["environment"]
+    for name in ("api", "db", "n8n"):
+        assert "/media" not in " ".join(services[name].get("volumes", []))
+        assert "MEDIA_OUT" not in services[name].get("environment", {})

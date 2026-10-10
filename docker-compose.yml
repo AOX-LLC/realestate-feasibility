@@ -27,10 +27,12 @@ x-hardening: &hardening
 x-local-dir: &local-dir
   volumes:
     - ./local:/app/local
+    - ${MEDIA_OUT_DIR:-./local/media}:/media
 
 x-local-dir-read-only: &local-dir-read-only
   volumes:
     - ./local:/app/local:ro
+    - ${MEDIA_OUT_DIR:-./local/media}:/media
 
 # The app's own variables, shared by every service that runs the app.
 x-app-environment: &app-environment
@@ -73,6 +75,9 @@ x-delivery-environment: &delivery-environment
   NOTION_DATABASE_ID: ${NOTION_DATABASE_ID:-}
   SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
   SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-}
+  # Where mock delivery leaves what it would have sent (the PDFs and the request lines). Set
+  # MEDIA_OUT_DIR to a folder the container user (uid 10001) can write; unset, nothing is written.
+  MEDIA_OUT: ${MEDIA_OUT_DIR:+/media}
 
 x-app: &app
   build:
@@ -125,6 +130,8 @@ services:
       <<: [*app-environment, *llm-budgets, *api-auth]
     ports:
       - "127.0.0.1:4501:4501"
+    # The default network (the database) and the one the scheduler is on.
+    networks: [default, schedule]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -153,5 +160,51 @@ services:
     stop_grace_period: 30s
     mem_limit: 384m
 
+  # The clock, and nothing else (opt in: `docker compose --profile schedule up -d n8n`, so a plain
+  # `up` and CI never pull it). It starts the morning run by POSTing to the API's trigger route with
+  # the trigger token kept in its own encrypted store; it holds none of this application's
+  # variables, shares a network with the api only (never the database), and has no node that runs
+  # a command, reads a file, runs code or listens for a request. Telemetry and update checks are
+  # off. n8n 2.42.6 was the `stable` tag on 2026-10-10; the index digest was resolved that day.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.42.6@sha256:526daa38b68e923cc00c5280d18b4da5d489f115a73bdbf3b8e452b184197a9a
+    profiles: ["schedule"]
+    ports:
+      - "127.0.0.1:4503:5678"
+    environment:
+      GENERIC_TIMEZONE: America/Chicago
+      TZ: America/Chicago
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      # Optional: with no value in the shell or .env it is not set at all, and n8n keeps a key it
+      # generates in its volume. (A null value passes the variable through only if it is defined.)
+      N8N_ENCRYPTION_KEY:
+      # The editor is plain http on 127.0.0.1 (reach it through an SSH tunnel), so its cookie
+      # cannot be marked Secure.
+      N8N_SECURE_COOKIE: "false"
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.code","n8n-nodes-base.function","n8n-nodes-base.functionItem","n8n-nodes-base.webhook","n8n-nodes-base.ssh","n8n-nodes-base.ftp","n8n-nodes-base.wait","n8n-nodes-base.localFileTrigger"]'
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./n8n:/workflows:ro
+    networks: [schedule]
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=1700"]
+    pids_limit: 256
+    restart: unless-stopped
+    mem_limit: 512m
+
+networks:
+  # The api and the scheduler, and nothing else: the scheduler cannot reach the database.
+  schedule:
+
 volumes:
   pgdata:
+  n8ndata:
