@@ -287,6 +287,21 @@ def test_a6b_a_tampered_street_does_not_reach_the_brief_as_written(plain: Any) -
     assert hostile not in brief_text(brief)
 
 
+@pytest.mark.parametrize("raw", ["\u00e9\u00e8\u00ea", "X" * 400, "   "])
+def test_a6b_an_odd_street_does_not_cost_the_brief(plain: Any, raw: str) -> None:
+    engine, one, _ = plain
+    update = (
+        "UPDATE listing SET address_line = :a WHERE id IN "
+        "(SELECT primary_listing_id FROM run_candidate WHERE run_id = :r)",
+        {"a": raw, "r": one.run_id},
+    )
+
+    brief = build_with(engine, one.run_id, update)
+
+    assert brief.shown == 5
+    assert all(1 <= len(entry.street) <= 120 for entry in brief.candidates)
+
+
 def test_a7_a_flag_code_is_a_code(plain: Any) -> None:
     from feasibility.delivery.build import BriefError
 

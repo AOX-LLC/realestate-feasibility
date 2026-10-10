@@ -78,8 +78,8 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 candidate_id=row.candidate_id,
                 rank=row.rank,
                 score=format(row.score, "f"),
-                street=normalize_street(row.street),
-                zip5=row.zip5,
+                street=_street(row.street),
+                zip5=row.zip5 if row.zip5 and re.fullmatch(r"[0-9]{5}", row.zip5) else None,
                 list_price=format(row.list_price, "f"),
                 figures=figures_of(result),
                 verdict=[fact.code for fact in facts.code_facts],
@@ -119,6 +119,12 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
         ),
         candidates=candidates,
     )
+
+
+def _street(raw: str) -> str:
+    """The street as the brief carries it: normalised again, at most 120 characters. A street
+    that normalises to nothing (all non-ASCII) is shown as unknown rather than losing the brief."""
+    return normalize_street(raw)[:120].strip() or "ADDRESS UNKNOWN"
 
 
 def _check_against_columns(row: store.ComputedRow, result: ProformaResult) -> None:
