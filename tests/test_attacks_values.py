@@ -424,6 +424,24 @@ def test_b15_the_notion_numbers_equal_the_stored_decimals(plain: Any) -> None:
     assert Decimal(str(properties["Margin"]["number"])) == Decimal(entry.figures.margin)
 
 
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "UPDATE proforma SET result = jsonb_set(result, '{totals,roi}', '\"9.9999\"') "
+        "WHERE run_id = :r",
+        "UPDATE proforma SET result = jsonb_set(result, '{totals,annualized_return}', "
+        "'\"9.9999\"') WHERE run_id = :r",
+        "UPDATE proforma SET flags = flags || '[\"extra_flag\"]'::jsonb WHERE run_id = :r",
+        "UPDATE proforma SET estimate_fetched_on = estimate_fetched_on - 1 WHERE run_id = :r",
+    ],
+)
+def test_b4_the_other_columns_must_agree_with_the_result_too(plain: Any, tamper: str) -> None:
+    engine, one, _ = plain
+
+    with pytest.raises(BriefError, match="disagrees"):
+        build_with(engine, one.run_id, (tamper, {"r": one.run_id}))
+
+
 # These two empty the database for themselves, so they run after every test that shares `plain`.
 def test_b6_a_brief_cannot_be_built_while_the_run_still_has_stages_to_go(
     migrated_engine: Engine,

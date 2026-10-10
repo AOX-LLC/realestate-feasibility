@@ -128,6 +128,8 @@ def _check_against_columns(row: store.ComputedRow, result: ProformaResult) -> No
         "profit": (row.profit, figures.profit),
         "margin": (row.margin, figures.margin),
         "max_offer": (row.max_offer, figures.max_offer),
+        "roi": (row.roi, figures.roi),
+        "annualized_return": (row.annualized_return, figures.annualized_return),
     }
     for name, (column, shown) in pairs.items():
         same = (column is None and shown is None) or (
@@ -139,6 +141,14 @@ def _check_against_columns(row: store.ComputedRow, result: ProformaResult) -> No
                 f"with its own {name} column"
             )
     arv = result.arv
+    if list(result.flags) != row.flags:
+        raise BriefError(
+            f"the stored pro-forma of candidate {row.candidate_id} disagrees with its flags"
+        )
+    if arv is not None and arv.estimate_fetched_on != row.estimate_fetched_on:
+        raise BriefError(
+            f"the stored pro-forma of candidate {row.candidate_id} disagrees with its estimate date"
+        )
     if arv is not None and arv.comp_count_used != sum(1 for line in arv.comps if line.used):
         raise BriefError(
             f"the stored pro-forma of candidate {row.candidate_id} counts comps it does not hold"

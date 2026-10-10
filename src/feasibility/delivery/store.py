@@ -52,6 +52,10 @@ class ComputedRow:
     profit: Decimal | None
     margin: Decimal | None
     max_offer: Decimal | None
+    roi: Decimal | None
+    annualized_return: Decimal | None
+    estimate_fetched_on: date | None
+    flags: list[str]
     result: dict[str, Any]
 
 
@@ -114,6 +118,10 @@ def top_computed(connection: Connection, run_id: int, limit: int) -> list[Comput
             proforma.c.profit,
             proforma.c.margin,
             proforma.c.max_offer,
+            proforma.c.roi,
+            proforma.c.annualized_return,
+            proforma.c.estimate_fetched_on,
+            proforma.c.flags,
             proforma.c.result,
         )
         .select_from(
@@ -140,6 +148,10 @@ def top_computed(connection: Connection, run_id: int, limit: int) -> list[Comput
             row.profit,
             row.margin,
             row.max_offer,
+            row.roi,
+            row.annualized_return,
+            row.estimate_fetched_on,
+            list(row.flags),
             row.result,
         )
         for row in rows
