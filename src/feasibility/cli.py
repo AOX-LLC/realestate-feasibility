@@ -240,7 +240,7 @@ def source_show(
         )
         if shown_run is None:
             typer.echo("no completed run yet", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=2)
         lines = sourcing_store.candidate_summaries(connection, shown_run, status, limit)
     typer.echo(f"run {shown_run}, {status}: {len(lines)} shown")
     for line in lines:
