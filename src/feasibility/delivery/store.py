@@ -45,7 +45,7 @@ class ComputedRow:
     score: Decimal
     street: str
     zip5: str | None
-    list_price: Decimal
+    offer_price: Decimal
     # The pro-forma's own columns, which the result must agree with.
     arv: Decimal | None
     total_cost: Decimal | None

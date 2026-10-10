@@ -292,7 +292,7 @@ _STREET_SUFFIXES = frozenset(
 @dataclass(frozen=True)
 class TextContext:
     """What a delivered narrative must not repeat: the listing text of the shown candidates and
-    the street names of this candidate and its comps."""
+    the street names of every candidate shown and of the sales their values rest on."""
 
     remarks: list[str] = field(default_factory=list)
     street_names: frozenset[str] = frozenset()

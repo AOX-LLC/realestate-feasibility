@@ -80,7 +80,7 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 score=format(row.score, "f"),
                 street=_street(row.street),
                 zip5=row.zip5 if row.zip5 and re.fullmatch(r"[0-9]{5}", row.zip5) else None,
-                list_price=format(row.list_price, "f"),
+                list_price=format(row.offer_price, "f"),
                 figures=figures_of(result),
                 verdict=[fact.code for fact in facts.code_facts],
                 comps=comps_of(result),
@@ -132,7 +132,7 @@ def _check_against_columns(row: store.ComputedRow, result: ProformaResult) -> No
     one was edited or written by a bug, and which one to trust is not for a brief to guess."""
     figures = figures_of(result)
     pairs = {
-        "offer_price": (row.list_price, figures.offer_price),
+        "offer_price": (row.offer_price, figures.offer_price),
         "arv": (row.arv, figures.arv),
         "total_cost": (row.total_cost, figures.total_cost),
         "profit": (row.profit, figures.profit),

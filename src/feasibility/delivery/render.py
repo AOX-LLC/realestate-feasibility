@@ -48,7 +48,8 @@ def lines(brief: Brief, digest: str) -> list[str]:
         f"{' (' + brief.notice + ')' if brief.notice else ''}, data {brief.data_mode}",
         f"{brief.shown} shown of {brief.ranked} ranked; not shown: "
         f"{brief.not_shown.no_arv} with no value estimate yet, "
-        f"{brief.not_shown.unsizable} unsizable, {brief.not_shown.over_the_cap} over the cap",
+        f"{brief.not_shown.unsizable} unsizable, {brief.not_shown.over_the_cap} over the cap, "
+        f"{brief.not_shown.no_pro_forma} with no pro-forma",
         f"content sha256 {digest}",
         "",
     ]
