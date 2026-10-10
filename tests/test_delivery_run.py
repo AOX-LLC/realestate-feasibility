@@ -210,12 +210,17 @@ def test_a_row_whose_create_may_have_happened_is_found_not_created_twice(days: A
         deliver(engine, one.run_id, notion, MockSlackTransport())
 
     assert statuses(raised.value.report, "notion") == {"unknown"}
-    assert len(notion.pages) == 5  # the service did create them all
+    creates = [r for r in notion.requests if (r.method, r.path) == ("POST", "/v1/pages")]
+    assert len(notion.pages) == 5 and len(creates) == 5  # the service did create them all
 
     second = deliver(engine, one.run_id, notion, MockSlackTransport())
 
     assert statuses(second, "notion") == {"sent"}
-    assert len(notion.pages) == 5  # found by their keys, updated, not created again
+    # Found by their keys and updated: not one more create request, which a mock that names a page
+    # after its key would never show in `pages`.
+    creates = [r for r in notion.requests if (r.method, r.path) == ("POST", "/v1/pages")]
+    assert len(creates) == 5
+    assert len([r for r in notion.requests if r.method == "PATCH"]) == 5
 
 
 def test_bad_credentials_stop_notion_but_not_slack_and_end_permanent(days: Any) -> None:
