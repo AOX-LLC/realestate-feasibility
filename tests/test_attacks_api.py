@@ -192,7 +192,6 @@ def test_o2_a_spoofed_address_header_cannot_ban_the_healthcheck() -> None:
 # --- the trigger and the stored brief -----------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o5_a_date_earlier_than_one_already_queued_is_refused(engine: Engine) -> None:
     with TestClient(create_app(_settings(), engine), raise_server_exceptions=False) as client:
         later = client.post(

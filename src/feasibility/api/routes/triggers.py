@@ -55,10 +55,14 @@ def trigger_morning(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
     with engine.begin() as connection:
         latest = sourcing_store.latest_run_as_of(connection, pack.market.id)
-        if latest is not None and run_date < latest:
+        # A morning run already waiting for its turn counts as well: the worker would refuse the
+        # earlier date later, and its job would die.
+        waiting = queue.latest_active_morning_date(connection, pack.market.id)
+        newest = max((d for d in (latest, waiting) if d is not None), default=None)
+        if newest is not None and run_date < newest:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                f"a run for {latest} already started; an earlier date is refused",
+                f"a run for {newest} already started or is queued; an earlier date is refused",
             )
         job_id = queue.enqueue(
             connection,
