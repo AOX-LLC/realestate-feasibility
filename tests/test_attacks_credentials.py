@@ -108,7 +108,6 @@ def test_c4_n8n_gets_nothing_from_the_app() -> None:
 # --- redaction ----------------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_c6_secret_values_holds_every_configured_secret_whatever_the_mode() -> None:
     kept = "rentcast-" + "k" * 20
     settings = Settings(  # type: ignore[call-arg]

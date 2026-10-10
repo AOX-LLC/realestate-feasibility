@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # choose who gets rate-limited or banned.
     api_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
 
+    # Secrets this mode ignores but the process environment may still hold (compose passes
+    # RENTCAST_API_KEY to every service): kept only so that redaction still covers them.
+    _ignored_secrets: list[str] = PrivateAttr(default_factory=list)
+
     snapshot_dir: Path = REPO_ROOT / "data" / "snapshot"
     # Synthetic RESO records (listing remarks) for mock mode, one `<market>.json` per market.
     mls_dir: Path = REPO_ROOT / "data" / "mls"
@@ -129,7 +133,10 @@ class Settings(BaseSettings):
     def _check_mode_and_key(self) -> "Settings":
         self._check_llm_mode()
         if self.data_mode is DataMode.MOCK:
-            # Mock mode never makes a paid call, so a key that happens to be set is dropped.
+            # Mock mode never makes a paid call, so a key that happens to be set is dropped
+            # (and remembered for redaction: it may still be in the environment).
+            if self.rentcast_api_key is not None and self.rentcast_api_key.get_secret_value():
+                self._ignored_secrets.append(self.rentcast_api_key.get_secret_value())
             self.rentcast_api_key = None
             return self
         if self.rentcast_api_key is None or not self.rentcast_api_key.get_secret_value():
@@ -184,7 +191,8 @@ class Settings(BaseSettings):
             self.api_read_token,
             self.api_trigger_token,
         )
-        return [key.get_secret_value() for key in keys if key is not None]
+        configured = [key.get_secret_value() for key in keys if key is not None]
+        return [*configured, *self._ignored_secrets]
 
 
 @lru_cache

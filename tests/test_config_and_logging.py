@@ -29,7 +29,8 @@ def test_mock_mode_ignores_a_key_that_is_present() -> None:
     settings = _settings(DataMode.MOCK, SecretStr(SENTINEL))
 
     assert settings.rentcast_api_key is None
-    assert settings.secret_values() == []
+    # Ignored, but still redacted: compose puts it in the container's environment.
+    assert settings.secret_values() == [SENTINEL]
 
 
 @pytest.mark.parametrize("key", [None, ""])
