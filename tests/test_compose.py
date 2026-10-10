@@ -93,3 +93,25 @@ def test_the_database_name_comes_from_one_variable_with_a_default() -> None:
         assert _services()[name]["environment"]["DATABASE_URL"].endswith(
             "${FEASIBILITY_DB:-feasibility}"
         ), name
+
+
+DELIVERY_VARIABLES = {
+    "DELIVERY_MODE",
+    "DELIVERY_TARGETS",
+    "NOTION_TOKEN",
+    "NOTION_DATABASE_ID",
+    "SLACK_BOT_TOKEN",
+    "SLACK_CHANNEL_ID",
+}
+
+
+@pytest.mark.parametrize("service", ["worker", "migrate"])
+def test_the_services_that_deliver_get_the_delivery_settings(service: str) -> None:
+    assert set(_services()[service]["environment"]) >= DELIVERY_VARIABLES
+
+
+@pytest.mark.parametrize("service", ["api", "db"])
+def test_the_api_and_the_database_get_no_delivery_setting(service: str) -> None:
+    environment = _services()[service].get("environment", {})
+
+    assert DELIVERY_VARIABLES.isdisjoint(environment)

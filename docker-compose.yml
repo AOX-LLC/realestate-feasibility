@@ -60,6 +60,16 @@ x-api-auth: &api-auth
   API_CLIENT_IP_HEADER: ${API_CLIENT_IP_HEADER:-}
   API_TRUSTED_PROXIES: ${API_TRUSTED_PROXIES:-}
 
+# Delivery settings, merged into worker and migrate only: the api never delivers, and a token for
+# Notion or Slack must not be in a container that does not use it.
+x-delivery-environment: &delivery-environment
+  DELIVERY_MODE: ${DELIVERY_MODE:-mock}
+  DELIVERY_TARGETS: ${DELIVERY_TARGETS:-notion,slack}
+  NOTION_TOKEN: ${NOTION_TOKEN:-}
+  NOTION_DATABASE_ID: ${NOTION_DATABASE_ID:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-}
+
 x-app: &app
   build:
     context: .
@@ -97,7 +107,7 @@ services:
   migrate:
     <<: [*app, *hardening, *local-dir]
     environment:
-      <<: [*app-environment, *llm-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -130,7 +140,7 @@ services:
   worker:
     <<: [*app, *hardening, *local-dir-read-only]
     environment:
-      <<: [*app-environment, *llm-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:

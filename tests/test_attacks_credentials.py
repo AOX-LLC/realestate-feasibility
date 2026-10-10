@@ -83,7 +83,6 @@ def test_c5_no_env_file_reaches_a_container() -> None:
     assert not re.search(r"COPY\s+.*\.env", dockerfile)
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c2_delivery_variables_are_in_worker_and_migrate_only() -> None:
     for service in SERVICES:
         held = set(environment_of(service)) >= DELIVERY_VARIABLES
@@ -234,7 +233,6 @@ def test_c8_no_token_is_in_any_api_response(engine: Engine) -> None:
 # --- the things 5b and 5c build -----------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=LATER_5B)
 def test_c10_a_configuration_error_names_the_variable_and_never_the_value() -> None:
     with pytest.raises(ValueError) as raised:
         Settings(  # type: ignore[call-arg]

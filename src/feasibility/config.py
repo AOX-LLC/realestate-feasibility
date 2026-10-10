@@ -25,6 +25,20 @@ class DataMode(StrEnum):
     LIVE = "live"
 
 
+class DeliveryMode(StrEnum):
+    """Where a brief is sent. Independent of the data mode: mock data can be delivered to test
+    workspaces, and live data can be dry-run in mock delivery."""
+
+    MOCK = "mock"
+    LIVE = "live"
+
+
+DELIVERY_TARGET_NAMES = ("notion", "slack")
+NOTION_DATABASE_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
+SLACK_CHANNEL_ID_PATTERN = re.compile(r"[CG][A-Z0-9]{8,12}")
+SERVICE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9._~+/=-]{16,300}")
+
+
 class LlmMode(StrEnum):
     """How model calls are served. The values are agent-core's own modes; `feasibility.llm`
     maps this onto its enum, so only that package imports the library."""
@@ -91,6 +105,15 @@ class Settings(BaseSettings):
     # RENTCAST_API_KEY to every service): kept only so that redaction still covers them.
     _ignored_secrets: list[str] = PrivateAttr(default_factory=list)
 
+    # Delivery of the brief. Mock drops the service tokens (as mock data drops the RentCast key);
+    # live with a target enabled needs that target's two values.
+    delivery_mode: DeliveryMode = DeliveryMode.MOCK
+    delivery_targets: str = "notion,slack"
+    notion_token: SecretStr | None = None
+    notion_database_id: str | None = None
+    slack_bot_token: SecretStr | None = None
+    slack_channel_id: str | None = None
+
     # Where generated media (sample PDFs, screenshots, payload dumps) is written. It must be an
     # absolute path outside this repository, so that none of it can be committed by accident.
     media_out: Path | None = None
@@ -109,6 +132,84 @@ class Settings(BaseSettings):
         if key is not None and not key.get_secret_value().strip():
             return None
         return key
+
+    @field_validator(
+        "notion_token", "notion_database_id", "slack_bot_token", "slack_channel_id", mode="before"
+    )
+    @classmethod
+    def _blank_service_value_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("delivery_targets")
+    @classmethod
+    def _delivery_targets_are_known(cls, value: str) -> str:
+        names = [name.strip().lower() for name in value.split(",") if name.strip()]
+        unknown = sorted(set(names) - set(DELIVERY_TARGET_NAMES))
+        if unknown:
+            raise ValueError(
+                f"DELIVERY_TARGETS names {', '.join(unknown)}; "
+                f"known: {', '.join(DELIVERY_TARGET_NAMES)}"
+            )
+        return ",".join(sorted(set(names)))
+
+    @model_validator(mode="after")
+    def _check_delivery(self) -> "Settings":
+        # Messages name the variable and never the value.
+        for variable, token in (
+            ("NOTION_TOKEN", self.notion_token),
+            ("SLACK_BOT_TOKEN", self.slack_bot_token),
+        ):
+            if token is None:
+                continue
+            value = token.get_secret_value()
+            if not SERVICE_TOKEN_PATTERN.fullmatch(value):
+                raise ValueError(f"{variable} is not shaped like a token")
+            if variable == "SLACK_BOT_TOKEN" and not value.startswith("xoxb-"):
+                raise ValueError("SLACK_BOT_TOKEN must be a bot token (it starts with xoxb-)")
+        if self.notion_database_id is not None:
+            compact = self.notion_database_id.replace("-", "")
+            if not NOTION_DATABASE_ID_PATTERN.fullmatch(compact):
+                raise ValueError("NOTION_DATABASE_ID must be the 32 hex characters of the database")
+            self.notion_database_id = compact.lower()
+        if self.slack_channel_id is not None and not SLACK_CHANNEL_ID_PATTERN.fullmatch(
+            self.slack_channel_id
+        ):
+            raise ValueError("SLACK_CHANNEL_ID must look like C0123456789")
+        if self.delivery_mode is DeliveryMode.LIVE:
+            needs = {
+                "notion": (
+                    ("NOTION_TOKEN", self.notion_token),
+                    ("NOTION_DATABASE_ID", self.notion_database_id),
+                ),
+                "slack": (
+                    ("SLACK_BOT_TOKEN", self.slack_bot_token),
+                    ("SLACK_CHANNEL_ID", self.slack_channel_id),
+                ),
+            }
+            missing = [
+                variable
+                for target in self.targets
+                for variable, value in needs[target]
+                if value is None
+            ]
+            if missing:
+                raise ValueError(f"DELIVERY_MODE=live needs {', '.join(missing)}")
+        else:
+            # Mock delivery never sends, so the tokens are dropped (and remembered for
+            # redaction: the environment may still hold them).
+            for token in (self.notion_token, self.slack_bot_token):
+                if token is not None:
+                    self._ignored_secrets.append(token.get_secret_value())
+            self.notion_token = None
+            self.slack_bot_token = None
+        return self
+
+    @property
+    def targets(self) -> list[str]:
+        """The enabled delivery targets, sorted."""
+        return [name for name in self.delivery_targets.split(",") if name]
 
     @field_validator("media_out", mode="before")
     @classmethod
@@ -232,6 +333,8 @@ class Settings(BaseSettings):
             self.llm_api_key,
             self.api_read_token,
             self.api_trigger_token,
+            self.notion_token,
+            self.slack_bot_token,
         )
         configured = [key.get_secret_value() for key in keys if key is not None]
         return [*configured, *self._ignored_secrets]
