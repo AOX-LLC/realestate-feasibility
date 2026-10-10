@@ -522,7 +522,7 @@ Design tokens are in `delivery/templates/tokens.css` (ink `#15181b`, on-ink `#ff
 
 **Slack.** `digest_blocks` builds a header, one section per candidate and the footer; all dynamic text is escaped (`&`, `<`, `>`) and sent as `mrkdwn` with `verbatim: true`, with unfurling off, so a stray `@channel`, a link or a markup character is inert. The PDFs go through the external upload flow (`files.getUploadURLExternal`, a POST of the bytes, `files.completeUploadExternal` into the digest's thread).
 
-**Credentials.** The tokens are `SecretStr` settings, read only by `build_*_transport`; compose gives them to the worker and the migrate service and to nothing else, and they are dropped when the mode is mock. A test reads every payload, log line and error text for them, and the settings refuse a token for a service that is not enabled.
+**Credentials.** The tokens are `SecretStr` settings, read only by `build_*_transport`; compose gives them to the worker and the migrate service and to nothing else, and they are dropped when the mode is mock. A test reads every payload, log line and error text for them, and in live mode the settings refuse a token for a service that is not a target (in mock mode a token is dropped, not refused).
 
 ## Compose and CI
 

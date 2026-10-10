@@ -57,6 +57,19 @@ def test_live_with_one_target_needs_only_that_targets_values() -> None:
         make(delivery_mode="live", delivery_targets="notion", notion_database_id=DATABASE)
 
 
+def test_live_refuses_a_token_for_a_service_that_is_not_a_target_and_names_only_the_variable() -> (
+    None
+):
+    with pytest.raises(ValidationError) as raised:
+        live(delivery_targets="slack")
+
+    assert "NOTION_TOKEN" in str(raised.value)
+    assert NOTION not in str(raised.value)
+    assert live(delivery_targets="slack", notion_token=None, notion_database_id=None).targets == [
+        "slack"
+    ]
+
+
 def test_mock_delivery_drops_the_tokens_but_redaction_still_covers_them() -> None:
     settings = make(notion_token=NOTION, slack_bot_token=SLACK)
 

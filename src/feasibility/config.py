@@ -196,6 +196,20 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"DELIVERY_MODE=live needs {', '.join(missing)}")
+            # A credential for a service that is not a target has no use here: refuse it
+            # rather than hold it in a process that will never call that service.
+            unused = [
+                variable
+                for target, variable, token in (
+                    ("notion", "NOTION_TOKEN", self.notion_token),
+                    ("slack", "SLACK_BOT_TOKEN", self.slack_bot_token),
+                )
+                if target not in self.targets and token is not None
+            ]
+            if unused:
+                raise ValueError(
+                    f"{', '.join(unused)} is set but its service is not in DELIVERY_TARGETS"
+                )
         else:
             # Mock delivery never sends, so the tokens are dropped (and remembered for
             # redaction: the environment may still hold them).
