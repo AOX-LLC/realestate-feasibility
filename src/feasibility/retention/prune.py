@@ -145,6 +145,20 @@ _PRUNABLE_RUNS = """
 """
 
 
+# The newest delivered Notion row of an item is the only record of which page the candidate's row
+# lives on. It stays when its run is pruned, so a candidate that comes back is updated at its page
+# and not given a second one; it goes with the candidate (see `_prune_candidates`).
+_PAGE_RECORD = """
+    d.target = 'notion' AND d.status IN ('sent', 'skipped') AND d.remote_ref IS NOT NULL
+    AND d.id = (
+        SELECT e.id FROM delivery e
+        WHERE e.target = 'notion' AND e.item = d.item AND e.mode = d.mode
+          AND e.status IN ('sent', 'skipped') AND e.remote_ref IS NOT NULL
+        ORDER BY e.updated_at DESC, e.id DESC LIMIT 1
+    )
+"""
+
+
 def _count_run_detail(connection: Connection, cutoff: date) -> dict[str, int]:
     found = {
         "runs": connection.execute(
@@ -153,10 +167,11 @@ def _count_run_detail(connection: Connection, cutoff: date) -> dict[str, int]:
         ).scalar_one()
     }
     for table in RUN_DETAIL:
+        kept = f" AND NOT ({_PAGE_RECORD})" if table == "delivery" else ""
         found[table] = connection.execute(
             text(
-                f"SELECT count(*) FROM {table} WHERE run_id IN "
-                f"(SELECT id FROM ({_PRUNABLE_RUNS}) p)"
+                f"SELECT count(*) FROM {table} d WHERE d.run_id IN "
+                f"(SELECT id FROM ({_PRUNABLE_RUNS}) p){kept}"
             ),
             {"run_cutoff": cutoff},
         ).scalar_one()
@@ -179,8 +194,9 @@ def _prune_one_run(engine: Engine, run_id: int, market: str, cutoff: date) -> di
             return None
         deleted: dict[str, int] = {"runs": 1}
         for table in RUN_DETAIL:
+            kept = f" AND NOT ({_PAGE_RECORD})" if table == "delivery" else ""
             deleted[table] = connection.execute(
-                text(f"DELETE FROM {table} WHERE run_id = :run"),
+                text(f"DELETE FROM {table} AS d WHERE d.run_id = :run{kept}"),
                 {"run": run_id},
             ).rowcount
         connection.execute(
@@ -301,17 +317,36 @@ def _prune_candidates(engine: Engine, cutoffs: Cutoffs, report: PruneReport) -> 
     }
     if report.dry_run:
         report.counts["candidate"] = _count(
+            engine, f"SELECT count(*) FROM candidate c WHERE NOT ({kept})", params
+        )
+        # Their page records go with them: the Notion rows of candidates nothing refers to.
+        report.counts["delivery"] += _count(
             engine,
-            f"SELECT count(*) FROM candidate c WHERE NOT ({kept})",
+            "SELECT count(*) FROM delivery d WHERE d.target = 'notion' AND d.item IN "
+            f"(SELECT 'row:' || c.id FROM candidate c WHERE NOT ({kept}))",
             params,
         )
         return
-    report.counts["candidate"] = _delete_in_batches(
-        engine,
-        "DELETE FROM candidate WHERE ctid IN (SELECT c.ctid FROM candidate c "
-        f"WHERE NOT ({kept}) LIMIT :n)",
-        params,
-    )
+    while True:
+        with engine.begin() as connection:
+            gone = [
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "DELETE FROM candidate WHERE ctid IN (SELECT c.ctid FROM candidate c "
+                        f"WHERE NOT ({kept}) LIMIT :n) RETURNING id"
+                    ),
+                    {**params, "n": BATCH},
+                )
+            ]
+            if gone:
+                report.counts["delivery"] += connection.execute(
+                    text("DELETE FROM delivery WHERE target = 'notion' AND item = ANY(:items)"),
+                    {"items": [f"row:{number}" for number in gone]},
+                ).rowcount
+        report.counts["candidate"] += len(gone)
+        if len(gone) < BATCH:
+            return
 
 
 # --- the whole prune -----------------------------------------------------------------------------

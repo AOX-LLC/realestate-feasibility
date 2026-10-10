@@ -331,3 +331,44 @@ def test_r5_a_prune_for_one_market_leaves_another_markets_latest_run_alone(engin
 
     assert count(engine, "run_candidate", f"run_id = {other_latest.run_id}") == 1
     assert count(engine, "run_candidate", f"run_id = {other_old.run_id}") == 0
+
+
+def test_r6_a_candidates_notion_page_is_remembered_after_its_old_runs_are_pruned(
+    engine: Engine,
+) -> None:
+    """The delivery ledger of a pruned run holds the only record of which Notion page a candidate's
+    row lives on. Losing it would give a candidate that comes back a second page."""
+    from feasibility.delivery import ledger
+
+    add_run(engine, age=1, tag="newest")
+    old = add_run(engine, age=100, tag="old")
+    run_sql(
+        engine,
+        "UPDATE delivery SET remote_ref = 'page-old' WHERE run_id = :r AND target = 'notion'",
+        r=old.run_id,
+    )
+    run_sql(  # the candidate is still in use: a recent estimate refers to it
+        engine,
+        "INSERT INTO candidate_estimate (candidate_id, fetched_on, outcome, address, price, "
+        "comp_count, comps) VALUES (:c, :d, 'ok', 'x', 1, 0, CAST('[]' AS jsonb))",
+        c=old.candidate_id,
+        d=days_ago(5),
+    )
+
+    purge(engine)
+
+    remembered = ledger.remembered(engine, "notion", f"row:{old.candidate_id}", "mock")
+    assert remembered is not None and remembered.remote_ref == "page-old"
+    # The rest of that run's delivery rows (the digest and anything else) are gone.
+    assert count(engine, "delivery", f"run_id = {old.run_id} AND target = 'slack'") == 0
+    assert count(engine, "delivery", f"run_id = {old.run_id} AND target = 'notion'") == 1
+
+
+def test_r6_the_page_record_of_a_candidate_that_no_longer_exists_goes_too(engine: Engine) -> None:
+    add_run(engine, age=1, tag="newest")
+    old = add_run(engine, age=100, tag="old")
+
+    purge(engine)  # the old candidate is deleted with its run, so its page record has no owner
+
+    assert count(engine, "candidate", f"id = {old.candidate_id}") == 0
+    assert count(engine, "delivery", f"run_id = {old.run_id}") == 0
