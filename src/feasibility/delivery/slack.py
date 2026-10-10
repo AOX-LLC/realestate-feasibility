@@ -209,6 +209,12 @@ class SlackClient:
             raise SlackOutcomeUnknownError(code)
         raise SlackError(code)
 
+    def close(self) -> None:
+        """End the transport's connections (a mock has none)."""
+        close = getattr(self._transport, "close", None)
+        if close is not None:
+            close()
+
     def post_digest(self, blocks: list[dict[str, Any]], text: str) -> str:
         """Post the digest to the channel; returns its `ts`. Links and media do not unfurl."""
         body = self._call(
@@ -311,6 +317,10 @@ class HttpSlackTransport:
         except httpx.HTTPError:
             raise TransportError("network_error") from None
         return TransportResponse(response.status_code, None, {})
+
+    def close(self) -> None:
+        self._client.close()
+        self._upload_client.close()
 
 
 class MockSlackTransport:

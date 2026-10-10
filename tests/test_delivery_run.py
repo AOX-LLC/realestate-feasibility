@@ -433,3 +433,44 @@ def test_a_configuration_error_in_the_middle_of_the_files_reports_the_rest_as_no
 
     slack_items = [i for i in raised.value.report.items if i.target == "slack"]
     assert [i.status for i in slack_items] == ["sent", "failed"] + ["not_attempted"] * 4
+
+
+def test_the_clients_a_delivery_builds_are_closed_and_a_callers_are_not(
+    days: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from feasibility.delivery import deliver as deliver_module
+    from feasibility.delivery.deliver import Clients, deliver_brief
+
+    engine, one, _ = days
+
+    class Spy(MockNotionTransport):
+        closed = 0
+
+        def close(self) -> None:
+            Spy.closed += 1
+
+    from delivery_harness import notion_client, settings, slack_client
+
+    built = Clients(notion_client(Spy()), slack_client())
+    monkeypatch.setattr(deliver_module, "build_clients", lambda *a, **k: built)
+
+    deliver_brief(engine, settings(), one.run_id)  # builds its own
+    assert Spy.closed == 1
+
+    clear_ledger(engine)
+    deliver_brief(engine, settings(), one.run_id, clients=built)  # was handed these
+    assert Spy.closed == 1
+
+
+def test_the_http_transports_close_their_connections() -> None:
+    import httpx
+
+    from feasibility.delivery.notion import HttpNotionTransport
+    from feasibility.delivery.slack import HttpSlackTransport
+
+    notion_http, slack_http, upload_http = httpx.Client(), httpx.Client(), httpx.Client()
+
+    HttpNotionTransport("t", client=notion_http).close()
+    HttpSlackTransport("t", client=slack_http, upload_client=upload_http).close()
+
+    assert notion_http.is_closed and slack_http.is_closed and upload_http.is_closed

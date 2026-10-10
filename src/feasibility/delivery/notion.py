@@ -193,6 +193,12 @@ class NotionClient:
             self._call("PATCH", f"/v1/databases/{self._database_id}", {"properties": additions})
         return sorted(additions)
 
+    def close(self) -> None:
+        """End the transport's connections (a mock has none)."""
+        close = getattr(self._transport, "close", None)
+        if close is not None:
+            close()
+
     def find_row(self, key: str) -> str | None:
         found = self._call(
             "POST",
@@ -267,6 +273,9 @@ class HttpNotionTransport:
             body if isinstance(body, dict) else None,
             dict(response.headers),
         )
+
+    def close(self) -> None:
+        self._client.close()
 
 
 class MockNotionTransport:

@@ -65,6 +65,11 @@ class Clients:
     notion: NotionClient | None
     slack: SlackClient | None
 
+    def close(self) -> None:
+        for client in (self.notion, self.slack):
+            if client is not None:
+                client.close()
+
 
 @dataclass(frozen=True)
 class ItemResult:
@@ -144,8 +149,9 @@ def deliver_brief(
     Raises `DeliveryUnknownOutcomeError` (a Slack item may have been sent; permanent),
     `DeliveryConfigError` (credentials, channel or database wrong; permanent),
     `DeliveryIncompleteError` (something failed that another try may fix) or `DeliveryBusyError`
-    (another delivery of this run is going; nothing was sent), each after doing everything else it
-    could. The report is `error.report` on the first three. A dry run builds and renders and sends
+    (another delivery of this run is going and nothing was sent, or a call left a row too new to
+    judge), each after doing everything else it could. The report is `error.report`, except for
+    the first kind of busy. A dry run builds and renders and sends
     nothing, writes no ledger row and takes no lock."""
     resend = frozenset(resend)
     if resend - RESENDABLE:
@@ -161,18 +167,24 @@ def deliver_brief(
         _dry_run(engine, settings, brief, targets, out, report)
         return report
 
-    with ledger.run_lock(engine, run_id):
-        # Built now from the database: the stored row is a copy for audit and is never sent.
-        brief, _ = build_and_store(engine, run_id)
-        clients = clients or build_clients(settings, outbox_for(settings, brief))
-        for name in resend & set(targets):
-            ledger.drop(engine, run_id, name, mode)
-        problems = _Problems()
-        if "notion" in targets:
-            _deliver_notion(engine, report, brief, clients.notion, mode, problems)
-        if "slack" in targets:
-            documents = _documents_to_send(engine, brief, mode) if clients.slack else {}
-            _deliver_slack(engine, report, brief, clients.slack, mode, documents, problems)
+    own_clients = clients is None
+    try:
+        with ledger.run_lock(engine, run_id):
+            # Built now from the database: the stored row is a copy for audit and is never sent.
+            brief, _ = build_and_store(engine, run_id)
+            clients = clients or build_clients(settings, outbox_for(settings, brief))
+            for name in resend & set(targets):
+                ledger.drop(engine, run_id, name, mode)
+            problems = _Problems()
+            if "notion" in targets:
+                _deliver_notion(engine, report, brief, clients.notion, mode, problems)
+            if "slack" in targets:
+                documents = _documents_to_send(engine, brief, mode) if clients.slack else {}
+                _deliver_slack(engine, report, brief, clients.slack, mode, documents, problems)
+    finally:
+        # Connections of clients this call built end with it; a caller's own stay the caller's.
+        if own_clients and clients is not None:
+            clients.close()
     problems.raise_for(report)
     return report
 
