@@ -328,3 +328,39 @@ def test_both_errors_are_permanent_for_a_job() -> None:
 
 def test_the_cap_is_ten_and_the_rest_are_counted() -> None:
     assert MAX_CANDIDATES == 10
+
+
+# --- the text rules for a delivered narrative, on their own ----------------------------
+
+
+def test_unsafe_text_is_an_allowlist_so_lookalikes_and_invisible_characters_are_out() -> None:
+    from feasibility.delivery.brief import TextContext, unsafe_text
+
+    lookalike_open, lookalike_close = chr(0xFF1C), chr(0xFF1E)
+    hostile = [
+        f"{lookalike_open}!channel{lookalike_close} look",
+        "zero" + chr(0x200B) + "width",
+        "bidi" + chr(0x202E) + "override",
+        "tab\there",
+        "new\nline",
+        "caf" + chr(0xE9),
+    ]
+    for said in hostile:
+        assert unsafe_text([said], TextContext()), said
+    assert (
+        unsafe_text(["The margin clears the target, with $45,000.00 of headroom."], TextContext())
+        == []
+    )
+
+
+def test_a_short_street_name_of_a_comp_is_caught_and_the_city_is_not() -> None:
+    from feasibility.delivery.brief import TextContext, street_names_of, unsafe_text
+
+    names = street_names_of(["12 OAK AVE, DALLAS, TX 75209", "4377 QUENDERBY LN, DALLAS, TX 75209"])
+    context = TextContext(street_names=names)
+
+    assert "quenderby" in names
+    assert "dallas" not in names  # the city is not the street
+    assert "oak" not in names  # a street name of three letters or fewer is a known gap
+    assert unsafe_text(["A sale on Quenderby supports it."], context) == ["a street name"]
+    assert unsafe_text(["Dallas buyers pay more for new homes."], context) == []

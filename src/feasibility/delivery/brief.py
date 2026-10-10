@@ -73,8 +73,13 @@ class BriefComps(BriefModel):
     estimate_stale: bool
 
 
+FLAG_CODE = r"^[a-z][a-z_]{0,39}$"
+
+
 class BriefCode(BriefModel):
-    code: str
+    # A code, not text: a flag from a stored row that is anything else is dropped before it gets
+    # here, because it would be printed and delivered as it was written.
+    code: Annotated[str, Field(pattern=FLAG_CODE)]
     meaning: str
 
 
@@ -237,7 +242,7 @@ def signals_of(signals: SignalsResult | None) -> BriefSignals:
 # anything a model wrote is delivered, it must also be plain prose: no link, no mention, no
 # markup or template syntax, none of the listing's own words, no injection phrasing, and no
 # street name from the comps (an address). These characters and shapes have no place in it.
-_FORBIDDEN_CHARACTERS = re.compile(r"[<>{}\[\]\\`~*_|@#&^=+\x00-\x1f\x7f]")
+_PLAIN_PROSE = re.compile(r"[A-Za-z0-9 .,;:'\"%$()!?/-]*")
 _LINK = re.compile(
     r"(?i)(?:://|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|us|gov|edu|info|biz|app|dev|xyz)\b)"
 )
@@ -289,12 +294,12 @@ class TextContext:
 
 
 def street_names_of(addresses: list[str]) -> frozenset[str]:
-    """The distinctive words of street addresses: letters only, six or more of them, and not a
-    suffix or a direction."""
+    """The distinctive words of the street part of addresses (before the first comma, so not the
+    city): letters only, four or more of them, and not a suffix or a direction."""
     words = set()
     for address in addresses:
-        for word in re.findall(r"[a-z]+", address.casefold()):
-            if len(word) >= 6 and word not in _STREET_SUFFIXES:
+        for word in re.findall(r"[a-z]+", address.split(",")[0].casefold()):
+            if len(word) >= 4 and word not in _STREET_SUFFIXES:
                 words.add(word)
     return frozenset(words)
 
@@ -307,8 +312,10 @@ def unsafe_text(texts: list[str], context: TextContext) -> list[str]:
     """Why the model-written `texts` may not be delivered, as short reasons; empty if they may."""
     reasons = []
     joined = " ".join(texts)
-    if _FORBIDDEN_CHARACTERS.search(joined):
-        reasons.append("markup or control characters")
+    if not _PLAIN_PROSE.fullmatch(joined):
+        # An allowlist, not a list of bad characters: look-alikes, markup, template syntax,
+        # control and invisible characters all fall outside it.
+        reasons.append("characters outside plain prose")
     if _LINK.search(joined):
         reasons.append("a link")
     if _SHOUTED_WORD.search(joined):

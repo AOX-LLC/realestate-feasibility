@@ -287,7 +287,6 @@ def test_a6b_a_tampered_street_does_not_reach_the_brief_as_written(plain: Any) -
     assert hostile not in brief_text(brief)
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a7_a_flag_code_is_a_code(plain: Any) -> None:
     from feasibility.delivery.build import BriefError
 

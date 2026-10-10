@@ -1,9 +1,12 @@
 """Building the brief of one run from what the run stored."""
 
+import re
+
 from sqlalchemy import Connection, Engine
 
 from feasibility.delivery import store
 from feasibility.delivery.brief import (
+    FLAG_CODE,
     MAX_CANDIDATES,
     Brief,
     BriefCandidate,
@@ -77,7 +80,11 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 figures=figures_of(result),
                 verdict=[fact.code for fact in facts.code_facts],
                 comps=comps_of(result),
-                flags=[BriefCode(code=flag.code, meaning=flag.meaning) for flag in facts.flags],
+                flags=[
+                    BriefCode(code=flag.code, meaning=flag.meaning)
+                    for flag in facts.flags
+                    if re.fullmatch(FLAG_CODE, flag.code)
+                ],
                 signals=signals_of(stored_signals),
                 narrative=narrative_of(
                     narratives.get(row.candidate_id), result, stored_signals, context
