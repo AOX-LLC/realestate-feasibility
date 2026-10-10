@@ -10,6 +10,10 @@ name: realestate-feasibility
 # snapshot and has not been measured: re-measure before trusting them with it.
 # 2026-10-09, with the auth gate and the brief in the image: api 123 MiB after a request of each
 # kind, worker 118 MiB after a day-1 run. Both limits stay at 256m, about twice the peak.
+# 2026-10-09, with PDF rendering in the image (5b): a render adds about 57 MiB to a process (149 MiB
+# peak against 92 MiB before the first render, in the built image under a 256m limit). The worker
+# will render in 5c; 118 + 57 is about 175 MiB, which is not measured through a live worker, so its
+# limit is 384m, about twice that. The api renders nothing and stays at 256m.
 
 x-hardening: &hardening
   read_only: true
@@ -147,7 +151,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     stop_grace_period: 30s
-    mem_limit: 256m
+    mem_limit: 384m
 
 volumes:
   pgdata:
