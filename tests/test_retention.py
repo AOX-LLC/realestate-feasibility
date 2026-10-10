@@ -150,7 +150,7 @@ def test_pruning_a_run_waits_for_the_markets_run_lock(engine: Engine) -> None:
     assert count(engine, "run_candidate", f"run_id = {old.run_id}") == 0
 
 
-def test_a_run_that_started_again_after_the_batch_was_chosen_is_left_alone(
+def test_a_run_another_prune_got_to_first_is_left_alone_and_not_counted_twice(
     engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from feasibility.retention import prune as prune_module
@@ -159,16 +159,16 @@ def test_a_run_that_started_again_after_the_batch_was_chosen_is_left_alone(
     old = add_run(engine, age=100, tag="old")
     real = prune_module._prune_one_run
 
-    def run_started_first(engine_: Engine, run_id: int, market: str, cutoff: Any) -> Any:
-        run_sql(engine_, "UPDATE sourcing_run SET status = 'running' WHERE id = :i", i=run_id)
-        return real(engine_, run_id, market, cutoff)
+    def another_prune_first(engine_: Engine, run_id: int, market: str, cutoff: Any) -> Any:
+        real(engine_, run_id, market, cutoff)  # the other prune does the work...
+        return real(engine_, run_id, market, cutoff)  # ...and ours finds nothing left to do
 
-    monkeypatch.setattr(prune_module, "_prune_one_run", run_started_first)
+    monkeypatch.setattr(prune_module, "_prune_one_run", another_prune_first)
 
     report = prune(engine, POLICY, as_of=AS_OF)
 
     assert report.counts["runs"] == 0
-    assert count(engine, "run_candidate", f"run_id = {old.run_id}") == 1
+    assert count(engine, "run_candidate", f"run_id = {old.run_id}") == 0
 
 
 # --- the job, the trigger and the command -------------------------------------------------------

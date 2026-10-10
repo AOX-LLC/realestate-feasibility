@@ -174,14 +174,23 @@ def months_before(day: date, months: int) -> date:
 
 # --- the runs ------------------------------------------------------------------------------------
 
-# A run's detail may go when it is old, not the market's latest, and not still being built: a
-# failed run never had stages to finish; a completed one has finished them.
+# A run's detail may go when it is old and has been replaced: a later run of the market exists. An
+# earlier date cannot be run once a later one started, so a run that never finished (a worker killed
+# half way) is abandoned, not waiting, and goes like any other. Two runs are always kept: the
+# market's latest (whatever its state) and its latest completed one (the last good brief and the
+# pages the Notion rows point at), which can be a different run when later ones failed.
 _PRUNABLE_RUNS = """
     SELECT r.id, r.market FROM sourcing_run r
     WHERE r.pruned_at IS NULL
       AND r.as_of < :run_cutoff
-      AND (r.status = 'failed' OR (r.status = 'completed' AND r.stages_finished_at IS NOT NULL))
       AND r.as_of < (SELECT max(l.as_of) FROM sourcing_run l WHERE l.market = r.market)
+      AND (
+        r.status <> 'completed'
+        OR r.as_of < (
+            SELECT max(l.as_of) FROM sourcing_run l
+            WHERE l.market = r.market AND l.status = 'completed'
+        )
+      )
 """
 
 

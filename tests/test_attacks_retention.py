@@ -141,10 +141,29 @@ def test_r1_a_second_prune_and_a_dry_run_delete_nothing(engine: Engine) -> None:
     assert real.counts["runs"] == 1 and real.counts["llm_call"] == 1
 
 
-def test_r1_the_latest_run_of_a_market_and_a_run_in_progress_are_never_pruned(
+def test_r1_the_latest_run_of_a_market_is_never_pruned_whatever_its_state_or_age(
     engine: Engine,
 ) -> None:
     only_old = add_run(engine, age=400, tag="onlyold", market="austin")
+    stuck_latest = add_run(
+        engine, age=300, tag="stuck", market="houston", status="running", stages_finished=False
+    )
+    add_run(engine, age=1, tag="newest")
+
+    purge(engine)
+
+    for rows in (only_old, stuck_latest):
+        assert count(engine, "run_candidate", f"run_id = {rows.run_id}") == 1, rows
+        assert scalar(
+            engine, "SELECT pruned_at IS NULL FROM sourcing_run WHERE id = :i", i=rows.run_id
+        )
+
+
+def test_r1_an_old_run_that_never_finished_and_was_replaced_is_abandoned_and_pruned(
+    engine: Engine,
+) -> None:
+    """A run that was killed half way cannot be run again (an earlier date is refused once a later
+    one started), so once a later run exists it is pruned like any other old run."""
     running = add_run(engine, age=200, tag="running", status="running", stages_finished=False)
     unfinished = add_run(engine, age=201, tag="unfinished", stages_finished=False)
     failed = add_run(engine, age=202, tag="failed", status="failed", stages_finished=False)
@@ -152,13 +171,22 @@ def test_r1_the_latest_run_of_a_market_and_a_run_in_progress_are_never_pruned(
 
     purge(engine)
 
-    for rows in (only_old, running, unfinished):
-        assert count(engine, "run_candidate", f"run_id = {rows.run_id}") == 1, rows
+    for rows in (running, unfinished, failed):
+        assert count(engine, "run_candidate", f"run_id = {rows.run_id}") == 0, rows
         assert scalar(
-            engine, "SELECT pruned_at IS NULL FROM sourcing_run WHERE id = :i", i=rows.run_id
+            engine, "SELECT pruned_at IS NOT NULL FROM sourcing_run WHERE id = :i", i=rows.run_id
         )
-    # A failed run never had stages to finish, so it is pruned like any other old run.
-    assert count(engine, "run_candidate", f"run_id = {failed.run_id}") == 0
+
+
+def test_r1_the_last_good_run_is_kept_when_only_failed_runs_came_after_it(engine: Engine) -> None:
+    good = add_run(engine, age=150, tag="good")
+    older_good = add_run(engine, age=160, tag="oldergood")
+    add_run(engine, age=3, tag="failed-after", status="failed", stages_finished=False)
+
+    purge(engine)
+
+    assert count(engine, "run_candidate", f"run_id = {good.run_id}") == 1  # the last completed one
+    assert count(engine, "run_candidate", f"run_id = {older_good.run_id}") == 0
 
 
 def test_r1_a_pruned_run_is_not_the_run_a_later_diff_compares_against(engine: Engine) -> None:
