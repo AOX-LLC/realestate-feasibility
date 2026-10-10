@@ -268,7 +268,6 @@ def test_a6_a_feed_street_is_normalised_to_letters_digits_and_a_few_marks(street
     assert re.fullmatch(r"[A-Z0-9 #/-]*", normalize_street(street))
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a6b_a_tampered_street_does_not_reach_the_brief_as_written(plain: Any) -> None:
     from feasibility.delivery.build import BriefError
 

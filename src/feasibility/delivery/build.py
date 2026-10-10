@@ -16,6 +16,7 @@ from feasibility.delivery.brief import (
     signals_of,
     street_names_of,
 )
+from feasibility.domain.address import normalize_street
 from feasibility.llm.facts import build_facts
 from feasibility.proforma.model import ProformaResult
 
@@ -70,7 +71,7 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 candidate_id=row.candidate_id,
                 rank=row.rank,
                 score=format(row.score, "f"),
-                street=row.street,
+                street=normalize_street(row.street),
                 zip5=row.zip5,
                 list_price=format(row.list_price, "f"),
                 figures=figures_of(result),

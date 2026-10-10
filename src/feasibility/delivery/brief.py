@@ -113,8 +113,9 @@ class BriefCandidate(BriefModel):
     candidate_id: int
     rank: int
     score: DecimalString
-    street: str
-    zip5: str | None
+    # Normalised again on the way in: capitals, digits, space, # / and - only.
+    street: Annotated[str, Field(pattern=r"^[A-Z0-9 #/-]{1,120}$")]
+    zip5: Annotated[str, Field(pattern=r"^[0-9]{5}$")] | None
     list_price: DecimalString
     figures: BriefFigures
     verdict: list[str]
