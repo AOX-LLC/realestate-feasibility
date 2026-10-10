@@ -75,7 +75,11 @@ def read_run(connection: Connection, run_id: int) -> RunHeader | None:
             sourcing_run.c.error,
             sourcing_run.c.data_mode,
             sourcing_run.c.stages_finished_at.is_not(None).label("stages_finished"),
-        ).where(sourcing_run.c.id == run_id)
+        )
+        .where(sourcing_run.c.id == run_id)
+        # A shared row lock: if a re-run rebuilds the run after this build's snapshot, the build
+        # stops with a serialisation failure instead of storing a brief of rows that are gone.
+        .with_for_update(read=True)
     ).first()
     if row is None:
         return None

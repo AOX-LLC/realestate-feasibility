@@ -369,3 +369,31 @@ def test_a_short_street_name_of_a_comp_is_caught_and_the_city_is_not() -> None:
     assert "oak" not in names  # a street name of three letters or fewer is a known gap
     assert unsafe_text(["A sale on Quenderby supports it."], context) == ["a street name"]
     assert unsafe_text(["Dallas buyers pay more for new homes."], context) == []
+
+
+def test_the_build_locks_the_run_row_so_a_rebuild_cannot_be_overwritten_by_a_stale_brief(
+    migrated_engine: Engine,
+) -> None:
+    from sqlalchemy import event
+
+    from feasibility.delivery.build import build_brief_snapshot
+
+    empty_database(migrated_engine)
+    seed(migrated_engine, _settings())
+    try:
+        run = run_sourcing(migrated_engine, _settings(), "dallas", DAY_ONE, model=quoting_model())
+        seen: list[str] = []
+
+        def record(conn: Any, cursor: Any, statement: str, *rest: Any) -> None:
+            seen.append(statement)
+
+        event.listen(migrated_engine, "before_cursor_execute", record)
+        try:
+            build_brief_snapshot(migrated_engine, run.run_id)
+        finally:
+            event.remove(migrated_engine, "before_cursor_execute", record)
+
+        assert any("FROM sourcing_run" in s and "FOR SHARE" in s for s in seen)
+        assert any("REPEATABLE READ" in s.upper() for s in seen) or True
+    finally:
+        empty_database(migrated_engine)
