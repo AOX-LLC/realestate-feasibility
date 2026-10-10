@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from feasibility.markets.schema import CostAssumptions, normalise_zoning
 from feasibility.proforma.arv import ArvUnavailable, price_arv
+from feasibility.proforma.assumptions_v1 import CostAssumptionsV1
 from feasibility.proforma.chain import cost_chain
 from feasibility.proforma.model import (
     ArvDetail,
@@ -92,7 +93,7 @@ def build_proforma(
         status=status,
         reason=outcome.reason,
         flags=tuple(flags),
-        assumptions=assumptions,
+        assumptions=frozen_assumptions(assumptions),
         site=site,
         sizing=choice.sizing,
         arv=outcome.detail,
@@ -106,6 +107,11 @@ def build_proforma(
     )
 
 
+def frozen_assumptions(assumptions: CostAssumptions) -> CostAssumptionsV1:
+    """The pack's assumptions in the shape a stored result keeps them in."""
+    return CostAssumptionsV1.model_validate(assumptions.model_dump())
+
+
 def _empty(
     assumptions: CostAssumptions,
     status: Status,
@@ -117,7 +123,7 @@ def _empty(
         status=status,
         reason=reason,
         flags=tuple(flags),
-        assumptions=assumptions,
+        assumptions=frozen_assumptions(assumptions),
         site=site,
         sizing=None,
         arv=None,

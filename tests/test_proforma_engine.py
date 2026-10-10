@@ -15,7 +15,7 @@ from proforma_cases import (
 )
 
 from feasibility.markets.schema import CostAssumptions
-from feasibility.proforma.engine import build_proforma
+from feasibility.proforma.engine import build_proforma, frozen_assumptions
 from feasibility.proforma.model import Comp, EstimateInput, ProformaInputs, ProformaResult
 
 
@@ -27,7 +27,7 @@ def test_s1_is_computed_with_the_figures_of_the_formula_section() -> None:
     result = run(s1())
 
     assert (result.version, result.status, result.reason, result.flags) == (1, "computed", None, ())
-    assert result.assumptions == ASSUMPTIONS
+    assert result.assumptions == frozen_assumptions(ASSUMPTIONS)
     assert result.site.rule_used == "R-7.5(A)"
     assert result.site.existing_sqft_source == "parcel"
     assert result.sizing is not None and result.sizing.buildable_sqft == 3168
@@ -196,7 +196,7 @@ def test_a_missing_lot_is_unsizable_and_fills_only_the_site(lot: Decimal | None)
     assert result.flags == ("gis_group",)
     assert result.site.lot_sqft == lot
     assert result.site.rule_used is None
-    assert result.assumptions == ASSUMPTIONS
+    assert result.assumptions == frozen_assumptions(ASSUMPTIONS)
     for section in (
         result.sizing,
         result.arv,
