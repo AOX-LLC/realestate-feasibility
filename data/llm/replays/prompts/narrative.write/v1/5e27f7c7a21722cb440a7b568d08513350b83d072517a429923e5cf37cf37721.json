@@ -69,7 +69,7 @@
   },
   "replay_hash": "5e27f7c7a21722cb440a7b568d08513350b83d072517a429923e5cf37cf37721",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -144,12 +144,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"At the assumed offer price of $451,000.00, the project shows a profit of $91,117.19 on a finished value of $1,410,386.63. That is a margin of 6.46% against a target of 15.00%. The most the target margin allows is $341,776.48, so the offer sits above that ceiling. The annualized return of 37.77% over a hold of 9 months looks healthy, but the cushion against surprises is thin.\",\"risks\":[{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"The margin of 6.46% falls short of the 15.00% target. The headroom is -$109,223.52, so the offer price is above the maximum offer of $341,776.48.\"},{\"basis\":[\"below_target\"],\"text\":\"A lower finished value would push profit to -$41,459.15, and higher building costs would push it to -$56,148.50. Either stress case turns the deal into a loss.\"},{\"basis\":[\"zoning_rule_assumed\"],\"text\":\"Zoning is unknown, so the market's default sizing rule produced the buildable area of 3,105 sq ft on the lot of 7,762 sq ft. The real allowance could be smaller, which would hurt the finished value.\"},{\"basis\":[\"deed_restrictions\"],\"text\":\"Deed restrictions or HOA rules may limit what can be built. That could constrain the size or style the pro-forma assumes and the finished value that rests on it.\"},{\"basis\":[\"flood_or_drainage\"],\"text\":\"Flood or drainage issues were found for this listing. They could add site work, insurance or permitting cost, or slow the sale, none of which the pro-forma may fully capture.\"}],\"checks_before_offer\":[\"Confirm the actual zoning and the real buildable area the lot allows.\",\"Read the deed restrictions and any HOA rules for limits on size, design and use.\",\"Check flood zone status and drainage conditions, and get site work costs priced.\",\"Test whether the finished value holds up against the 5 comps, and see if a price near the maximum offer is achievable.\"]}",
+    "text": "{\"summary\":\"At the assumed offer price of $451,000.00, the project shows a margin of $91,117.19 profit, or 6.46% of the finished value, well short of the 15.00% target. The most the target margin allows is $341,776.48, so the offer sits above that ceiling. The return figures look decent, but the cushion is thin and the lot carries restriction and drainage concerns.\",\"risks\":[{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"The margin is below the target, and the highest price that still reaches the target is below the offer price. Headroom is -$109,223.52, so the price would need to come down.\"},{\"basis\":[\"below_target\"],\"text\":\"The stress cases show little room for error. Profit would be -$41,459.15 if the finished value came in lower, and -$56,148.50 if building costs ran higher.\"},{\"basis\":[\"zoning_rule_assumed\"],\"text\":\"Zoning is unknown, so the market's default sizing rule was used. The expected living area of 3,105 sq ft may not be what the lot actually allows.\"},{\"basis\":[\"deed_restrictions\"],\"text\":\"Deed restrictions or HOA rules could limit what can be built, which may undercut the home size and value the pro-forma assumes.\"},{\"basis\":[\"flood_or_drainage\"],\"text\":\"Flood or drainage problems were found. These could add site work cost, complicate permitting or insurance, and weaken buyer interest.\"}],\"checks_before_offer\":[\"Confirm the actual zoning and the buildable size it allows, rather than the default rule.\",\"Read the deed restrictions and HOA rules for limits on size, design or timing.\",\"Check flood zone status and drainage, and get a site work estimate.\",\"Test the finished value against the 5 comps and re-run the price toward the $341,776.48 ceiling.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2371,
-      "output_tokens": 1338
+      "output_tokens": 594
     }
   },
   "sequence": 0

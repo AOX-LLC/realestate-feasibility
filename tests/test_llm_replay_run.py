@@ -85,7 +85,7 @@ def test_every_call_of_both_days_hit_a_recording(replayed_days: Days) -> None:
     rows = _rows(engine, "SELECT mode, billable, outcome, count(*) FROM llm_call GROUP BY 1, 2, 3")
 
     assert [(r.mode, r.billable, r.outcome) for r in rows] == [("replay", False, "ok")]
-    assert rows[0][3] == one.counts.llm_calls + two.counts.llm_calls == 16 + 8
+    assert rows[0][3] == one.counts.llm_calls + two.counts.llm_calls == 15 + 8
 
 
 def test_day_one_signals_and_narratives_are_the_recorded_ones(replayed_days: Days) -> None:
@@ -96,17 +96,16 @@ def test_day_one_signals_and_narratives_are_the_recorded_ones(replayed_days: Day
         ("fields_only", "no_remarks"): 2,
     }
     assert _by_status(engine, "candidate_narrative", one.run_id) == {
-        ("accepted", None): 4,
-        ("rejected", "figure_check"): 1,
+        ("accepted", None): 5,
         ("not_eligible", "proforma_no_arv"): 7,
     }
     counts = one.counts
     assert (counts.signals_extracted, counts.signals_fields_only) == (10, 2)
-    assert (counts.narratives_accepted, counts.narratives_rejected) == (4, 1)
+    assert (counts.narratives_accepted, counts.narratives_rejected) == (5, 0)
     assert (counts.narratives_failed, counts.narratives_deferred) == (0, 0)
     assert counts.signals_suspicious == 1
-    assert counts.llm_calls == 16  # ten for the signals, five narratives and one repair
-    assert counts.llm_cost_usd == "0.113578"
+    assert counts.llm_calls == 15  # ten for the signals and five narratives, none repaired
+    assert counts.llm_cost_usd == "0.077596"
 
 
 def test_day_two_signals_and_narratives_are_the_recorded_ones(replayed_days: Days) -> None:
@@ -117,8 +116,7 @@ def test_day_two_signals_and_narratives_are_the_recorded_ones(replayed_days: Day
         ("fields_only", "no_remarks"): 2,
     }
     assert _by_status(engine, "candidate_narrative", two.run_id) == {
-        ("accepted", None): 5,
-        ("rejected", "figure_check"): 1,
+        ("accepted", None): 6,
         ("not_eligible", "proforma_no_arv"): 11,
     }
     counts = two.counts
@@ -144,29 +142,22 @@ def test_the_six_computed_candidates_of_day_two_have_the_recorded_statuses(
     assert [(r.property_key, r.status) for r in rows] == [
         (ACCT.format("02"), "accepted"),
         (ACCT.format("04"), "accepted"),
-        (ACCT.format("06"), "rejected"),
+        (ACCT.format("06"), "accepted"),
         (ACCT.format("15"), "accepted"),
         (ACCT.format("51"), "accepted"),
         (ACCT.format("52"), "accepted"),
     ]
 
 
-def test_a_rejected_narrative_keeps_its_violations_and_no_text(replayed_days: Days) -> None:
-    engine, _, two = replayed_days
+def test_no_narrative_of_either_day_was_rejected_or_failed(replayed_days: Days) -> None:
+    # The rejected path (violations kept, no text) is tested with a scripted model in
+    # tests/test_llm_run.py; the recordings since the effort change hold no rejected draft.
+    engine, one, two = replayed_days
 
-    row = _rows(
-        engine,
-        "SELECT n.result FROM candidate_narrative n JOIN candidate k ON k.id = n.candidate_id "
-        "WHERE n.run_id = :run AND k.property_key = :key",
-        run=two.run_id,
-        key=ACCT.format("06"),
-    )[0]
-
-    assert row.result["status"] == "rejected"
-    assert row.result["summary"] is None
-    assert row.result["risks"] == []
-    assert row.result["check"]["attempts"] == 2
-    assert {v["kind"] for v in row.result["check"]["violations"]} == {"spelled_number"}
+    for run in (one, two):
+        statuses = {status for status, _ in _by_status(engine, "candidate_narrative", run.run_id)}
+        assert statuses == {"accepted", "not_eligible"}
+        assert run.counts.narratives_repaired == 0
 
 
 def test_a_same_day_rerun_makes_no_call(replayed_days: Days) -> None:

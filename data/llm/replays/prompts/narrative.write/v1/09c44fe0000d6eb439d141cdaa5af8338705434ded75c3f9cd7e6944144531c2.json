@@ -94,7 +94,7 @@
   },
   "replay_hash": "09c44fe0000d6eb439d141cdaa5af8338705434ded75c3f9cd7e6944144531c2",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -168,13 +168,13 @@
   },
   "response": {
     "model": "claude-sonnet-5-5",
-    "stop_reason": "max_tokens",
-    "text": "{\"summary\":\"At an offer price of $300,000.00 and a finished value of $1,489,400.50, the pro-forma shows a profit of $238,226.56 and a margin of 15.99%, which clears the target of 15.00%. The maximum offer of $313,436.54 sits above the price, but the cushion is modest. The site is a vacant lot, so there is no demolition cost. Flood or drainage and as-is terms are the main exposures.\",\"risks\":[{\"basis\":[\"clears_target\"],\"text\":\"The margin of 15.99% only just clears the target of 15.00%. If the finished value came in lower, profit would fall to $98,222.93.\"},{\"basis\":[\"flood_or_drainage\",\"as_is_sale\"],\"text\":\"Flood or drainage concerns on an as-is sale could add site or building cost. With higher building costs, profit would drop to $72,226.60.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was capped at the market's largest home size. The finished value of $1,489,400.50 rests on 4 comps, so a weak comp would hit the whole deal.\"},{\"basis\":[\"max_offer_above_price\"],\"text\":\"The maximum offer of $313,436.54 leaves headroom of $13,436.54 over the price, so there is little room to bid up. A longer hold than 9 months would cut profit to $217,389.53.\"}],\"checks_before_offer\":[\"Confirm flood zone status, drainage conditions and the cost of any mitigation before relying on the pro-forma costs.\",\"Verify that the plans or permits are real, transferable and usable for the home you intend to build",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"The deal clears the target margin of 15.00% with a margin of 15.99% and a profit of $238,226.56 on an offer price of $300,000.00. The max offer of $313,436.54 leaves headroom_vs_offer of $13,436.54. The stress cases still show a profit, but the margin cushion is thin.\",\"risks\":[{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The margin of 15.99% only just beats the 15.00% target, and headroom_vs_offer is $13,436.54. Small cost or value slips could erase the cushion.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, so the value of $1,489,400.50 rests on a big house sold at the top of the market's size range.\"},{\"basis\":[\"flood_or_drainage\"],\"text\":\"A flood or drainage signal could add site work, insurance cost or buyer resistance that the pro-forma may not capture, hurting profit and the sale.\"},{\"basis\":[\"as_is_sale\"],\"text\":\"The seller makes no repairs, so the builder carries any site surprises. Profit if building costs ran higher falls to $72,226.60.\"},{\"basis\":[\"vacant_lot\"],\"text\":\"With no existing house there is no demolition cost, but the value rests on only 4 comps, and profit if the finished value came in lower is $98,222.93.\"}],\"checks_before_offer\":[\"Confirm the flood zone status, drainage conditions and insurance cost for the site.\",\"Verify the largest home size the market supports and that the 4 comps support the finished value.\",\"Review the available plans or permits and confirm they fit the lot.\",\"Get a firm builder cost quote to test the margin against the stress case.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2584,
-      "output_tokens": 1500
+      "output_tokens": 573
     }
   },
   "sequence": 0

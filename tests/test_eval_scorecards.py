@@ -167,25 +167,21 @@ def test_the_extraction_holdout_numbers_are_the_recorded_ones(replayed: Replayed
     assert holdout.cases_errored == 0
 
 
-def test_four_narrative_cases_were_cut_off_at_the_token_limit(replayed: Replayed) -> None:
-    errored = sorted(r.case_id for r in replayed.narrative.scorecard.results if r.error)
+def test_no_narrative_case_errored(replayed: Replayed) -> None:
+    errored = [r.case_id for r in replayed.narrative.scorecard.results if r.error]
 
-    assert errored == ["adv-gis-group", "adv-many-signals", "adv-second-injection", "snap-004"]
-    assert all(
-        "StructuredOutputError" in (r.error or "")
-        for r in replayed.narrative.scorecard.results
-        if r.error
-    )
-    assert replayed.narrative.summary.cases_errored == 4
+    assert errored == []
+    assert replayed.narrative.summary.cases_errored == 0
 
 
-def test_narrative_acceptance_is_below_the_target_as_recorded(replayed: Replayed) -> None:
+def test_narrative_acceptance_meets_the_target_as_recorded_at_low_effort(
+    replayed: Replayed,
+) -> None:
     summary = replayed.narrative.summary
 
-    assert (summary.accepted, summary.cases_scored) == (8, 9)
-    assert summary.acceptance_rate is not None
-    assert summary.acceptance_rate < 0.90
-    assert [row.case_id for row in summary.rows if row.status == "rejected"] == ["snap-006"]
+    assert (summary.accepted, summary.cases_scored) == (13, 13)
+    assert summary.acceptance_rate == 1.0
+    assert [row.case_id for row in summary.rows if row.status != "accepted"] == []
 
 
 # --- the recordings themselves ----------------------------------------------------------------
@@ -288,18 +284,15 @@ def test_every_recording_was_made_by_a_packaged_tier_model() -> None:
         assert recording["response"]["model"] in packaged, path.name
 
 
-def test_the_four_cut_off_narrative_responses_are_the_only_ones_that_did_not_finish() -> None:
+def test_every_recording_finished_and_none_was_cut_off_at_the_token_limit() -> None:
     unfinished = [
         path.name
         for path, recording in _recordings()
         if recording["response"]["stop_reason"] != "end_turn"
     ]
 
-    assert len(unfinished) == 4
+    assert unfinished == []
     for path, recording in _recordings():
-        if recording["response"]["stop_reason"] != "end_turn":
-            assert (
-                recording["response"]["usage"]["output_tokens"]
-                == recording["request"]["max_tokens"]
-            )
-            assert path.parent.parent.name == "narrative.write"
+        assert (
+            recording["response"]["usage"]["output_tokens"] < recording["request"]["max_tokens"]
+        ), path.name

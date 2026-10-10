@@ -64,7 +64,7 @@
   },
   "replay_hash": "1f1db114590f66b8d808e8071a04b94f12cd6542abe8c40fe27198ac70d26528",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -138,13 +138,13 @@
   },
   "response": {
     "model": "claude-sonnet-5-5",
-    "stop_reason": "max_tokens",
-    "text": "{\"summary\":\"At the assumed offer price of $300,000.00 and a finished value of $1,489,400.50, the pro-forma shows a profit of $238,226.56 on a total cost of $1,251,173.94. The margin of 15.99% clears the target of 15.00%, but the offer ceiling of $313,436.54 leaves headroom of $13,436.54. The listing is flagged as a builder opportunity, and the lot is vacant.\",\"risks\":[{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The cushion over the target is narrow. The margin of 15.99% sits just above the target of 15.00%, and the offer ceiling is only $13,436.54 above the assumed price.\"},{\"basis\":[\"clears_target\"],\"text\":\"The deal leans on the finished value. If it came in lower than estimated, profit falls to $98,222.93. That value rests on 4 comps, which is a modest base.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, at 3,500 sq ft on a lot of 10,134 sq ft. The finished value assumes a home that large sells at the estimated price.\"},{\"basis\":[\"vacant_lot\",\"clears_target\"],\"text\":\"There is no demolition cost because the site is vacant, but if building costs ran higher than estimated, profit drops to $72,226.60. Site preparation surprises would hit the same thin cushion.\"}],\"checks_before_offer\":[\"Confirm the comps truly support the finished value for a home at the capped size, not smaller homes.\",\"Get a firm build quote to",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"The deal clears the target margin of 15.00% with a margin of 15.99% and a profit of $238,226.56 on an offer price of $300,000.00. The max offer of $313,436.54 sits above the offer, leaving some room. The finished value of $1,489,400.50 rests on 4 comps, and the hold is assumed at 9 months.\",\"risks\":[{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The cushion is thin: margin of 15.99% is only just above the 15.00% target, and headroom_vs_offer is $13,436.54. A small price creep could erase it.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was capped to the market's largest home size, so the plan may not use the full lot, and the finished value may be sensitive to that size.\"},{\"basis\":[\"clears_target\"],\"text\":\"If the finished value came in lower, profit would fall to $98,222.93. If building costs ran higher, profit would fall to $72,226.60.\"},{\"basis\":[\"vacant_lot\"],\"text\":\"The site is a vacant lot, so the pro-forma carries no demolition cost. Any hidden site clearing or prep work would be unbudgeted.\"}],\"checks_before_offer\":[\"Confirm the finished value against the 4 comps, especially for a home near the capped size.\",\"Verify the build cost estimate, since higher costs cut profit to $72,226.60.\",\"Confirm the lot is truly vacant and needs no clearing, and check what the lot allows to be built.\",\"Keep the offer at or below the max offer of $313,436.54.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2309,
-      "output_tokens": 1500
+      "output_tokens": 534
     }
   },
   "sequence": 0

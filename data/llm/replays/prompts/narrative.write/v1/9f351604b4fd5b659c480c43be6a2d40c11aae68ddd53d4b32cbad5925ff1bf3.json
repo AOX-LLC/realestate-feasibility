@@ -55,7 +55,7 @@
   },
   "replay_hash": "9f351604b4fd5b659c480c43be6a2d40c11aae68ddd53d4b32cbad5925ff1bf3",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -130,12 +130,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"At the assumed offer price of $420,000.00 the project shows a profit of $107,560.14 on a finished value of $1,420,799.85. That is a margin of 7.57%, short of the 15.00% target. The most the target margin allows is $324,271.50, so the offer sits above that ceiling. The sale is as-is, and the stress cases show little room for error.\",\"risks\":[{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"At $420,000.00 the margin is 7.57%, below the 15.00% target. The ceiling that still reaches target is $324,271.50, leaving headroom of -$95,728.50.\"},{\"basis\":[\"below_target\"],\"text\":\"If the finished value came in lower than estimated, profit would be -$25,995.04. If building costs ran higher, profit would be -$42,693.55. Either one turns the deal into a loss.\"},{\"basis\":[\"below_target\"],\"text\":\"A longer hold than the assumed 9 months would cut profit to $84,670.08, moving the result further from the target margin.\"},{\"basis\":[\"as_is_sale\",\"below_target\"],\"text\":\"The property is sold as-is, with no seller repairs. Any condition surprise falls on the builder, on top of an already thin margin.\"}],\"checks_before_offer\":[\"Test whether the seller will move toward $324,271.50, or whether the price can be justified another way.\",\"Re-check the 7 comps behind the $1,420,799.85 finished value for fit and recency.\",\"Get firm build bids to test the $1,313,239.71 total cost.\",\"Inspect the as-is condition for hidden defects before relying on the pro-forma.\"]}",
+    "text": "{\"summary\":\"The pro-forma shows a profit of $107,560.14 on a finished value of $1,420,799.85, but the margin of 7.57% falls short of the 15.00% target. At the assumed offer price of $420,000.00 the deal does not reach the target. The return looks decent on the cash invested, with an annualized return of 44.92% over a hold of 9 months, but the thin margin leaves little cushion.\",\"risks\":[{\"basis\":[\"below_target\"],\"text\":\"The margin of 7.57% is below the target margin of 15.00%, so the deal does not meet the builder's own bar at this price.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The most the target margin allows is $324,271.50, which leaves headroom of -$95,728.50 against the $420,000.00 offer. The price would need to come down to work.\"},{\"basis\":[\"below_target\"],\"text\":\"If the finished value came in lower than estimated, profit would be -$25,995.04. The value rests on 7 comps, so the estimate needs to hold up.\"},{\"basis\":[\"below_target\"],\"text\":\"If building costs ran higher, profit would be -$42,693.55. A thin margin leaves little room for overruns.\"},{\"basis\":[\"as_is_sale\"],\"text\":\"The property is sold as-is and the seller makes no repairs, so any hidden condition problems fall on the builder.\"}],\"checks_before_offer\":[\"Confirm whether the seller will accept a price near the maximum offer of $324,271.50.\",\"Re-check the comparable sales behind the finished value of $1,420,799.85.\",\"Get a current build cost quote to test the cost-overrun case.\",\"Inspect the site for as-is condition issues before committing.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2223,
-      "output_tokens": 1261
+      "output_tokens": 556
     }
   },
   "sequence": 0

@@ -69,7 +69,7 @@
   },
   "replay_hash": "c84e6ce293df57168eade7fbafa18cb317be8c9155d4ad37a95b1750f8410c5b",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -144,12 +144,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"The pro-forma assumes an offer of $378,000.00 on a vacant lot and a finished value of $1,678,067.65. That leaves a profit of $329,563.07 and a margin of 19.64%, against a target of 15.00%. The target margin allows up to $448,602.06, so there is headroom of $70,602.06 over the offer. The deal clears the target, but it leans on a large home selling at the estimated value.\",\"risks\":[{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, 3,500 sq ft. The finished value of $1,678,067.65 depends on that very large home selling at the estimate, with only 5 comps behind it.\"},{\"basis\":[\"clears_target\"],\"text\":\"The margin clears the target only while the finished value holds. If it comes in lower than estimated, profit drops to $171,824.72.\"},{\"basis\":[\"clears_target\"],\"text\":\"Building costs are a second exposure. If they run higher than estimated, profit falls to $163,563.11. A longer hold also trims profit, to $306,731.83.\"},{\"basis\":[\"protected_trees\"],\"text\":\"Large or protected trees may limit where the house can go or bring mitigation costs. That could pressure the buildable size on a lot of 10,134 sq ft.\"},{\"basis\":[\"max_offer_above_price\",\"plans_or_permits\"],\"text\":\"The offer sits below the ceiling of $448,602.06, which leaves room to negotiate. Available plans or permits could shorten the 9 months hold, but their status needs confirming.\"}],\"checks_before_offer\":[\"Confirm the comps support the finished value for a home at the full buildable size, not only smaller homes.\",\"Get a tree survey and the local tree ordinance requirements, including any mitigation cost.\",\"Verify the status and transferability of the plans, survey, engineering or permits.\",\"Check the build cost estimate against current bids, and confirm the lot is truly vacant with no demolition needed.\"]}",
+    "text": "{\"summary\":\"This vacant lot pencils out well. The pro-forma shows a margin of 19.64% against a target of 15.00%, with profit of $329,563.07 on an offer of $378,000.00. The most the target margin allows is $448,602.06, so there is room above the assumed price. Available plans or permits help, but protected trees and a capped build size need checking.\",\"risks\":[{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was cut to the market's largest home size, so the finished value may rest on a house at the top of what the market absorbs.\"},{\"basis\":[\"protected_trees\"],\"text\":\"Large or protected trees may bring tree ordinance or mitigation requirements. These could limit where the house sits or add cost and delay not in the pro-forma.\"},{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The deal clears the target with room to spare, but that cushion depends on the estimated finished value of $1,678,067.65 holding up, supported by 5 comps.\"},{\"basis\":[\"vacant_lot\"],\"text\":\"With no existing house there is no demolition cost, but the lot of 10,134 sq ft still needs its site conditions confirmed, since utilities and grading are not covered in the facts.\"}],\"checks_before_offer\":[\"Confirm the tree rules and any mitigation cost, and whether the buildable area survives them.\",\"Verify that the plans or permits are current and transferable to the builder.\",\"Re-check that the 5 comps support a home at the capped size and the finished value.\",\"Confirm the build fits the 9 months assumed, given the lower profit if the hold runs longer.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2345,
-      "output_tokens": 1417
+      "output_tokens": 540
     }
   },
   "sequence": 0
