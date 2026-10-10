@@ -179,7 +179,9 @@ def test_o3_wrong_tokens_still_ban_the_address() -> None:
 
 
 def test_o2_a_spoofed_address_header_cannot_ban_the_healthcheck() -> None:
-    settings = _settings().model_copy(update={"api_client_ip_header": "CF-Connecting-IP"})
+    settings = _settings().model_copy(
+        update={"api_client_ip_header": "CF-Connecting-IP", "api_trusted_proxies": "10.0.0.0/8"}
+    )
     gate, _ = gated(settings)
     spoof = [*bearer("wrong"), (b"cf-connecting-ip", b"127.0.0.1")]
     for _ in range(25):

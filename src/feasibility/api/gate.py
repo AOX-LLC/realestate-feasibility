@@ -33,11 +33,21 @@ MAX_BODY_BYTES = 4096
 MAX_LOGGED_PATH = 200
 
 
-def client_address(scope: AsgiScope, header_name: str | None) -> str:
-    """The socket peer, or the configured header's value when that is a valid address. A header
-    anyone can send must not decide whose requests are counted, so it is read only when the
-    operator named it (behind a tunnel every peer would otherwise be the tunnel)."""
-    if header_name:
+def peer_address(scope: AsgiScope) -> str:
+    client = scope.get("client")
+    return str(client[0]) if client else "unknown"
+
+
+def client_address(
+    scope: AsgiScope,
+    header_name: str | None,
+    trusted: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (),
+) -> str:
+    """The socket peer, or the configured header's value when the peer is a trusted proxy and
+    the value is a valid address. A header anyone can send must not decide whose requests are
+    counted, so it is read only from the proxies the operator named."""
+    peer = peer_address(scope)
+    if header_name and trusted and _is_trusted(peer, trusted):
         wanted = header_name.lower().encode("latin-1")
         for name, value in scope.get("headers", []):
             if name == wanted:
@@ -45,8 +55,17 @@ def client_address(scope: AsgiScope, header_name: str | None) -> str:
                     return str(ipaddress.ip_address(value.decode("latin-1").strip()))
                 except ValueError:
                     break
-    client = scope.get("client")
-    return str(client[0]) if client else "unknown"
+    return peer
+
+
+def _is_trusted(
+    peer: str, trusted: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+) -> bool:
+    try:
+        address = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(address in network for network in trusted)
 
 
 def _header(scope: AsgiScope, name: bytes) -> str | None:
@@ -87,6 +106,11 @@ class ApiGate:
         self._tokens = TokenSet.from_settings(settings)
         self._limits = limits
         self._ip_header = settings.api_client_ip_header
+        self._trusted = tuple(
+            ipaddress.ip_network(item.strip(), strict=False)
+            for item in (settings.api_trusted_proxies or "").split(",")
+            if item.strip()
+        )
 
     async def __call__(self, scope: AsgiScope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -99,7 +123,7 @@ class ApiGate:
                 await send({"type": "websocket.close", "code": 1008})
             return
         path = scope["path"]
-        address = client_address(scope, self._ip_header)
+        address = client_address(scope, self._ip_header, self._trusted)
         access = required_access(scope["method"], path)
         banned_for = self._limits.ban.retry_after_s(address)
         # The open route is exempt from the ban: it has its own limit, and the container's own
@@ -110,7 +134,9 @@ class ApiGate:
             return
 
         if access is Access.OPEN:
-            verdict = self._limits.livez.hit(address)
+            # Keyed by the socket peer, which nobody can forge: the container's own healthcheck
+            # must not be limited by someone else's forged address.
+            verdict = self._limits.livez.hit(peer_address(scope))
             if not verdict.allowed:
                 await _respond(send, 429, "too many requests", _retry_after(verdict.retry_after_s))
                 return

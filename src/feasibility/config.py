@@ -1,5 +1,6 @@
 """Runtime settings, read from the environment (and an optional .env file)."""
 
+import ipaddress
 import re
 from datetime import timedelta
 from decimal import Decimal
@@ -82,6 +83,9 @@ class Settings(BaseSettings):
     # tunnel). Left unset, the socket peer is the client: a header anyone can send must not
     # choose who gets rate-limited or banned.
     api_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
+    # The proxy addresses (comma-separated IPs or networks) that may set that header. A header
+    # from any other peer is ignored, because anyone can send one.
+    api_trusted_proxies: str | None = None
 
     # Secrets this mode ignores but the process environment may still hold (compose passes
     # RENTCAST_API_KEY to every service): kept only so that redaction still covers them.
@@ -118,13 +122,35 @@ class Settings(BaseSettings):
             raise ValueError("MEDIA_OUT must be outside the repository")
         return path
 
-    @field_validator("api_read_token", "api_trigger_token", "api_client_ip_header", mode="before")
+    @field_validator(
+        "api_read_token",
+        "api_trigger_token",
+        "api_client_ip_header",
+        "api_trusted_proxies",
+        mode="before",
+    )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         # An empty variable (compose's empty default, `API_READ_TOKEN=` in .env) means unset.
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _check_trusted_proxies(self) -> "Settings":
+        if self.api_trusted_proxies is not None:
+            for item in self.api_trusted_proxies.split(","):
+                try:
+                    ipaddress.ip_network(item.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(
+                        "API_TRUSTED_PROXIES must be comma-separated IP addresses or networks"
+                    ) from None
+        if self.api_client_ip_header is not None and self.api_trusted_proxies is None:
+            raise ValueError(
+                "API_CLIENT_IP_HEADER needs API_TRUSTED_PROXIES: say which peers may set it"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_api_tokens(self) -> "Settings":

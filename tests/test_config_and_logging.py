@@ -143,10 +143,19 @@ def test_both_tokens_are_in_the_secret_values_and_out_of_the_repr() -> None:
 
 
 def test_a_client_address_header_must_be_a_header_name() -> None:
-    assert _api_settings(api_client_ip_header="CF-Connecting-IP").api_client_ip_header
+    ok = _api_settings(api_client_ip_header="CF-Connecting-IP", api_trusted_proxies="10.0.0.0/8")
+    assert ok.api_client_ip_header == "CF-Connecting-IP"
     assert _api_settings(api_client_ip_header="").api_client_ip_header is None
     with pytest.raises(ValidationError):
-        _api_settings(api_client_ip_header="X-Real IP: 1")
+        _api_settings(api_client_ip_header="X-Real IP: 1", api_trusted_proxies="10.0.0.1")
+
+
+def test_a_client_address_header_needs_the_proxies_that_may_set_it() -> None:
+    with pytest.raises(ValidationError, match="API_TRUSTED_PROXIES"):
+        _api_settings(api_client_ip_header="CF-Connecting-IP")
+    with pytest.raises(ValidationError, match="API_TRUSTED_PROXIES"):
+        _api_settings(api_trusted_proxies="not-an-address")
+    assert _api_settings(api_trusted_proxies="10.0.0.1, 192.168.0.0/16").api_trusted_proxies
 
 
 def test_the_rate_limits_have_the_planned_defaults_and_bounds() -> None:

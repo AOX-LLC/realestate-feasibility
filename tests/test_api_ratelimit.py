@@ -1,5 +1,7 @@
 """Rate limits and the failed-authentication ban, on a fake clock."""
 
+import ipaddress
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
@@ -73,7 +75,12 @@ def test_a_ban_starts_after_the_failure_limit_and_ends_with_its_time() -> None:
 
 def _client(engine: Engine, clock: Clock, **settings: object) -> TestClient:
     configured = _settings().model_copy(update=settings)
-    return TestClient(create_app(configured, engine, clock=clock), raise_server_exceptions=False)
+    # The peer is a real address, so that a trusted-proxy setting can name it.
+    return TestClient(
+        create_app(configured, engine, clock=clock),
+        raise_server_exceptions=False,
+        client=("10.1.2.3", 5000),
+    )
 
 
 def test_the_121st_read_in_a_minute_is_a_429_with_retry_after(engine: Engine) -> None:
@@ -138,6 +145,15 @@ def test_good_requests_do_not_count_toward_a_ban(engine: Engine) -> None:
 # --- which address is the client -------------------------------------------------------------
 
 
+TRUSTED = (ipaddress.ip_network("10.0.0.0/8"),)
+
+
+def test_a_header_from_a_peer_that_is_not_a_trusted_proxy_is_ignored() -> None:
+    scope = _scope("192.0.2.7", {"CF-Connecting-IP": "9.9.9.9"})
+
+    assert client_address(scope, "CF-Connecting-IP", TRUSTED) == "192.0.2.7"
+
+
 def _scope(peer: str | None, headers: dict[str, str]) -> dict[str, object]:
     return {
         "client": (peer, 1234) if peer else None,
@@ -149,14 +165,17 @@ def test_the_peer_is_the_client_when_no_header_is_configured() -> None:
     scope = _scope("10.0.0.1", {"CF-Connecting-IP": "9.9.9.9", "X-Forwarded-For": "8.8.8.8"})
 
     assert client_address(scope, None) == "10.0.0.1"
+    assert client_address(scope, "CF-Connecting-IP") == "10.0.0.1"  # no trusted proxy named
 
 
 def test_the_configured_header_is_used_when_it_holds_an_address() -> None:
     scope = _scope("10.0.0.1", {"CF-Connecting-IP": "9.9.9.9"})
 
-    assert client_address(scope, "CF-Connecting-IP") == "9.9.9.9"
+    assert client_address(scope, "CF-Connecting-IP", TRUSTED) == "9.9.9.9"
     assert (
-        client_address(_scope("10.0.0.1", {"CF-Connecting-IP": "2001:db8::1"}), "cf-connecting-ip")
+        client_address(
+            _scope("10.0.0.1", {"CF-Connecting-IP": "2001:db8::1"}), "cf-connecting-ip", TRUSTED
+        )
         == "2001:db8::1"
     )
 
@@ -165,7 +184,7 @@ def test_the_configured_header_is_used_when_it_holds_an_address() -> None:
 def test_a_configured_header_that_is_not_an_address_falls_back_to_the_peer(value: str) -> None:
     scope = _scope("10.0.0.1", {"CF-Connecting-IP": value})
 
-    assert client_address(scope, "CF-Connecting-IP") == "10.0.0.1"
+    assert client_address(scope, "CF-Connecting-IP", TRUSTED) == "10.0.0.1"
 
 
 def test_no_peer_and_no_header_is_still_a_key() -> None:
@@ -182,7 +201,9 @@ def test_a_spoofed_header_cannot_be_used_to_ban_someone_else_unless_configured(
         # The test client's own address was counted, not 7.7.7.7: it is banned now.
         assert client.get("/parcels", headers=READ_HEADERS).status_code == 429
 
-    with _client(engine, clock, api_client_ip_header="X-Forwarded-For") as client:
+    with _client(
+        engine, clock, api_client_ip_header="X-Forwarded-For", api_trusted_proxies="0.0.0.0/0"
+    ) as client:
         for _ in range(25):
             client.get("/parcels", headers={**WRONG, "X-Forwarded-For": "7.7.7.7"})
         ok = {**READ_HEADERS, "X-Forwarded-For": "6.6.6.6"}
