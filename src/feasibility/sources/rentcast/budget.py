@@ -87,7 +87,9 @@ def spend_lock(engine: Engine, *, wait: bool = True) -> Iterator[None]:
     """Hold the session-level lock that lets one spender at a time read the cap and the budget and
     act on them. No transaction stays open while it is held. By default waits for the lock; with
     `wait=False` raises `SpendInProgressError` at once if another caller holds it."""
-    with engine.connect() as connection:
+    connection = engine.connect()
+    held = False
+    try:
         if wait:
             connection.execute(
                 text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
@@ -99,6 +101,7 @@ def spend_lock(engine: Engine, *, wait: bool = True) -> Iterator[None]:
             if not taken:
                 connection.rollback()
                 raise SpendInProgressError("a spend is in progress; try again")
+        held = True
         connection.commit()
         try:
             yield
@@ -107,4 +110,11 @@ def spend_lock(engine: Engine, *, wait: bool = True) -> Iterator[None]:
             connection.execute(
                 text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK
             )
+            held = False
             connection.commit()
+    finally:
+        if held:
+            # The unlock did not happen: end the session, which drops the lock, instead of
+            # returning to the pool a connection that still holds it.
+            connection.invalidate()
+        connection.close()

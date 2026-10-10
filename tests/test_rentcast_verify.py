@@ -95,3 +95,26 @@ def test_verify_holds_the_lock_while_it_calls_and_lets_it_go_after(
 
     assert seen == [True]
     assert not lock_held(engine)  # released even though the check failed
+
+
+def test_a_connection_that_could_not_unlock_is_ended_not_returned_to_the_pool(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.engine import Connection
+
+    original = Connection.execute
+
+    def failing_unlock(self: Connection, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        if "pg_advisory_unlock" in str(statement):
+            raise RuntimeError("the unlock failed")
+        return original(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Connection, "execute", failing_unlock)
+    with pytest.raises(RuntimeError, match="the unlock failed"), spend_lock(engine):
+        pass
+    monkeypatch.undo()
+
+    # Asking for the lock again would not show a leak (it is re-entrant in its own session).
+    assert not lock_held(engine)
+    with spend_lock(engine, wait=False):
+        pass
