@@ -246,7 +246,7 @@ docker compose run --rm migrate feasibility brief show
 curl -s -H "$R" http://127.0.0.1:4501/sourcing/runs/1/brief | jq '.brief.shown'
 ```
 
-The brief is stored per run with a content hash (table `brief`), so a same-day re-run that changes nothing builds the same bytes. Rendering it as a PDF and sending it to Notion and Slack come in later sessions; nothing is sent anywhere yet.
+The brief is stored per run with a content hash (table `brief`), so a same-day re-run that changes nothing builds the same bytes. Nothing is sent anywhere by building it.
 
 ## Importing real DCAD data
 
@@ -268,6 +268,24 @@ The same import runs as a job: enqueue `cad.import` with the payload `{"market":
 
 DCAD publishes no update schedule, and there is no downloader yet. The importer streams the files, so memory stays bounded; a slow test imports a roughly 100 MB archive under 50 MB peak.
 
+### The PDF pro-forma, Notion and Slack
+
+Each candidate of a brief has a one-to-two page PDF: the verdict, the key figures, the cost stack, the sizing, the sensitivity grid, the signals and the narrative (only if it is in the brief), and the checks and assumptions. It is drawn from the stored brief and the stored pro-forma by code; no model text reaches it except the accepted narrative, and no address of a comparable sale does. Every page says that the cost values are illustrative, not a builder's actuals. Fonts are self-hosted (Space Grotesk, IBM Plex Sans, IBM Plex Mono, all SIL OFL 1.1, licences beside the files), and the renderer can fetch nothing from the network or from outside the package.
+
+```bash
+docker compose run --rm migrate feasibility brief pdf --all --out /media    # one PDF per candidate
+uv run feasibility brief preview slack                                       # the digest as JSON, sends nothing
+uv run feasibility brief preview notion --rank 1                             # one row's properties
+uv run feasibility brief notion-check                                        # which properties the database lacks
+uv run feasibility brief notion-setup                                        # add the missing ones (never removes any)
+```
+
+`DELIVERY_MODE=mock` (the default) builds every payload and sends it to a recorded fake, with no token. `live` needs `NOTION_TOKEN` and `NOTION_DATABASE_ID` for Notion and `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` for Slack, and the settings refuse to load when one of them is missing, or when a token is set in mock mode. Notion gets one row per candidate, found by a stable key and updated on later runs; the `Decision` column is yours and is never written. Slack gets at most one digest per run, with each PDF in its thread. Both are paced, retry only what is safe to retry, and report a failure as a short code, never with a response body or a token. `feasibility brief smoke notion|slack` sends one fixed synthetic row or message, and only in live mode.
+
+`MEDIA_OUT` is a folder outside the repository where `brief pdf` writes by default and where samples and payload dumps belong. Nothing generated is committed.
+
+**Not yet built:** the n8n flow that triggers the morning run and sends the delivery (5c), a ledger of what was delivered, and retention.
+
 ## CLI
 
 Run `uv run feasibility --help` (or `docker compose exec worker feasibility --help`).
@@ -284,6 +302,7 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
 | `brief build`, `brief show` | Build and read a run's brief (see [The brief](#the-brief)) |
+| `brief pdf`, `brief preview`, `brief notion-check`, `brief notion-setup`, `brief smoke` | Render the PDFs, preview the Notion and Slack payloads, check or extend the Notion database, and (live only) smoke-test a credential (see [The PDF pro-forma, Notion and Slack](#the-pdf-pro-forma-notion-and-slack)) |
 | `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [The LLM layer](#the-llm-layer)) |
 | `eval signals`, `eval narrative` | Score the model tasks against their answer keys, in replay by default (see [Evals and scorecards](#evals-and-scorecards)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
