@@ -342,3 +342,31 @@ def test_a_database_that_ever_held_live_runs_refuses_it_even_in_mock_mode(engine
         check_as_of_allowed(engine, _settings(), AS_OF, False)
     check_as_of_allowed(engine, _settings(), AS_OF, True)  # a dry run deletes nothing
     check_as_of_allowed(engine, _settings(), None, False)  # today's date is the normal case
+
+
+def test_deleting_listings_and_candidates_waits_for_the_markets_run_lock(engine: Engine) -> None:
+    """A run that has synced but not yet built reads listings that look unreferenced; the prune
+    must not delete them from under it."""
+    orphan = add_run(engine, age=100, tag="orphan")
+    run_sql(
+        engine, "DELETE FROM sourcing_run WHERE id = :i", i=orphan.run_id
+    )  # nothing refers to it
+    run_sql(engine, "DELETE FROM candidate_estimate")
+    add_run(engine, age=1, tag="newest")
+    finished = threading.Event()
+
+    def pruner() -> None:
+        prune(engine, POLICY, as_of=AS_OF)
+        finished.set()
+
+    with engine.begin() as holder:
+        store.lock_market_runs(holder, "dallas")  # a run is being built
+        thread = threading.Thread(target=pruner)
+        thread.start()
+        assert not finished.wait(1.5)
+        assert count(engine, "listing", f"id = {orphan.listing_id}") == 1
+    thread.join(30)
+
+    assert finished.is_set()
+    assert count(engine, "listing", f"id = {orphan.listing_id}") == 0
+    assert count(engine, "candidate", f"id = {orphan.candidate_id}") == 0

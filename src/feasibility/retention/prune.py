@@ -275,12 +275,17 @@ def _prune_runs(engine: Engine, cutoff: date, report: PruneReport) -> None:
 # --- batched deletes -----------------------------------------------------------------------------
 
 
-def _delete_in_batches(engine: Engine, sql: str, params: Mapping[str, Any]) -> int:
+def _delete_in_batches(
+    engine: Engine, sql: str, params: Mapping[str, Any], *, lock_market: str | None = None
+) -> int:
     """Run a `DELETE ... WHERE ctid IN (SELECT ctid ... LIMIT :n)` until it deletes nothing, each
-    batch in its own transaction. Returns the rows deleted."""
+    batch in its own transaction (under a market's run lock when `lock_market` names one). Returns
+    the rows deleted."""
     total = 0
     while True:
         with engine.begin() as connection:
+            if lock_market is not None:
+                sourcing_store.lock_market_runs(connection, lock_market)
             deleted = connection.execute(text(sql), {**params, "n": BATCH}).rowcount
         total += deleted
         if deleted < BATCH:
@@ -343,6 +348,14 @@ def _live_clause(dry_run: bool) -> str:
     return f"AND x.run_id NOT IN (SELECT id FROM ({_PRUNABLE_RUNS}) p)"
 
 
+def _markets(engine: Engine, table: str) -> list[str]:
+    with engine.connect() as connection:
+        return [
+            row[0]
+            for row in connection.execute(text(f"SELECT DISTINCT market FROM {table} ORDER BY 1"))
+        ]
+
+
 def _prune_listings(engine: Engine, cutoffs: Cutoffs, report: PruneReport) -> None:
     kept = _LISTING_KEPT.format(live=_live_clause(report.dry_run))
     params = {"cutoff": cutoffs.listing, "run_cutoff": cutoffs.run}
@@ -350,12 +363,16 @@ def _prune_listings(engine: Engine, cutoffs: Cutoffs, report: PruneReport) -> No
         sql = f"SELECT count(*) FROM listing l WHERE NOT ({kept})"
         report.counts["listing"] = _count(engine, sql, params)
         return
-    report.counts["listing"] = _delete_in_batches(
-        engine,
-        "DELETE FROM listing WHERE ctid IN (SELECT l.ctid FROM listing l "
-        f"WHERE NOT ({kept}) LIMIT :n)",
-        params,
-    )
+    # Per market, each batch under that market's run lock: a run that has synced but not yet built
+    # reads listings that nothing refers to yet, and must not lose them to a prune.
+    for market in _markets(engine, "listing"):
+        report.counts["listing"] += _delete_in_batches(
+            engine,
+            "DELETE FROM listing WHERE ctid IN (SELECT l.ctid FROM listing l "
+            f"WHERE l.market = :market AND NOT ({kept}) LIMIT :n)",
+            {**params, "market": market},
+            lock_market=market,
+        )
 
 
 def _prune_candidates(engine: Engine, cutoffs: Cutoffs, report: PruneReport) -> None:
@@ -378,26 +395,28 @@ def _prune_candidates(engine: Engine, cutoffs: Cutoffs, report: PruneReport) -> 
             params,
         )
         return
-    while True:
-        with engine.begin() as connection:
-            gone = [
-                row[0]
-                for row in connection.execute(
-                    text(
-                        "DELETE FROM candidate WHERE ctid IN (SELECT c.ctid FROM candidate c "
-                        f"WHERE NOT ({kept}) LIMIT :n) RETURNING id"
-                    ),
-                    {**params, "n": BATCH},
-                )
-            ]
-            if gone:
-                report.counts["delivery"] += connection.execute(
-                    text("DELETE FROM delivery WHERE target = 'notion' AND item = ANY(:items)"),
-                    {"items": [f"row:{number}" for number in gone]},
-                ).rowcount
-        report.counts["candidate"] += len(gone)
-        if len(gone) < BATCH:
-            return
+    for market in _markets(engine, "candidate"):
+        while True:
+            with engine.begin() as connection:
+                sourcing_store.lock_market_runs(connection, market)
+                gone = [
+                    row[0]
+                    for row in connection.execute(
+                        text(
+                            "DELETE FROM candidate WHERE ctid IN (SELECT c.ctid FROM candidate c "
+                            f"WHERE c.market = :market AND NOT ({kept}) LIMIT :n) RETURNING id"
+                        ),
+                        {**params, "market": market, "n": BATCH},
+                    )
+                ]
+                if gone:
+                    report.counts["delivery"] += connection.execute(
+                        text("DELETE FROM delivery WHERE target = 'notion' AND item = ANY(:items)"),
+                        {"items": [f"row:{number}" for number in gone]},
+                    ).rowcount
+            report.counts["candidate"] += len(gone)
+            if len(gone) < BATCH:
+                break
 
 
 # --- the whole prune -----------------------------------------------------------------------------
