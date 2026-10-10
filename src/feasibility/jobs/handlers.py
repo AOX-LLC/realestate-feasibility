@@ -5,19 +5,31 @@ Payloads are validated against the model when a job is enqueued and again when i
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
+from feasibility.delivery.build import BriefError
+from feasibility.delivery.deliver import deliver_brief
+from feasibility.delivery.errors import (
+    DeliveryConfigError,
+    DeliveryUnknownOutcomeError,
+    PdfRenderError,
+)
 from feasibility.jobs import queue
+from feasibility.jobs.payloads import (
+    BriefDeliverPayload,
+    CadImportPayload,
+    ListingsSyncPayload,
+    MorningRunPayload,
+    SourcingRunPayload,
+)
 from feasibility.listings import sync_listings
 from feasibility.llm.run import PermanentModelError
 from feasibility.markets.loader import PackError, get_pack
-from feasibility.markets.schema import FileKind
 from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
 from feasibility.sources.mls.reso import remarks_source_for
@@ -26,6 +38,8 @@ from feasibility.sources.rentcast.client import (
     RentCastClient,
     SchemaDriftError,
 )
+from feasibility.sourcing import store as sourcing_store
+from feasibility.sourcing.dates import resolve_run_date
 from feasibility.sourcing.errors import SourcingError
 from feasibility.sourcing.run import run_sourcing
 
@@ -64,6 +78,15 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     SourcingError,
     # A recording that is missing or a model that is misconfigured is the same on every attempt.
     PermanentModelError,
+    # A brief that cannot be built (no such run, a run still running) is the same on every try.
+    BriefError,
+    # The renderer refused a fetch: the same document is refused the same way.
+    PdfRenderError,
+    # Credentials, a channel or a database that is wrong stay wrong; retrying would only repeat the
+    # request. (An incomplete delivery is not here: a retry sends only what is left.)
+    DeliveryConfigError,
+    # A Slack item may have been sent. Only a person can look in the channel and decide.
+    DeliveryUnknownOutcomeError,
 )
 
 
@@ -84,18 +107,6 @@ def enqueue_job(
     """Validate a raw payload against its kind's model, then queue the job."""
     model = lookup(registry, kind).payload_model.model_validate(payload)
     return queue.enqueue(connection, kind, model, dedupe_key=dedupe_key)
-
-
-class CadImportPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-    # A file name inside the local data directory; jobs never read files elsewhere.
-    archive: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
-    kind: FileKind
-    roll_year: int | None = None
-    file_date: date | None = None
-    force: bool = False
 
 
 def resolve_local_file(local_dir: Path, name: str) -> Path:
@@ -119,12 +130,6 @@ def run_cad_import(payload: CadImportPayload, context: JobContext) -> None:
     )
 
 
-class ListingsSyncPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-
-
 def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None:
     """Fetch new listings from every enabled source in the market pack and store them."""
     pack = get_pack(payload.market)
@@ -137,16 +142,48 @@ def run_listings_sync(payload: ListingsSyncPayload, context: JobContext) -> None
         client.close()
 
 
-class SourcingRunPayload(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    market: str
-    # None means today in the market's time zone (live mode); mock mode needs a date.
-    as_of: date | None = None
-
-
 def run_sourcing_job(payload: SourcingRunPayload, context: JobContext) -> None:
     run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
+
+
+def _queue_brief(context: JobContext, run_id: int) -> None:
+    with context.engine.begin() as connection:
+        queue.enqueue(
+            connection,
+            "brief.deliver",
+            BriefDeliverPayload(run_id=run_id),
+            dedupe_key=f"brief.deliver:{run_id}",
+        )
+
+
+def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
+    """Source the day, then queue its brief.
+
+    A run that ranked but whose model stages could not finish (a missing recording, a model
+    that is misconfigured) still has a ranking and pro-formas: its brief is queued, partial,
+    and the job still ends dead so the failure stays visible. A model provider that is down
+    (retryable) queues nothing: the retry reuses every cached result and briefs when it
+    finishes. Any other failure queues nothing."""
+    try:
+        result = run_sourcing(context.engine, context.settings, payload.market, payload.as_of)
+    except PermanentModelError:
+        # The date the trigger resolved; asking again could answer differently (a live run that
+        # crossed midnight) and lose the brief.
+        run_date = (
+            payload.as_of or resolve_run_date(context.settings, get_pack(payload.market), None)[0]
+        )
+        with context.engine.connect() as connection:
+            run_id = sourcing_store.run_id_of(connection, payload.market, run_date)
+        if run_id is not None:
+            _queue_brief(context, run_id)
+        raise
+    _queue_brief(context, result.run_id)
+
+
+def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None:
+    """Build the run's brief and deliver it to the enabled targets (mock or live). It sends only
+    what the ledger says is not there yet, so a retry or a second job for the run is harmless."""
+    deliver_brief(context.engine, context.settings, payload.run_id)
 
 
 def build_registry() -> dict[str, JobKind]:
@@ -155,4 +192,6 @@ def build_registry() -> dict[str, JobKind]:
         "cad.import": JobKind(CadImportPayload, run_cad_import),
         "listings.sync": JobKind(ListingsSyncPayload, run_listings_sync),
         "sourcing.run": JobKind(SourcingRunPayload, run_sourcing_job),
+        "morning.run": JobKind(MorningRunPayload, run_morning),
+        "brief.deliver": JobKind(BriefDeliverPayload, run_brief_deliver),
     }

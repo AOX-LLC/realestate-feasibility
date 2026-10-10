@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="dcterms.created" content="{{ d.as_of }}T00:00:00+00:00">
+<meta name="dcterms.modified" content="{{ d.as_of }}T00:00:00+00:00">
+<title>Pro-forma #{{ d.rank }} {{ d.street }}, {{ d.zip5 }}</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="brief.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="meta">Acquisition brief {{ d.as_of }} &middot; rank #{{ d.rank }} &middot; score {{ d.score }}{% if d.synthetic %} &middot; Synthetic demo data{% endif %}</div>
+  <h1>{{ d.street }}</h1>
+  <div class="address">{{ d.zip5 }} &middot; list price {{ d.list_price }}</div>
+  {% if d.flags %}<div class="chips">{% for flag in d.flags %}<span class="chip" title="{{ flag.meaning }}">{{ flag.code }}</span>{% endfor %}</div>{% endif %}
+  {% for line in d.verdict %}<div class="verdict">{{ line }}</div>{% endfor %}
+</header>
+
+<h2>Key figures</h2>
+<table class="pairs key">
+{% for line in d.key_figures %}<tr><td>{{ line.label }}</td><td class="value">{{ line.value }}</td></tr>
+{% endfor %}</table>
+
+<div class="two">
+<section>
+<h2>Cost stack</h2>
+<table class="pairs">
+{% for line in d.cost_stack %}<tr><td>{{ line.label }}</td><td class="value">{{ line.value }}</td></tr>
+{% endfor %}</table>
+</section>
+<section>
+<h2>Sizing</h2>
+<table class="pairs">
+{% for line in d.sizing %}<tr><td>{{ line.label }}</td><td class="value">{{ line.value }}</td></tr>
+{% endfor %}</table>
+<h2>Value basis</h2>
+<table class="pairs">
+{% for line in d.arv_basis %}<tr><td>{{ line.label }}</td><td class="value">{{ line.value }}</td></tr>
+{% endfor %}</table>
+</section>
+</div>
+
+<section class="keep">
+<h2>Sensitivity</h2>
+{% if d.grid_rows %}
+<table class="grid">
+<tr><th></th>{% for column in d.grid_columns %}<th class="value">{{ column }}</th>{% endfor %}</tr>
+{% for row in d.grid_rows %}<tr><td>{{ row.label }}</td>{% for cell in row.cells %}<td class="value">{{ cell }}</td>{% endfor %}</tr>
+{% endfor %}</table>
+{% endif %}
+<p class="muted">{{ d.grid_note }}</p>
+</section>
+
+<h2>Signals</h2>
+{% for signal in d.signals %}<p class="signal {{ signal.polarity }}"><span class="tag">{{ signal.polarity }}</span> {{ signal.meaning }} <span class="source">({{ signal.source }})</span></p>
+{% else %}<p class="muted">No signals were found.</p>
+{% endfor %}
+<p class="muted">{{ d.signals_note }}</p>
+
+<h2>Risk narrative</h2>
+<div class="narrative">
+<p class="note">{{ d.narrative_note }}</p>
+{% if d.narrative_status == "accepted" %}
+<p>{{ d.summary }}</p>
+{% if d.risks %}<ul>{% for risk in d.risks %}<li>{{ risk.text }} <span class="basis">[{{ risk.basis }}]</span></li>{% endfor %}</ul>{% endif %}
+{% if d.checks %}<h2>Check before an offer</h2><ul>{% for check in d.checks %}<li>{{ check }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+</div>
+
+<h2>Assumptions</h2>
+<p>{{ d.assumptions_note }}</p>
+</body>
+</html>

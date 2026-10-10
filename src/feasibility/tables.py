@@ -178,6 +178,7 @@ listing = Table(
 
 RUN_STATUSES = ("running", "completed", "failed")
 SYNC_STATUSES = ("fresh", "stale", "skipped", "pending")
+DATA_MODES = ("mock", "live")
 MATCH_STATUSES = ("matched", "ambiguous", "unmatched")
 MATCH_METHODS = ("exact", "stem", "gis_group", "street_only")
 LISTING_CHANGE_KINDS = ("new", "relisted", "price_changed", "unchanged", "gone", "aged_out")
@@ -201,9 +202,13 @@ sourcing_run = Table(
     Column("error", Text),
     _timestamp("started_at"),
     _timestamp("finished_at", nullable=True),
+    # The mode the run ran in, and when its last stage ended (null while stages remain).
+    Column("data_mode", Text, nullable=False, server_default=text("'mock'")),
+    _timestamp("stages_finished_at", nullable=True),
     UniqueConstraint("market", "as_of"),
     CheckConstraint(_in_list("status", RUN_STATUSES), name="status"),
     CheckConstraint(_in_list("sync_status", SYNC_STATUSES), name="sync_status"),
+    CheckConstraint(_in_list("data_mode", DATA_MODES), name="data_mode"),
 )
 
 listing_match = Table(
@@ -619,4 +624,60 @@ candidate_narrative = Table(
         "status <> 'not_eligible' OR input_sha256 IS NULL", name="not_eligible_no_digest"
     ),
     Index(None, "run_id", "status"),
+)
+
+BRIEF_COMPLETENESS = ("complete", "partial")
+
+# What is delivered for a run, built by code from the run's stored rows and kept for audit and
+# idempotency (a same-day re-run that changes nothing hashes the same). Rebuilt in place.
+brief = Table(
+    "brief",
+    metadata,
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="CASCADE")),
+    Column("version", SmallInteger, nullable=False),
+    Column("completeness", Text, nullable=False),
+    Column("content", JSONB, nullable=False),
+    Column("content_sha256", CHAR(64), nullable=False),
+    _timestamp("built_at"),
+    PrimaryKeyConstraint("run_id"),
+    CheckConstraint("version = 1", name="version"),
+    CheckConstraint(_in_list("completeness", BRIEF_COMPLETENESS), name="completeness"),
+    CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="content_sha256"),
+)
+
+DELIVERY_TARGETS = ("notion", "slack")
+DELIVERY_MODES = ("mock", "live")
+DELIVERY_STATUSES = ("sending", "sent", "failed", "unknown", "skipped")
+
+# What was sent where for a run, one row per target, item and mode (see delivery/ledger.py). A row
+# is written `sending` before the outbound call and finished after it, so a crash leaves a row that
+# says the outcome is unknown. It holds ids, hashes and short codes, never a payload or a URL.
+delivery = Table(
+    "delivery",
+    metadata,
+    Column("id", BigInteger, Identity(), primary_key=True),
+    Column("run_id", BigInteger, ForeignKey("sourcing_run.id", ondelete="CASCADE"), nullable=False),
+    Column("target", Text, nullable=False),
+    Column("item", Text, nullable=False),
+    Column("mode", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("content_sha256", CHAR(64), nullable=False),
+    Column("remote_ref", Text),
+    Column("attempts", SmallInteger, nullable=False, server_default="0"),
+    Column("error_code", Text),
+    _timestamp("created_at"),
+    _timestamp("updated_at"),
+    UniqueConstraint("run_id", "target", "item", "mode"),
+    CheckConstraint(_in_list("target", DELIVERY_TARGETS), name="target"),
+    CheckConstraint("item ~ '^(digest|row:[0-9]{1,19}|file:[0-9]{1,19})$'", name="item"),
+    CheckConstraint(_in_list("mode", DELIVERY_MODES), name="mode"),
+    CheckConstraint(_in_list("status", DELIVERY_STATUSES), name="status"),
+    CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="content_sha256"),
+    CheckConstraint(
+        "remote_ref IS NULL OR remote_ref ~ '^[A-Za-z0-9._:-]{1,64}$'", name="remote_ref"
+    ),
+    CheckConstraint("error_code IS NULL OR error_code ~ '^[a-z0-9_]{1,64}$'", name="error_code"),
+    CheckConstraint("status <> 'sent' OR remote_ref IS NOT NULL", name="sent_has_ref"),
+    CheckConstraint("attempts >= 0", name="attempts"),
+    Index(None, "target", "item", "mode", "updated_at"),
 )

@@ -1,0 +1,220 @@
+{
+  "version": 1,
+  "as_of": "2026-10-02",
+  "rank": 3,
+  "street": "4033 FIXTURE ST",
+  "zip5": "75209",
+  "score": "71.25",
+  "list_price": "$420,000.00",
+  "synthetic": true,
+  "flags": [
+    {
+      "code": "gis_group",
+      "meaning": "The site is several parcels grouped by one map identifier."
+    },
+    {
+      "code": "zoning_mixed",
+      "meaning": "The parcels in the site have different zonings, so none was applied."
+    },
+    {
+      "code": "zoning_rule_assumed",
+      "meaning": "The zoning is unknown, so the market's default sizing rule was used."
+    }
+  ],
+  "verdict": [
+    "The margin is below the target margin.",
+    "The pro-forma loses money at the offer price.",
+    "The most the target margin allows is below the offer price."
+  ],
+  "key_figures": [
+    {
+      "label": "After-repair value",
+      "value": "$1,148,121.09"
+    },
+    {
+      "label": "Total cost",
+      "value": "$1,152,696.17"
+    },
+    {
+      "label": "Profit",
+      "value": "-$4,575.08"
+    },
+    {
+      "label": "Margin",
+      "value": "-0.40%"
+    },
+    {
+      "label": "Target margin",
+      "value": "15.00%"
+    },
+    {
+      "label": "Return on cash",
+      "value": "-1.62%"
+    },
+    {
+      "label": "Annualised return",
+      "value": "-2.15%"
+    },
+    {
+      "label": "Maximum offer",
+      "value": "$259,672.45"
+    },
+    {
+      "label": "Headroom against the offer",
+      "value": "-$160,327.55"
+    }
+  ],
+  "cost_stack": [
+    {
+      "label": "Offer price",
+      "value": "$420,000.00"
+    },
+    {
+      "label": "Closing on the purchase",
+      "value": "$4,200.00"
+    },
+    {
+      "label": "Demolition",
+      "value": "$11,700.00"
+    },
+    {
+      "label": "Hard cost",
+      "value": "$486,400.00"
+    },
+    {
+      "label": "Contingency",
+      "value": "$24,320.00"
+    },
+    {
+      "label": "Soft costs",
+      "value": "$58,368.00"
+    },
+    {
+      "label": "Financing",
+      "value": "$66,334.77"
+    },
+    {
+      "label": "Holding",
+      "value": "$12,486.14"
+    },
+    {
+      "label": "Selling",
+      "value": "$68,887.26"
+    },
+    {
+      "label": "Total cost",
+      "value": "$1,152,696.17"
+    }
+  ],
+  "sizing": [
+    {
+      "label": "Lot",
+      "value": "6,400 sq ft"
+    },
+    {
+      "label": "Buildable size",
+      "value": "2,560 sq ft"
+    },
+    {
+      "label": "Sizing rule",
+      "value": "default"
+    },
+    {
+      "label": "Size limit",
+      "value": "not capped"
+    },
+    {
+      "label": "Hold",
+      "value": "9 months"
+    }
+  ],
+  "arv_basis": [
+    {
+      "label": "Sales used",
+      "value": "7 comps"
+    },
+    {
+      "label": "Median price per sq ft",
+      "value": "$448.48"
+    },
+    {
+      "label": "Lowest sale price",
+      "value": "$1,190,000.00"
+    },
+    {
+      "label": "Highest sale price",
+      "value": "$1,520,000.00"
+    },
+    {
+      "label": "Estimate fetched on",
+      "value": "2026-10-01"
+    },
+    {
+      "label": "Estimate is stale",
+      "value": "no"
+    }
+  ],
+  "grid_columns": [
+    "Hard cost -10%",
+    "Hard cost 0%",
+    "Hard cost +10%",
+    "Hard cost +20%"
+  ],
+  "grid_rows": [
+    {
+      "label": "Value -10%",
+      "cells": [
+        "-$51,789.91",
+        "-$112,498.47",
+        "-$173,207.03",
+        "-$233,915.59"
+      ]
+    },
+    {
+      "label": "Value -5%",
+      "cells": [
+        "$2,171.79",
+        "-$58,536.77",
+        "-$119,245.33",
+        "-$179,953.89"
+      ]
+    },
+    {
+      "label": "Value 0%",
+      "cells": [
+        "$56,133.48",
+        "-$4,575.08",
+        "-$65,283.64",
+        "-$125,992.20"
+      ]
+    },
+    {
+      "label": "Value +5%",
+      "cells": [
+        "$110,095.16",
+        "$49,386.60",
+        "-$11,321.96",
+        "-$72,030.52"
+      ]
+    },
+    {
+      "label": "Value +10%",
+      "cells": [
+        "$164,056.86",
+        "$103,348.30",
+        "$42,639.74",
+        "-$18,068.82"
+      ]
+    }
+  ],
+  "grid_note": "Profit at a hold of 9 months.",
+  "signals": [],
+  "signals_note": "Signals read from the listing; the listing's own words are not shown.",
+  "narrative_status": "not_available",
+  "narrative_note": "Not available today.",
+  "summary": "",
+  "risks": [],
+  "checks": [],
+  "assumptions_note": "The cost assumptions are illustrative defaults for this market, not quotes and not a builder's actuals.",
+  "footer": "Every cost value is illustrative, not a builder's actuals."
+}

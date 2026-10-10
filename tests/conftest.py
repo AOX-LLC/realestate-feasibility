@@ -43,6 +43,22 @@ def engine(migrated_engine: Engine) -> Engine:
     return migrated_engine
 
 
+@pytest.fixture(autouse=True)
+def no_delivery_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer's shell may hold Notion or Slack values or `DELIVERY_MODE=live`; tests build
+    their settings from arguments and must never be steered by them (settings read the process
+    environment even with no .env file). A test that wants one sets it itself."""
+    for name in (
+        "DELIVERY_MODE",
+        "DELIVERY_TARGETS",
+        "NOTION_TOKEN",
+        "NOTION_DATABASE_ID",
+        "SLACK_BOT_TOKEN",
+        "SLACK_CHANNEL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def quiet_model() -> Iterator[None]:
     """Every sourcing run reaches the model stages. Tests should not depend on the committed

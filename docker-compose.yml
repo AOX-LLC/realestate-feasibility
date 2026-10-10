@@ -8,6 +8,16 @@ name: realestate-feasibility
 # day of test runs, which the kernel reclaims before it kills anything).
 # The db and migrate limits are larger than twice because real county data is bigger than the
 # snapshot and has not been measured: re-measure before trusting them with it.
+# 2026-10-09, with the auth gate and the brief in the image: api 123 MiB after a request of each
+# kind, worker 118 MiB after a day-1 run. Both limits stay at 256m, about twice the peak.
+# 2026-10-09, with PDF rendering in the image (5b): a render adds about 57 MiB to a process (149 MiB
+# peak against 92 MiB before the first render, in the built image under a 256m limit). The worker
+# will render in 5c; 118 + 57 is about 175 MiB, which is not measured through a live worker, so its
+# limit is 384m, about twice that. The api renders nothing and stays at 256m.
+# 2026-10-10, the morning run end to end on a scratch database (day 1, day 2, the same day again, and
+# a run started by n8n; mock delivery, the committed recordings): the worker's cgroup peak was 183 MiB
+# (it rendered 11 PDFs) against its 384m limit, and the api's 140 MiB against 256m. n8n 2.42.6 settles
+# at about 440 MiB and its peak touched 512 MiB at the first start, so its limit is 1024m.
 
 x-hardening: &hardening
   read_only: true
@@ -21,14 +31,16 @@ x-hardening: &hardening
 x-local-dir: &local-dir
   volumes:
     - ./local:/app/local
+    - ${MEDIA_OUT_DIR:-./local/media}:/media
 
 x-local-dir-read-only: &local-dir-read-only
   volumes:
     - ./local:/app/local:ro
+    - ${MEDIA_OUT_DIR:-./local/media}:/media
 
 # The app's own variables, shared by every service that runs the app.
 x-app-environment: &app-environment
-  DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/feasibility
+  DATABASE_URL: postgresql+psycopg://feasibility:${POSTGRES_PASSWORD:-feasibility-local-dev}@db:5432/${FEASIBILITY_DB:-feasibility}
   DATA_MODE: ${DATA_MODE:-mock}
   RENTCAST_API_KEY: ${RENTCAST_API_KEY:-}
   RENTCAST_MONTHLY_BUDGET: ${RENTCAST_MONTHLY_BUDGET:-50}
@@ -49,6 +61,27 @@ x-llm-environment: &llm-environment
 x-llm-budgets: &llm-budgets
   LLM_RUN_BUDGET_USD: ${LLM_RUN_BUDGET_USD:-1.00}
   LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-10.00}
+
+# The API's bearer tokens go to the api service only: the worker, migrate and any scheduler never
+# hold a token that reads, and the scheduler's own credential is the trigger token entered in it.
+x-api-auth: &api-auth
+  API_READ_TOKEN: ${API_READ_TOKEN:-}
+  API_TRIGGER_TOKEN: ${API_TRIGGER_TOKEN:-}
+  API_CLIENT_IP_HEADER: ${API_CLIENT_IP_HEADER:-}
+  API_TRUSTED_PROXIES: ${API_TRUSTED_PROXIES:-}
+
+# Delivery settings, merged into worker and migrate only: the api never delivers, and a token for
+# Notion or Slack must not be in a container that does not use it.
+x-delivery-environment: &delivery-environment
+  DELIVERY_MODE: ${DELIVERY_MODE:-mock}
+  DELIVERY_TARGETS: ${DELIVERY_TARGETS:-notion,slack}
+  NOTION_TOKEN: ${NOTION_TOKEN:-}
+  NOTION_DATABASE_ID: ${NOTION_DATABASE_ID:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-}
+  # Where mock delivery leaves what it would have sent (the PDFs and the request lines). Set
+  # MEDIA_OUT_DIR to a folder the container user (uid 10001) can write; unset, nothing is written.
+  MEDIA_OUT: ${MEDIA_OUT_DIR:+/media}
 
 x-app: &app
   build:
@@ -87,7 +120,7 @@ services:
   migrate:
     <<: [*app, *hardening, *local-dir]
     environment:
-      <<: [*app-environment, *llm-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -98,9 +131,11 @@ services:
   api:
     <<: [*app, *hardening]
     environment:
-      <<: [*app-environment, *llm-budgets]
+      <<: [*app-environment, *llm-budgets, *api-auth]
     ports:
       - "127.0.0.1:4501:4501"
+    # The default network (the database) and the one the scheduler is on.
+    networks: [default, schedule]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -109,7 +144,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4501/health', timeout=3).status == 200 else 1)"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4501/livez', timeout=3).status == 200 else 1)"
       interval: 5s
       timeout: 5s
       retries: 20
@@ -120,14 +155,66 @@ services:
   worker:
     <<: [*app, *hardening, *local-dir-read-only]
     environment:
-      <<: [*app-environment, *llm-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
     stop_grace_period: 30s
-    mem_limit: 256m
+    mem_limit: 384m
+
+  # The clock, and nothing else (opt in: `docker compose --profile schedule up -d n8n`, so a plain
+  # `up` and CI never pull it). It starts the morning run by POSTing to the API's trigger route with
+  # the trigger token kept in its own encrypted store; it holds none of this application's
+  # variables, shares a network with the api only (never the database), and has no node that runs
+  # a command, reads a file, runs code or listens for a request. Telemetry and update checks are
+  # off. n8n 2.42.6 was the `stable` tag on 2026-10-10; the index digest was resolved that day.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.42.6@sha256:526daa38b68e923cc00c5280d18b4da5d489f115a73bdbf3b8e452b184197a9a
+    profiles: ["schedule"]
+    ports:
+      - "127.0.0.1:4503:5678"
+    environment:
+      GENERIC_TIMEZONE: America/Chicago
+      TZ: America/Chicago
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      # Optional: with no value in the shell or .env it is not set at all, and n8n keeps a key it
+      # generates in its volume. (A null value passes the variable through only if it is defined.)
+      N8N_ENCRYPTION_KEY:
+      # The editor is plain http on 127.0.0.1 (reach it through an SSH tunnel), so its cookie
+      # cannot be marked Secure.
+      N8N_SECURE_COOKIE: "false"
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.code","n8n-nodes-base.function","n8n-nodes-base.functionItem","n8n-nodes-base.aiTransform","n8n-nodes-base.git","n8n-nodes-base.ssh","n8n-nodes-base.ftp","n8n-nodes-base.localFileTrigger","n8n-nodes-base.emailReadImap","n8n-nodes-base.webhook","n8n-nodes-base.respondToWebhook","n8n-nodes-base.formTrigger","n8n-nodes-base.wait","@n8n/n8n-nodes-langchain.code","@n8n/n8n-nodes-langchain.chatTrigger","@n8n/n8n-nodes-langchain.mcpTrigger"]'
+      # Nobody with editor access can install an npm package that runs code in n8n.
+      N8N_COMMUNITY_PACKAGES_ENABLED: "false"
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./n8n:/workflows:ro
+    networks: [schedule]
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    # n8n compiles its editor assets into ~/.cache at every start and stops if it cannot; both
+    # folders are memory, so the root filesystem stays read-only.
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=1700"
+      - "/home/node/.cache:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000,mode=1700"
+    pids_limit: 256
+    restart: unless-stopped
+    mem_limit: 1024m
+
+networks:
+  # The api and the scheduler, and nothing else: the scheduler cannot reach the database.
+  schedule:
 
 volumes:
   pgdata:
+  n8ndata:

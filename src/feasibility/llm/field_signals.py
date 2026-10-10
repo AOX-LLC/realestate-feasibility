@@ -26,6 +26,14 @@ FIELD_SIGNAL_MEANINGS: dict[str, str] = {
 }
 
 
+# The polarity each field signal has, written once so that a stored row can be checked against it.
+FIELD_SIGNAL_POLARITY: dict[str, Polarity] = {
+    "price_reduced": "opportunity",
+    "relisted": "risk",
+    "long_on_market": "opportunity",
+}
+
+
 @dataclass(frozen=True)
 class FieldSignalInput:
     """What the three rules read for the primary listing of one candidate in one run.

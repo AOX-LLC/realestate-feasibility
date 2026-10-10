@@ -27,6 +27,13 @@ endorsed by RentCast.
 Nothing is sent in the default replay mode. The committed listing text (`data/mls/dallas.json`) is
 synthetic.
 
+**Notion and Slack.** With `DELIVERY_MODE=live` the brief is sent to a [Notion](https://www.notion.so/)
+database and a [Slack](https://slack.com/) channel over their public APIs, using a Notion internal
+integration token and a Slack bot token the operator supplies; each service's terms apply to what is
+sent there. In the default mock mode nothing is sent and no token is read. Nothing from either
+service is stored beyond a page or message reference in the delivery ledger. This project is not
+affiliated with or endorsed by Notion or Slack.
+
 ## Python dependencies
 
 Runtime dependencies (installed in the container image), with the licence each declares:
@@ -39,11 +46,16 @@ Runtime dependencies (installed in the container image), with the licence each d
 | anthropic | 1.12.1 | MIT |  |
 | anyio | 4.15.1 | MIT |  |
 | aox-agent-core | 0.1.0 | MIT | pinned to the git tag v0.1.0 of its repository |
+| brotli | 1.2.0 | MIT |  |
+| brotlicffi | 1.2.0.2 | MIT | PyPy-only, not installed on CPython; licence from upstream, not read from this environment |
 | certifi | 2026.7.22 | MPL-2.0 |  |
+| cffi | 2.1.1 | MIT-0 |  |
 | click | 8.5.0 | BSD-3-Clause |  |
 | colorama | 0.4.6 | BSD-3-Clause | platform-specific, not installed on Linux; licence from upstream, not read from this environment |
+| cssselect2 | 0.10.1 | BSD-3-Clause |  |
 | docstring-parser | 0.18.0 | MIT |  |
 | fastapi | 0.142.2 | MIT |  |
+| fonttools | 4.66.1 | MIT |  |
 | h11 | 0.16.0 | MIT |  |
 | httpcore | 1.0.9 | BSD-3-Clause |  |
 | httpcore2 | 2.13.1 | BSD-3-Clause |  |
@@ -51,30 +63,40 @@ Runtime dependencies (installed in the container image), with the licence each d
 | httpx2 | 2.13.1 | BSD-3-Clause |  |
 | httpx2-jsfetch | 1.0 | not checked | platform-specific, not installed on Linux; licence not checked |
 | idna | 3.20 | BSD-3-Clause |  |
+| jinja2 | 3.1.6 | BSD-3-Clause |  |
 | jiter | 0.17.0 | MIT |  |
 | mako | 1.4.3 | MIT |  |
 | markdown-it-py | 4.2.0 | MIT |  |
 | markupsafe | 3.0.3 | BSD-3-Clause |  |
 | mdurl | 0.1.2 | MIT |  |
 | opentelemetry-api | 1.45.0 | Apache-2.0 |  |
+| pillow | 12.3.0 | MIT-CMU |  |
 | psycopg | 3.3.6 | LGPL-3.0-only |  |
 | psycopg-binary | 3.3.6 | LGPL-3.0-only |  |
+| pycparser | 3.11 | BSD-3-Clause |  |
 | pydantic | 2.13.5 | MIT |  |
 | pydantic-core | 2.46.5 | MIT |  |
 | pydantic-settings | 2.15.0 | MIT |  |
+| pydyf | 0.12.1 | BSD-3-Clause |  |
 | pygments | 2.21.0 | BSD-2-Clause |  |
+| pyphen | 0.18.1 | GPL-2.0-or-later OR LGPL-2.1-or-later OR MPL-1.1 | used under the LGPL or MPL option, unmodified |
 | python-dotenv | 1.2.4 | BSD-3-Clause |  |
 | rich | 15.0.0 | MIT |  |
 | shellingham | 1.5.4 | ISC |  |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 |  |
 | sqlalchemy | 2.1.2 | MIT |  |
 | starlette | 1.7.0 | BSD-3-Clause |  |
+| tinycss2 | 1.5.1 | BSD-3-Clause |  |
+| tinyhtml5 | 2.1.0 | MIT |  |
 | truststore | 0.10.4 | MIT |  |
 | typer | 0.27.2 | MIT |  |
 | typing-extensions | 4.16.0 | PSF-2.0 |  |
 | typing-inspection | 0.4.4 | MIT |  |
 | tzdata | 2026.4 | Apache-2.0 | platform-specific, not installed on Linux; licence from upstream, not read from this environment |
 | uvicorn | 0.54.0 | BSD-3-Clause |  |
+| weasyprint | 70.0 | BSD-3-Clause |  |
+| webencodings | 0.6.1 | BSD-3-Clause |  |
+| zopfli | 0.4.3 | Apache-2.0 |  |
 
 Development and test dependencies (not in the image):
 
@@ -90,6 +112,7 @@ Development and test dependencies (not in the image):
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |  |
 | pathspec | 1.1.1 | MPL-2.0 |  |
 | pluggy | 1.6.0 | MIT |  |
+| pypdf | 6.20.0 | BSD-3-Clause |  |
 | pytest | 9.1.1 | MIT |  |
 | pyyaml | 6.0.3 | MIT |  |
 | respx | 0.23.1 | BSD-3-Clause |  |
@@ -109,8 +132,29 @@ Development and test dependencies (not in the image):
   should obtain and keep their notices.
 - **MPL-2.0: certifi** (a root-certificate bundle, unmodified) and, for development only, **pathspec**.
   File-level copyleft: it applies to modifications of those files, which this project does not make.
-- **tzdata, colorama, httpx2-jsfetch** are installed only on some platforms (Windows, Emscripten) and
-  are listed so the lock file is fully accounted for.
+- **GPL-2.0-or-later OR LGPL-2.1-or-later OR MPL-1.1: pyphen** (WeasyPrint's hyphenation dictionaries).
+  It is triple-licensed; this project uses it unmodified, as a separate library installed from PyPI,
+  under the LGPL or MPL option, and it is replaceable by installing another build.
+- **tzdata, colorama, httpx2-jsfetch, brotlicffi** are installed only on some platforms (Windows, Emscripten) and
+  are listed so the lock file is fully accounted for (brotlicffi is the PyPy build of the brotli binding).
+
+## Fonts
+
+The printed pro-forma uses three font families, self-hosted under `src/feasibility/delivery/fonts/`
+with each family's licence text (`OFL.txt`), all under the SIL Open Font License 1.1. The fonts are
+embedded in the PDFs as subsets, which the licence allows; they are not sold on their own.
+
+| Family | Used for | Files | Source | Licence |
+| --- | --- | --- | --- | --- |
+| Space Grotesk | display (500, 600) | Medium; SemiBold | [floriankarsten/space-grotesk](https://github.com/floriankarsten/space-grotesk), release 2.0.0 (the static Medium file; SemiBold is a static instance at weight 600 cut from the project's variable font, see below) | SIL OFL 1.1 |
+| IBM Plex Sans | body (400, 600) | Regular; SemiBold | [IBM/plex](https://github.com/IBM/plex), commit 763c36ef91 | SIL OFL 1.1, Reserved Font Name "Plex" |
+| IBM Plex Mono | figures (400, 500) | Regular; Medium | [IBM/plex](https://github.com/IBM/plex), commit 763c36ef91 | SIL OFL 1.1, Reserved Font Name "Plex" |
+
+Space Grotesk publishes no static SemiBold, so `SpaceGrotesk-SemiBold.ttf` is the project's variable
+font (`SpaceGrotesk[wght].ttf`, sha256 `acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72`) instantiated at weight 600 with fontTools and with
+its name table set to match; no outline was edited. Space Grotesk declares no Reserved Font Name,
+so a modified version may keep its name. The IBM Plex files are unmodified, because their licence
+reserves the name "Plex".
 
 ## Container images
 
@@ -118,3 +162,16 @@ Development and test dependencies (not in the image):
 packages in it, each under its own licence) and builds on a Python 3.12 slim image (the Python
 Software Foundation licence, plus the Debian packages in it, each under its own licence). The
 build stage that fetches agent-core installs `git` and is not part of the final image.
+
+The final image also installs three Debian packages for PDF rendering: `libpango-1.0-0` and
+`libpangoft2-1.0-0` (Pango, LGPL-2.0-or-later) and `libharfbuzz-subset0` (HarfBuzz, the "Old MIT"
+licence). They are linked dynamically by WeasyPrint's `ctypes` loading, not modified and not
+copied into this repository. They are installed from the base image's Debian release without a
+version pin, so a rebuild takes the release's current package.
+
+The `schedule` profile of `docker-compose.yml` (off by default, never pulled by `docker compose up`
+or by CI) runs the official [n8n](https://n8n.io/) image, `docker.n8n.io/n8nio/n8n:2.42.6`, pinned by
+its index digest. n8n is distributed under its Sustainable Use License and, for its enterprise
+files, the n8n Enterprise License (see its repository's `LICENSE.md`). This project does not copy,
+modify or redistribute n8n: the compose file names the image and the operator's Docker pulls it. It
+is used only as a clock that sends one authenticated request to this project's API.

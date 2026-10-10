@@ -50,6 +50,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
+      # The PDF renderer's libraries (the same three the image installs).
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
       - run: uv run pytest
         env:
           TEST_DATABASE_URL: postgresql+psycopg://feasibility:feasibility@localhost:5432/feasibility_test
@@ -68,12 +72,33 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Make the API tokens
+        # Runtime values for this job only, never stored; masked in the log.
+        run: |
+          read_token=$(openssl rand -hex 32)
+          trigger_token=$(openssl rand -hex 32)
+          echo "::add-mask::$read_token"
+          echo "::add-mask::$trigger_token"
+          echo "API_READ_TOKEN=$read_token" >> "$GITHUB_ENV"
+          echo "API_TRIGGER_TOKEN=$trigger_token" >> "$GITHUB_ENV"
       - name: Start the stack
         run: docker compose up -d --wait --build
-      - name: Health check
-        run: curl --fail --silent --show-error http://127.0.0.1:4501/health
-      - name: Parcels endpoint
-        run: curl --fail --silent --show-error "http://127.0.0.1:4501/parcels?limit=5"
+      - name: The open route answers
+        run: curl --fail --silent --show-error http://127.0.0.1:4501/livez
+      - name: A gated route refuses a request with no token
+        run: test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:4501/parcels?limit=5')" = 401
+      - name: A gated route answers the read token
+        run: |
+          curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" 'http://127.0.0.1:4501/parcels?limit=5'
+      - name: Health is behind the token
+        run: |
+          curl --fail --silent --show-error -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/health
+      - name: The interactive docs are not served
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $API_READ_TOKEN" http://127.0.0.1:4501/docs)" = 404
+      - name: The read token cannot start a run
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_READ_TOKEN" -H 'content-type: application/json' -d '{"market":"dallas","as_of":"2026-10-01"}' http://127.0.0.1:4501/triggers/morning)" = 403
       - name: Show logs on failure
         if: failure()
         run: docker compose logs

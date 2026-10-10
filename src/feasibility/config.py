@@ -1,12 +1,14 @@
 """Runtime settings, read from the environment (and an optional .env file)."""
 
+import ipaddress
+import re
 from datetime import timedelta
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -14,11 +16,27 @@ DEFAULT_DATABASE_URL = (
     "postgresql+psycopg://feasibility:feasibility-local-dev@127.0.0.1:4502/feasibility"
 )
 DEFAULT_LLM_CONFIG_PATH = REPO_ROOT / "data" / "llm" / "agent-core.toml"
+# A bearer token is 32 to 256 of these: what `openssl rand -hex 32` and most generators produce.
+API_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{32,256}$")
 
 
 class DataMode(StrEnum):
     MOCK = "mock"
     LIVE = "live"
+
+
+class DeliveryMode(StrEnum):
+    """Where a brief is sent. Independent of the data mode: mock data can be delivered to test
+    workspaces, and live data can be dry-run in mock delivery."""
+
+    MOCK = "mock"
+    LIVE = "live"
+
+
+DELIVERY_TARGET_NAMES = ("notion", "slack")
+NOTION_DATABASE_ID_PATTERN = re.compile(r"[0-9a-fA-F]{32}")
+SLACK_CHANNEL_ID_PATTERN = re.compile(r"[CG][A-Z0-9]{8,12}")
+SERVICE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9._~+/=-]{16,300}")
 
 
 class LlmMode(StrEnum):
@@ -68,6 +86,38 @@ class Settings(BaseSettings):
     llm_run_budget_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
     llm_monthly_budget_usd: Decimal = Field(default=Decimal("10.00"), ge=0)
 
+    # The API's two static bearer tokens. Unset means every gated route answers 401: there is no
+    # setting that turns the gate off. The read token opens every GET; the trigger token opens
+    # only POST /triggers/*, so the scheduler holds a token that can read nothing.
+    api_read_token: SecretStr | None = None
+    api_trigger_token: SecretStr | None = None
+    api_reads_per_minute: int = Field(default=120, ge=1, le=100_000)
+    api_triggers_per_hour: int = Field(default=12, ge=1, le=10_000)
+    # Name of a header that carries the client address (for example CF-Connecting-IP behind a
+    # tunnel). Left unset, the socket peer is the client: a header anyone can send must not
+    # choose who gets rate-limited or banned.
+    api_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
+    # The proxy addresses (comma-separated IPs or networks) that may set that header. A header
+    # from any other peer is ignored, because anyone can send one.
+    api_trusted_proxies: str | None = None
+
+    # Secrets this mode ignores but the process environment may still hold (compose passes
+    # RENTCAST_API_KEY to every service): kept only so that redaction still covers them.
+    _ignored_secrets: list[str] = PrivateAttr(default_factory=list)
+
+    # Delivery of the brief. Mock drops the service tokens (as mock data drops the RentCast key);
+    # live with a target enabled needs that target's two values.
+    delivery_mode: DeliveryMode = DeliveryMode.MOCK
+    delivery_targets: str = "notion,slack"
+    notion_token: SecretStr | None = None
+    notion_database_id: str | None = None
+    slack_bot_token: SecretStr | None = None
+    slack_channel_id: str | None = None
+
+    # Where generated media (sample PDFs, screenshots, payload dumps) is written. It must be an
+    # absolute path outside this repository, so that none of it can be committed by accident.
+    media_out: Path | None = None
+
     snapshot_dir: Path = REPO_ROOT / "data" / "snapshot"
     # Synthetic RESO records (listing remarks) for mock mode, one `<market>.json` per market.
     mls_dir: Path = REPO_ROOT / "data" / "mls"
@@ -83,11 +133,167 @@ class Settings(BaseSettings):
             return None
         return key
 
+    @field_validator(
+        "notion_token", "notion_database_id", "slack_bot_token", "slack_channel_id", mode="before"
+    )
+    @classmethod
+    def _blank_service_value_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("delivery_targets")
+    @classmethod
+    def _delivery_targets_are_known(cls, value: str) -> str:
+        names = [name.strip().lower() for name in value.split(",") if name.strip()]
+        unknown = sorted(set(names) - set(DELIVERY_TARGET_NAMES))
+        if unknown:
+            raise ValueError(
+                f"DELIVERY_TARGETS names {', '.join(unknown)}; "
+                f"known: {', '.join(DELIVERY_TARGET_NAMES)}"
+            )
+        return ",".join(sorted(set(names)))
+
+    @model_validator(mode="after")
+    def _check_delivery(self) -> "Settings":
+        # Messages name the variable and never the value.
+        for variable, token in (
+            ("NOTION_TOKEN", self.notion_token),
+            ("SLACK_BOT_TOKEN", self.slack_bot_token),
+        ):
+            if token is None:
+                continue
+            value = token.get_secret_value()
+            if not SERVICE_TOKEN_PATTERN.fullmatch(value):
+                raise ValueError(f"{variable} is not shaped like a token")
+            if variable == "SLACK_BOT_TOKEN" and not value.startswith("xoxb-"):
+                raise ValueError("SLACK_BOT_TOKEN must be a bot token (it starts with xoxb-)")
+        if self.notion_database_id is not None:
+            compact = self.notion_database_id.replace("-", "")
+            if not NOTION_DATABASE_ID_PATTERN.fullmatch(compact):
+                raise ValueError("NOTION_DATABASE_ID must be the 32 hex characters of the database")
+            self.notion_database_id = compact.lower()
+        if self.slack_channel_id is not None and not SLACK_CHANNEL_ID_PATTERN.fullmatch(
+            self.slack_channel_id
+        ):
+            raise ValueError("SLACK_CHANNEL_ID must look like C0123456789")
+        if self.delivery_mode is DeliveryMode.LIVE:
+            needs = {
+                "notion": (
+                    ("NOTION_TOKEN", self.notion_token),
+                    ("NOTION_DATABASE_ID", self.notion_database_id),
+                ),
+                "slack": (
+                    ("SLACK_BOT_TOKEN", self.slack_bot_token),
+                    ("SLACK_CHANNEL_ID", self.slack_channel_id),
+                ),
+            }
+            missing = [
+                variable
+                for target in self.targets
+                for variable, value in needs[target]
+                if value is None
+            ]
+            if missing:
+                raise ValueError(f"DELIVERY_MODE=live needs {', '.join(missing)}")
+            # A credential for a service that is not a target has no use here: refuse it
+            # rather than hold it in a process that will never call that service.
+            unused = [
+                variable
+                for target, variable, token in (
+                    ("notion", "NOTION_TOKEN", self.notion_token),
+                    ("slack", "SLACK_BOT_TOKEN", self.slack_bot_token),
+                )
+                if target not in self.targets and token is not None
+            ]
+            if unused:
+                raise ValueError(
+                    f"{', '.join(unused)} is set but its service is not in DELIVERY_TARGETS"
+                )
+        else:
+            # Mock delivery never sends, so the tokens are dropped (and remembered for
+            # redaction: the environment may still hold them).
+            for token in (self.notion_token, self.slack_bot_token):
+                if token is not None:
+                    self._ignored_secrets.append(token.get_secret_value())
+            self.notion_token = None
+            self.slack_bot_token = None
+        return self
+
+    @property
+    def targets(self) -> list[str]:
+        """The enabled delivery targets, sorted."""
+        return [name for name in self.delivery_targets.split(",") if name]
+
+    @field_validator("media_out", mode="before")
+    @classmethod
+    def _media_out_is_outside_the_repository(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        path = Path(str(value)).expanduser()
+        if not path.is_absolute():
+            raise ValueError("MEDIA_OUT must be an absolute path")
+        if path.resolve().is_relative_to(REPO_ROOT.resolve()):
+            raise ValueError("MEDIA_OUT must be outside the repository")
+        return path
+
+    @field_validator(
+        "api_read_token",
+        "api_trigger_token",
+        "api_client_ip_header",
+        "api_trusted_proxies",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # An empty variable (compose's empty default, `API_READ_TOKEN=` in .env) means unset.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _check_trusted_proxies(self) -> "Settings":
+        if self.api_trusted_proxies is not None:
+            for item in self.api_trusted_proxies.split(","):
+                try:
+                    ipaddress.ip_network(item.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(
+                        "API_TRUSTED_PROXIES must be comma-separated IP addresses or networks"
+                    ) from None
+        if self.api_client_ip_header is not None and self.api_trusted_proxies is None:
+            raise ValueError(
+                "API_CLIENT_IP_HEADER needs API_TRUSTED_PROXIES: say which peers may set it"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_api_tokens(self) -> "Settings":
+        # The messages name the variable and never the value.
+        for variable, token in (
+            ("API_READ_TOKEN", self.api_read_token),
+            ("API_TRIGGER_TOKEN", self.api_trigger_token),
+        ):
+            if token is not None and not API_TOKEN_PATTERN.fullmatch(token.get_secret_value()):
+                raise ValueError(
+                    f"{variable} must be 32 to 256 characters from A-Z a-z 0-9 . _ ~ + / = -"
+                )
+        if (
+            self.api_read_token is not None
+            and self.api_trigger_token is not None
+            and self.api_read_token.get_secret_value() == self.api_trigger_token.get_secret_value()
+        ):
+            raise ValueError("API_READ_TOKEN and API_TRIGGER_TOKEN must differ")
+        return self
+
     @model_validator(mode="after")
     def _check_mode_and_key(self) -> "Settings":
         self._check_llm_mode()
         if self.data_mode is DataMode.MOCK:
-            # Mock mode never makes a paid call, so a key that happens to be set is dropped.
+            # Mock mode never makes a paid call, so a key that happens to be set is dropped
+            # (and remembered for redaction: it may still be in the environment).
+            if self.rentcast_api_key is not None and self.rentcast_api_key.get_secret_value():
+                self._ignored_secrets.append(self.rentcast_api_key.get_secret_value())
             self.rentcast_api_key = None
             return self
         if self.rentcast_api_key is None or not self.rentcast_api_key.get_secret_value():
@@ -136,8 +342,16 @@ class Settings(BaseSettings):
 
     def secret_values(self) -> list[str]:
         """Every configured secret, for log redaction."""
-        keys = (self.rentcast_api_key, self.llm_api_key)
-        return [key.get_secret_value() for key in keys if key is not None]
+        keys = (
+            self.rentcast_api_key,
+            self.llm_api_key,
+            self.api_read_token,
+            self.api_trigger_token,
+            self.notion_token,
+            self.slack_bot_token,
+        )
+        configured = [key.get_secret_value() for key in keys if key is not None]
+        return [*configured, *self._ignored_secrets]
 
 
 @lru_cache

@@ -6,7 +6,7 @@ The thesis: **LLM for judgment, code for math.** The model reads listing text an
 
 ## Status
 
-Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma) and 4 (the LLM layer) exist today.
+Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM layer) and 5 (delivery) exist today. Delivery has run only against mock services; nothing in this repository has sent a real message to Notion or Slack.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -14,27 +14,40 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma) and 4 (the LL
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
-| 5 | Delivery: the morning brief, scheduling | Not started |
+| 5 | Delivery: the morning brief, scheduling | Built in mock mode: the API auth gate and morning trigger, the brief, the PDF pro-forma, the Notion and Slack clients, a delivery ledger that sends each item once, and an opt-in n8n schedule; a morning run goes from the trigger to mock Notion rows, a mock Slack digest and PDFs (see [Delivery and the morning run](#delivery-and-the-morning-run)). The live Notion and Slack calls are unverified |
 | 6 | Evals and the proof kit | Started: the two model evals exist (Phase 4); more suites to come |
 
 ## Quick start
 
-Needs Docker with Compose. A fresh clone needs no `.env`; mock mode is the default and needs no API key and no network.
+Needs Docker with Compose. A fresh clone needs no `.env` and mock mode needs no model key and no network. **Every API route except `/livez` needs a bearer token**, so make two (any 32 or more characters of `A-Za-z0-9._~+/=-`; they must differ) and put them in `.env`:
 
 ```bash
+printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose up -d --wait
+set -a; . ./.env; set +a
+R="Authorization: Bearer $API_READ_TOKEN"
 
-curl -s http://127.0.0.1:4501/health
-curl -s "http://127.0.0.1:4501/parcels?limit=5"
-curl -s "http://127.0.0.1:4501/listings?limit=5"
-curl -s http://127.0.0.1:4501/markets/dallas
+curl -s http://127.0.0.1:4501/livez                          # open: {"status":"ok"}
+curl -s -H "$R" http://127.0.0.1:4501/health
+curl -s -H "$R" "http://127.0.0.1:4501/parcels?limit=5"
+curl -s -H "$R" "http://127.0.0.1:4501/listings?limit=5"
+curl -s -H "$R" http://127.0.0.1:4501/markets/dallas
 ```
 
-Enqueue a listings sync and watch the worker pick it up:
+Start the morning run for a day and watch the worker do it (the trigger only queues a job):
+
+```bash
+T="Authorization: Bearer $API_TRIGGER_TOKEN"
+curl -s -X POST -H "$T" -H 'content-type: application/json' \
+  -d '{"market":"dallas","as_of":"2026-10-01"}' http://127.0.0.1:4501/triggers/morning
+curl -s -H "$R" http://127.0.0.1:4501/jobs
+docker compose run --rm migrate feasibility brief show
+```
+
+Or enqueue a listings sync from the command line:
 
 ```bash
 docker compose exec worker feasibility enqueue listings.sync --payload '{"market": "dallas"}'
-curl -s http://127.0.0.1:4501/jobs
 ```
 
 Stop and delete the data:
@@ -43,16 +56,16 @@ Stop and delete the data:
 docker compose down -v
 ```
 
-The stack has four services: `db` (Postgres 16), `migrate` (one-shot: runs the migrations, then loads the synthetic snapshot), `api` and `worker`. All ports bind to 127.0.0.1 only.
+The stack has four services: `db` (Postgres 16), `migrate` (one-shot: runs the migrations, then loads the synthetic snapshot), `api` and `worker`. A fifth, `n8n`, is an opt-in profile that a plain `docker compose up` does not start (see [Delivery and the morning run](#delivery-and-the-morning-run)). All ports bind to 127.0.0.1 only.
 
 | Port | Use |
 | --- | --- |
-| 4500 | Reserved for the report viewer (later phase) |
+| 4500 | Reserved; the report viewer was dropped (the brief's PDFs travel as files) |
 | 4501 | API |
 | 4502 | Postgres |
-| 4503 | Reserved for n8n (later phase) |
+| 4503 | n8n, opt-in (`--profile schedule`) |
 
-The API is read-only. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`, and the sourcing views below.
+Reads are `GET`; the only write is a trigger that queues a job. List endpoints page with a `limit` (1 to 100, default 50) and an `after` cursor. Other routes: `/parcels/{market}/{account_id}`, `/listings/{id}`, `/markets`, `/jobs`, `/budget`, and the sourcing views below.
 
 ## The data
 
@@ -207,6 +220,34 @@ cat evals/scorecards/signals-holdout.md
 
 The eval set is small, synthetic and written by this project, so these numbers say nothing about real listings.
 
+## API access and the morning trigger
+
+Two static bearer tokens guard the API, and there is no setting that turns the guard off: with a token unset, every route but `/livez` answers 401.
+
+| | Opens | Held by |
+| --- | --- | --- |
+| `API_READ_TOKEN` | every `GET` (and `HEAD`) | anyone who reads |
+| `API_TRIGGER_TOKEN` | only `POST /triggers/*` | the scheduler, which can read nothing |
+
+- `/livez` is the one open route: `{"status": "ok"}` or 503, from a `SELECT 1`, and nothing else. `/health` (revision, mode) is behind the read token. The interactive docs and the schema route are not served.
+- The wrong scope is a 403; no or a malformed header is a 401 with `WWW-Authenticate: Bearer`; an unknown path without a token is a 401 as well, so the response does not say what exists.
+- Limits, in the API process: 120 reads a minute on the read token, 12 triggers an hour, 60 `/livez` a minute per address, and 20 failed authentications in 10 minutes ban an address for 15 minutes (a valid token does not lift it). The address is the socket peer; behind a tunnel or proxy set `API_CLIENT_IP_HEADER` to the header that carries it (for example `CF-Connecting-IP`), because a header anyone can send must not decide who is banned.
+- `POST /triggers/morning` takes `{"market": "dallas", "as_of": "2026-10-01"}` (`as_of` may be left out in live mode; mock mode needs a date the snapshot holds). It checks the market and the date, queues one `morning.run` job and answers 202 with its id; the same market and date again, while the first is queued or running, answers 200 and queues nothing; a date earlier than a run already started is a 409. The API never syncs, spends or calls a model.
+
+`morning.run` runs the day (`source run`) and then queues `brief.deliver {run_id}`. If the run ranked but a model stage could not finish (a missing recording), the brief is still queued, as `partial`, and the `morning.run` job still ends `dead` so the failure stays visible.
+
+## The brief
+
+The brief is what a run delivers, built by code from its stored rows: the computed pro-formas in rank order (at most ten), each with its figures as exact decimal strings, a verdict in code facts, the comps as a count, a median $/sq ft and the lowest and highest sale price (never an address), flags with a written meaning, the signals that held (code, polarity, source and the meaning written in this repository; **never a quote**) and the narrative. A narrative is in the brief only if it was accepted, still passes the figure check against facts rebuilt now, is plain prose (no link, mention, markup, street name, injection phrasing or copy of the listing's own words) and was not written from listing text flagged as an injection; otherwise the brief says "Withheld" or "Not available today." and carries none of the model's text. A run whose later stage failed is delivered as `partial` with a notice, never with its error. The rest of the ranked list is counted (`not_shown`: no value estimate yet, unsizable, over the cap of ten, no pro-forma).
+
+```bash
+docker compose run --rm migrate feasibility brief build          # make or rebuild the latest run's brief
+docker compose run --rm migrate feasibility brief show
+curl -s -H "$R" http://127.0.0.1:4501/sourcing/runs/1/brief | jq '.brief.shown'
+```
+
+The brief is stored per run with a content hash (table `brief`), so a same-day re-run that changes nothing builds the same bytes. Nothing is sent anywhere by building it.
+
 ## Importing real DCAD data
 
 1. Download the certified zip (`DCAD{YYYY}_CURRENT.ZIP`, about 200 MB) from `dallascad.org/dataproducts.aspx` into `local/`.
@@ -227,6 +268,59 @@ The same import runs as a job: enqueue `cad.import` with the payload `{"market":
 
 DCAD publishes no update schedule, and there is no downloader yet. The importer streams the files, so memory stays bounded; a slow test imports a roughly 100 MB archive under 50 MB peak.
 
+### The PDF pro-forma, Notion and Slack
+
+Each candidate of a brief has a one-to-two page PDF: the verdict, the key figures, the cost stack, the sizing, the sensitivity grid, the signals and the narrative (only if it is in the brief), and the checks and assumptions. It is drawn from the stored brief and the stored pro-forma by code; no model text reaches it except the accepted narrative, and no address of a comparable sale does. Every page says that the cost values are illustrative, not a builder's actuals. Fonts are self-hosted (Space Grotesk, IBM Plex Sans, IBM Plex Mono, all SIL OFL 1.1, licences beside the files), and the renderer can fetch nothing from the network or from outside the package.
+
+```bash
+docker compose run --rm migrate feasibility brief pdf --all --out /media    # one PDF per candidate
+uv run feasibility brief preview slack                                       # the digest as JSON, sends nothing
+uv run feasibility brief preview notion --rank 1                             # one row's properties
+uv run feasibility brief notion-check                                        # which properties the database lacks
+uv run feasibility brief notion-setup                                        # add the missing ones (never removes any)
+```
+
+`DELIVERY_MODE=mock` (the default) builds every payload and sends it to a recorded fake, with no token. `live` needs `NOTION_TOKEN` and `NOTION_DATABASE_ID` for Notion and `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` for Slack, and the settings refuse to load when one of them is missing, or when a token is set for a service that is not in `DELIVERY_TARGETS`. In mock mode a token that is set is ignored and dropped. Notion gets one row per candidate, found by a stable key and updated on later runs; the `Decision` column is yours and is never written. Slack gets at most one digest per run, with each PDF in its thread. Both are paced, retry only what is safe to retry, and report a failure as a short code, never with a response body or a token. `feasibility brief smoke notion|slack` sends one fixed synthetic row or message, and only in live mode.
+
+`MEDIA_OUT` is a folder outside the repository where `brief pdf` writes by default and where samples and payload dumps belong. Nothing generated is committed.
+
+## Delivery and the morning run
+
+`feasibility brief deliver` (and the `brief.deliver` job that `morning.run` queues) sends a run's brief to Notion and Slack. It builds the brief from the database at that moment, never from the stored copy, renders the PDFs, writes the Notion rows, posts the Slack digest and puts each PDF in the digest's thread.
+
+```bash
+docker compose run --rm migrate feasibility brief deliver --dry-run     # print every payload, write the PDFs, send nothing
+docker compose run --rm migrate feasibility brief deliver               # send (mock unless DELIVERY_MODE=live), once
+docker compose run --rm migrate feasibility brief deliveries            # the ledger of the latest run
+curl -s -H "$R" http://127.0.0.1:4501/sourcing/runs/1/deliveries | jq '.items[] | {target, item, status}'
+```
+
+**Each item is sent once.** Every call is bracketed by a row in the `delivery` ledger: `sending` is committed before the call and the outcome (`sent` with the page, message or file id; `failed` or `unknown` with a short code) after it, with no transaction open during the call. A repeat sends only what the ledger says is not there, so running it twice, or a retried job, sends nothing twice. A `sending` row older than ten minutes reads as `unknown`. A lock keeps two deliveries of one run apart (a second one stops with "another delivery of it is going").
+
+- **Notion is at-least-once.** A candidate's row is updated at the page it was last written to, or found by its key, or created. A row whose content is already there (the same hash, in any run) is skipped, so the same day again makes no request.
+- **Slack is at-most-once.** A post whose outcome is unknown (the reply was lost, or Slack said 5xx) is never repeated by the program, because a duplicate digest is worse than a late one. The job ends `dead` with `DeliveryUnknownOutcomeError`. Look in the channel; what is missing can then be posted with `brief deliver --resend slack`, which forgets only the Slack rows whose outcome is unsettled (unknown, failed or in flight) and sends those again: a digest that is already there is not posted a second time. While a Slack item is unknown the job is dead and does not retry Notion's failed rows; `brief deliver --only notion` sends them. A reply Slack documents as possibly done (`internal_error`, `fatal_error`, not JSON) counts as unknown too.
+- **An older day never overwrites a newer row.** If the page already carries a later run's figures (a resend of day 1 after day 2 ran), the row is left alone and reported `superseded`.
+- **A failure stops what it must and no more.** Bad credentials, a channel Slack does not know, or a Notion database missing a property stop that target (the other still runs) and end the job `dead`. A row that Notion keeps refusing fails alone, the job is retried, and the retry sends only that row.
+- **Errors are codes.** A ledger row, a job's `last_error` and a log line carry `http_429`, `network_error`, `validation_error` or a service's own error code, never a response body, a header, a token or an upload URL.
+- **Mock delivery leaves its work where you can see it.** With `MEDIA_OUT_DIR` set to a writable folder (under Compose, a folder the container user, uid 10001, can write), mock delivery writes the PDFs and one line of JSON per request it would have made to `<folder>/<market>-<date>/`. Without it, nothing is written.
+
+### The schedule (n8n, opt-in)
+
+n8n is the clock and nothing else. `n8n/morning-brief.json` has three nodes: a schedule (06:00, America/Chicago), a fixed market, and one POST to the API's `/triggers/morning` route (on the `api` service, port 4501) with a credential called `feasibility trigger`. The credential is a Header Auth credential that you create in n8n (header name `Authorization`, value the word `Bearer`, a space, then your trigger token), which keeps it in its own encrypted store; the file holds no token. n8n holds none of this application's variables, shares a Docker network with the api only (not the database), cannot load the node types that run a command, read a file, run code or listen for a request (a list of the types in n8n 2.42.6), cannot install community packages, and sends no telemetry. It can still reach the internet and the host's other listeners, so treat it as a clock behind a localhost-only editor; whoever opens the editor first becomes its owner, so open it once through the tunnel before anyone else can. The workflow is imported switched off.
+
+```bash
+docker compose --profile schedule up -d n8n          # http://127.0.0.1:4503 (use an SSH tunnel from elsewhere)
+docker compose --profile schedule exec n8n n8n import:workflow --input=/workflows/morning-brief.json
+# in the editor: create the owner, create the Header Auth credential, open the workflow, pick the credential, activate it
+docker compose --profile schedule down                # stop it (no -v: that deletes n8n's credentials)
+```
+
+In mock mode the trigger needs a date the snapshot holds: set the `as_of` field of the "Markets" node to `2026-10-01` before a test run. Leave it empty in live mode (today in the market's time zone).
+
+### What a live smoke test needs
+
+Nothing here has been run against the real services. To try them you supply: a Notion internal integration (read, update and insert content; no user information) shared with one empty database, its token and the database id; a Slack app with the bot scopes `chat:write` and `files:write`, installed in a test workspace, its `xoxb-` token and a channel id with the app invited. Set `DELIVERY_MODE=live` and those four values for the worker and migrate services, run `feasibility brief notion-setup` and `brief smoke notion` / `brief smoke slack`, then `brief deliver`. The Notion API version is pinned to `2022-06-28`; the 2025 move to data sources is not adopted.
+
 ## CLI
 
 Run `uv run feasibility --help` (or `docker compose exec worker feasibility --help`).
@@ -242,11 +336,14 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `market validate [files]` | Validate market pack files (all packs by default) |
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
+| `brief build`, `brief show` | Build and read a run's brief (see [The brief](#the-brief)) |
+| `brief deliver`, `brief deliveries` | Send a run's brief once (`--dry-run`, `--resend slack`, `--only`, `--out`) and read the delivery ledger (see [Delivery and the morning run](#delivery-and-the-morning-run)) |
+| `brief pdf`, `brief preview`, `brief notion-check`, `brief notion-setup`, `brief smoke` | Render the PDFs, preview the Notion and Slack payloads, check or extend the Notion database, and (live only) smoke-test a credential (see [The PDF pro-forma, Notion and Slack](#the-pdf-pro-forma-notion-and-slack)) |
 | `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [The LLM layer](#the-llm-layer)) |
 | `eval signals`, `eval narrative` | Score the model tasks against their answer keys, in replay by default (see [Evals and scorecards](#evals-and-scorecards)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
-Job kinds: `cad.import`, `listings.sync` and `sourcing.run`.
+Job kinds: `cad.import`, `listings.sync`, `sourcing.run`, `morning.run` and `brief.deliver`.
 
 ## Development
 
