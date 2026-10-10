@@ -138,8 +138,18 @@ class NotionClient:
         self._pacer = pacer or Pacer(MIN_INTERVAL_S)
         self._sleep = sleep
 
-    def _call(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        server_pauses = list(SERVER_RETRY_PAUSES)
+    def _call(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        repeatable: bool = True,
+    ) -> dict[str, Any]:
+        """One request. A 429 means the request was not processed and is always waited out; a 5xx
+        or a lost connection may have been processed, so it is retried only for a request that is
+        safe to send twice (`repeatable`), never for one that creates something."""
+        server_pauses = list(SERVER_RETRY_PAUSES) if repeatable else []
         limited = 0
         while True:
             self._pacer.wait()
@@ -209,6 +219,7 @@ class NotionClient:
             "POST",
             "/v1/pages",
             {"parent": {"database_id": self._database_id}, "properties": properties},
+            repeatable=False,
         )
         page_id = created.get("id")
         if not isinstance(page_id, str):

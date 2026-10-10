@@ -255,7 +255,7 @@ def test_a_network_error_is_retried_then_reported_without_text() -> None:
     transport = Scripted(TransportError("network_error"))
 
     with pytest.raises(SlackError, match="network_error"):
-        client(transport).post_digest([], "t")
+        client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0")
 
     assert transport.calls == 3
 
@@ -300,3 +300,24 @@ def test_a_network_failure_on_the_upload_leaves_the_url_out_of_the_error(
         transport.upload("https://files.slack.com/upload/v1/CAPSENTINEL", b"x")
 
     assert "CAPSENTINEL" not in str(raised.value) and "files.slack.com" not in repr(raised.value)
+
+
+def test_a_post_is_never_sent_twice_after_a_server_error_or_a_lost_connection() -> None:
+    for failure in (TransportResponse(503), TransportError("network_error")):
+        transport = Scripted(failure)
+
+        with pytest.raises(SlackError):
+            client(transport).post_digest([], "digest")
+
+        assert transport.calls == 1
+
+
+def test_a_read_only_style_call_is_still_retried_after_a_server_error() -> None:
+    transport = Scripted(
+        TransportResponse(503),
+        TransportResponse(200, {"ok": True, "upload_url": "https://x.invalid/u", "file_id": "F1"}),
+        TransportResponse(200, {"ok": True}),
+    )
+
+    assert client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0") == "F1"
+    assert transport.calls == 3

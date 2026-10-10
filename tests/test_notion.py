@@ -323,3 +323,21 @@ def test_a_network_failure_is_a_transport_error_without_the_urls_text(
 
     assert TOKEN not in str(raised.value) and "api.notion.com" not in str(raised.value)
     assert TOKEN not in json.dumps([r.getMessage() for r in caplog.records])
+
+
+def test_a_row_is_never_created_twice_after_a_server_error_or_a_lost_connection() -> None:
+    for failure in (TransportResponse(503), TransportError("network_error")):
+        transport = Scripted(failure)
+
+        with pytest.raises(NotionError):
+            client(transport).create_row({})
+
+        assert transport.calls == 1
+
+
+def test_an_update_is_retried_after_a_server_error() -> None:
+    transport = Scripted(TransportResponse(503), TransportResponse(200, {}))
+
+    client(transport).update_row("page", {})
+
+    assert transport.calls == 2

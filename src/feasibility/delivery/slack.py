@@ -158,9 +158,17 @@ class SlackClient:
         self._sleep = sleep
 
     def _call(
-        self, path: str, *, json: dict[str, Any] | None = None, data: dict[str, Any] | None = None
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        repeatable: bool = True,
     ) -> dict[str, Any]:
-        server_pauses = list(SERVER_RETRY_PAUSES)
+        """One request. A 429 means the request was not processed and is always waited out; a 5xx
+        or a lost connection may have been processed, so it is retried only for a request that is
+        safe to send twice (`repeatable`), never for one that posts something."""
+        server_pauses = list(SERVER_RETRY_PAUSES) if repeatable else []
         limited = 0
         while True:
             self._pacer.wait()
@@ -203,6 +211,7 @@ class SlackClient:
                 "link_names": False,
                 "parse": "none",
             },
+            repeatable=False,
         )
         ts = body.get("ts")
         if not isinstance(ts, str):
@@ -232,6 +241,7 @@ class SlackClient:
                 "channel_id": self._channel_id,
                 "thread_ts": thread_ts,
             },
+            repeatable=False,
         )
         return file_id
 
