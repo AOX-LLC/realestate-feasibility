@@ -281,6 +281,8 @@ run_listing = Table(
         name="match_account",
     ),
     Index(None, "candidate_id"),
+    # Retention asks whether a listing is still used by any run (and the foreign key does too).
+    Index(None, "listing_id"),
 )
 
 run_candidate = Table(
@@ -307,6 +309,9 @@ run_candidate = Table(
         "(status = 'unscored') = (unscored_reason IS NOT NULL)", name="unscored_has_reason"
     ),
     UniqueConstraint("run_id", "rank"),
+    # Retention's "is anything still using this candidate or listing" checks (and the keys).
+    Index(None, "candidate_id"),
+    Index(None, "primary_listing_id"),
 )
 
 ESTIMATE_OUTCOMES = ("ok", "no_estimate")
@@ -600,6 +605,7 @@ candidate_signals = Table(
         f"reason IS NULL OR {_in_list('reason', SIGNALS_REASONS)}", name="reason_known"
     ),
     CheckConstraint("(status = 'extracted') = (reason IS NULL)", name="reason"),
+    Index(None, "listing_id"),
 )
 
 candidate_narrative = Table(
