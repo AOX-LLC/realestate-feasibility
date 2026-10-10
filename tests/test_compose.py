@@ -131,3 +131,22 @@ def test_only_the_worker_and_migrate_get_the_media_folder() -> None:
     for name in ("api", "db", "n8n"):
         assert "/media" not in " ".join(services[name].get("volumes", []))
         assert "MEDIA_OUT" not in services[name].get("environment", {})
+
+
+RETENTION_VARIABLES = {
+    "RETENTION_RUN_DAYS",
+    "RETENTION_ESTIMATE_DAYS",
+    "RETENTION_MODEL_CACHE_DAYS",
+    "RETENTION_LEDGER_MONTHS",
+    "RETENTION_JOB_DAYS",
+    "RETENTION_LISTING_DAYS",
+}
+
+
+def test_only_the_worker_and_migrate_get_the_retention_settings() -> None:
+    services = _services()
+
+    for name in ("worker", "migrate"):
+        assert set(services[name]["environment"]) >= RETENTION_VARIABLES
+    for name in ("api", "db", "n8n"):
+        assert RETENTION_VARIABLES.isdisjoint(services[name].get("environment", {}))

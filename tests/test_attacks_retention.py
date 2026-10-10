@@ -27,7 +27,7 @@ from retention_support import (
 )
 from sqlalchemy import Engine
 
-pytestmark = pytest.mark.xfail(
+LATER = pytest.mark.xfail(
     strict=True,
     reason="6b builds retention; the session removes this mark when the tests pass",
 )
@@ -70,6 +70,7 @@ def run_ids(engine: Engine) -> set[int]:
 # --- a purge never deletes outside its window ---------------------------------------------------
 
 
+@LATER
 def test_r1_a_run_is_pruned_only_when_it_is_older_than_the_window(engine: Engine) -> None:
     newest = add_run(engine, age=1, tag="newest")
     inside = {days: add_run(engine, age=days, tag=f"d{days}") for days in (10, 89, 90)}
@@ -99,6 +100,7 @@ def test_r1_a_run_is_pruned_only_when_it_is_older_than_the_window(engine: Engine
     assert run_ids(engine) == {r.run_id for r in (newest, *inside.values(), *outside.values())}
 
 
+@LATER
 def test_r1_each_other_table_prunes_at_its_own_window_and_not_a_day_sooner(engine: Engine) -> None:
     add_run(engine, age=1, tag="newest")
     for age in (89, 90, 91):
@@ -128,6 +130,7 @@ def test_r1_each_other_table_prunes_at_its_own_window_and_not_a_day_sooner(engin
     assert left == {*kept_jobs, still_running, old_queued} and gone_job not in left
 
 
+@LATER
 def test_r1_a_second_prune_and_a_dry_run_delete_nothing(engine: Engine) -> None:
     add_run(engine, age=1, tag="newest")
     add_run(engine, age=120, tag="old")
@@ -144,6 +147,7 @@ def test_r1_a_second_prune_and_a_dry_run_delete_nothing(engine: Engine) -> None:
     assert real.counts["runs"] == 1 and real.counts["llm_call"] == 1
 
 
+@LATER
 def test_r1_the_latest_run_of_a_market_and_a_run_in_progress_are_never_pruned(
     engine: Engine,
 ) -> None:
@@ -164,6 +168,7 @@ def test_r1_the_latest_run_of_a_market_and_a_run_in_progress_are_never_pruned(
     assert count(engine, "run_candidate", f"run_id = {failed.run_id}") == 0
 
 
+@LATER
 def test_r1_a_pruned_run_is_not_the_run_a_later_diff_compares_against(engine: Engine) -> None:
     from feasibility.sourcing import store
 
@@ -181,6 +186,7 @@ def test_r1_a_pruned_run_is_not_the_run_a_later_diff_compares_against(engine: En
 # --- a purge never touches a spend row inside its 13 months -------------------------------------
 
 
+@LATER
 def test_r2_no_llm_call_inside_thirteen_months_is_deleted_or_changed(engine: Engine) -> None:
     edge = months_before(AS_OF, 13)
     inside = [
@@ -223,6 +229,7 @@ def test_r2_no_llm_call_inside_thirteen_months_is_deleted_or_changed(engine: Eng
     assert scalar(engine, "SELECT llm_call_id FROM llm_result") is None
 
 
+@LATER
 def test_r2_the_months_the_spend_caps_read_are_the_same_before_and_after(engine: Engine) -> None:
     for months, cost in ((0, "0.100000"), (1, "0.200000"), (12, "0.300000"), (14, "0.400000")):
         add_llm_call(engine, called=months_before(AS_OF, months), cost=cost)
@@ -242,6 +249,7 @@ def test_r2_the_months_the_spend_caps_read_are_the_same_before_and_after(engine:
 # --- comparable sales' addresses leave both places they are stored ------------------------------
 
 
+@LATER
 def test_r3_comp_addresses_are_removed_from_the_estimate_and_from_the_pro_forma(
     engine: Engine,
 ) -> None:
@@ -259,6 +267,7 @@ def test_r3_comp_addresses_are_removed_from_the_estimate_and_from_the_pro_forma(
     assert set(rows_with(engine, fresh.comp_street)) >= {"candidate_estimate", "proforma"}
 
 
+@LATER
 def test_r3_an_estimate_is_removed_with_its_comps_even_when_its_run_is_inside_the_window(
     engine: Engine,
 ) -> None:
@@ -277,6 +286,7 @@ def test_r3_an_estimate_is_removed_with_its_comps_even_when_its_run_is_inside_th
     assert count(engine, "run_candidate", f"run_id = {kept.run_id}") == 1  # the run keeps its rows
 
 
+@LATER
 def test_r3_a_listing_nothing_refers_to_loses_its_remarks_and_one_a_run_refers_to_keeps_them(
     engine: Engine,
 ) -> None:
@@ -319,6 +329,7 @@ def test_r4_settings_below_their_minimum_are_refused() -> None:
     assert (settings.retention_model_cache_days, settings.retention_ledger_months) == (30, 13)
 
 
+@LATER
 def test_r5_a_prune_for_one_market_leaves_another_markets_latest_run_alone(engine: Engine) -> None:
     add_run(engine, age=1, tag="dallas-new")
     other_latest = add_run(engine, age=300, tag="austin-only", market="austin")

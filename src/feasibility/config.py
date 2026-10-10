@@ -114,6 +114,16 @@ class Settings(BaseSettings):
     slack_bot_token: SecretStr | None = None
     slack_channel_id: str | None = None
 
+    # How long stored data is kept before `retention.prune` deletes it. Starting values; each has a
+    # floor that protects something that still reads the data (the 7-day estimate reuse window and
+    # the 30-day estimate age limit, the monthly spend cap).
+    retention_run_days: int = Field(default=90, ge=8, le=3650)
+    retention_estimate_days: int = Field(default=90, ge=30, le=3650)
+    retention_model_cache_days: int = Field(default=30, ge=1, le=3650)
+    retention_ledger_months: int = Field(default=13, ge=2, le=120)
+    retention_job_days: int = Field(default=30, ge=1, le=3650)
+    retention_listing_days: int = Field(default=30, ge=1, le=3650)
+
     # Where generated media (sample PDFs, screenshots, payload dumps) is written. It must be an
     # absolute path outside this repository, so that none of it can be committed by accident.
     media_out: Path | None = None
