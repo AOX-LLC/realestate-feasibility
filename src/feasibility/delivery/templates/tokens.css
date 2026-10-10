@@ -1,0 +1,63 @@
+/* Design tokens for the printed pro-forma. Colours, type and spacing are named here once and the
+   stylesheet uses only these. Fonts are self-hosted under ../fonts (SIL Open Font License 1.1). */
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-weight: 500;
+  src: url("../fonts/SpaceGrotesk/SpaceGrotesk-Medium.ttf");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-weight: 600;
+  src: url("../fonts/SpaceGrotesk/SpaceGrotesk-SemiBold.ttf");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-weight: 400;
+  src: url("../fonts/IBMPlexSans/IBMPlexSans-Regular.ttf");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-weight: 600;
+  src: url("../fonts/IBMPlexSans/IBMPlexSans-SemiBold.ttf");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 400;
+  src: url("../fonts/IBMPlexMono/IBMPlexMono-Regular.ttf");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 500;
+  src: url("../fonts/IBMPlexMono/IBMPlexMono-Medium.ttf");
+}
+
+:root {
+  /* Accent and what sits on it. */
+  --ink: #15181b;
+  --on-ink: #ffffff;
+  --ink-soft: #e9ecef;
+  /* Print neutrals. */
+  --paper: #ffffff;
+  --text: #15181b;
+  --muted: #5b636b;
+  --rule: #d5d9dd;
+  /* Meaning, never decoration: a risk and an opportunity. */
+  --risk: #8a2b1d;
+  --opportunity: #1f5f46;
+
+  --font-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-figure: "IBM Plex Mono", monospace;
+
+  --size-title: 20pt;
+  --size-section: 9pt;
+  --size-body: 9pt;
+  --size-small: 7.5pt;
+  --size-figure: 8.5pt;
+
+  --space-1: 2mm;
+  --space-2: 4mm;
+  --space-3: 7mm;
+  --page-margin: 16mm;
+}

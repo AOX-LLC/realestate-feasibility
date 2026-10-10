@@ -22,6 +22,8 @@ from feasibility.delivery.brief import (
 )
 from feasibility.domain.address import normalize_street
 from feasibility.llm.facts import build_facts
+from feasibility.llm.narrative import NarrativeResult
+from feasibility.llm.results import SignalsResult
 from feasibility.proforma.model import ProformaResult
 
 
@@ -69,36 +71,22 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
     for row, result in zip(rows, results, strict=True):
         _check_against_columns(row, result)
 
-    candidates = []
-    for row, result in zip(rows, results, strict=True):
-        stored_signals = signals.get(row.candidate_id)
-        facts = build_facts(result, stored_signals)
-        candidates.append(
-            BriefCandidate(
-                candidate_id=row.candidate_id,
-                rank=row.rank,
-                score=format(row.score, "f"),
-                street=_street(row.street),
-                zip5=row.zip5 if row.zip5 and re.fullmatch(r"[0-9]{5}", row.zip5) else None,
-                list_price=format(row.offer_price, "f"),
-                figures=figures_of(result),
-                verdict=[fact.code for fact in facts.code_facts],
-                comps=comps_of(result),
-                flags=[
-                    BriefCode(code=flag.code, meaning=flag.meaning)
-                    for flag in facts.flags
-                    if re.fullmatch(FLAG_CODE, flag.code)
-                ],
-                signals=signals_of(stored_signals),
-                narrative=narrative_of(
-                    narratives.get(row.candidate_id),
-                    result,
-                    stored_signals,
-                    context,
-                    signals_unreadable=row.candidate_id in unreadable,
-                ),
-            )
+    candidates = [
+        make_candidate(
+            candidate_id=row.candidate_id,
+            rank=row.rank,
+            score=row.score,
+            street=row.street,
+            zip5=row.zip5,
+            offer_price=row.offer_price,
+            result=result,
+            signals=signals.get(row.candidate_id),
+            narrative=narratives.get(row.candidate_id),
+            context=context,
+            signals_unreadable=row.candidate_id in unreadable,
         )
+        for row, result in zip(rows, results, strict=True)
+    ]
     computed = counts.get("computed", 0)
     ranked = store.ranked_count(connection, run_id)
     partial = header.error is not None
@@ -118,6 +106,45 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
             no_pro_forma=max(0, ranked - sum(counts.values())),
         ),
         candidates=candidates,
+    )
+
+
+def make_candidate(
+    *,
+    candidate_id: int,
+    rank: int,
+    score: Decimal,
+    street: str,
+    zip5: str | None,
+    offer_price: Decimal,
+    result: ProformaResult,
+    signals: SignalsResult | None,
+    narrative: NarrativeResult | None,
+    context: TextContext,
+    signals_unreadable: bool = False,
+) -> BriefCandidate:
+    """One entry of the brief, from a computed pro-forma and what was stored beside it. Pure:
+    the database reads are done by the caller (and by the fixtures, which have no database)."""
+    facts = build_facts(result, signals)
+    return BriefCandidate(
+        candidate_id=candidate_id,
+        rank=rank,
+        score=format(score, "f"),
+        street=_street(street),
+        zip5=zip5 if zip5 and re.fullmatch(r"[0-9]{5}", zip5) else None,
+        list_price=format(offer_price, "f"),
+        figures=figures_of(result),
+        verdict=[fact.code for fact in facts.code_facts],
+        comps=comps_of(result),
+        flags=[
+            BriefCode(code=flag.code, meaning=flag.meaning)
+            for flag in facts.flags
+            if re.fullmatch(FLAG_CODE, flag.code)
+        ],
+        signals=signals_of(signals),
+        narrative=narrative_of(
+            narrative, result, signals, context, signals_unreadable=signals_unreadable
+        ),
     )
 
 

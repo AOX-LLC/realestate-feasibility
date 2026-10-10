@@ -1,0 +1,75 @@
+/* The pro-forma page. Only the tokens in tokens.css are used. */
+
+@page {
+  size: Letter;
+  margin: var(--page-margin) var(--page-margin) 22mm;
+  @bottom-left {
+    content: "Every cost value is illustrative, not a builder's actuals.";
+    font: 400 var(--size-small) var(--font-body);
+    color: var(--muted);
+  }
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font: 400 var(--size-small) var(--font-figure);
+    color: var(--muted);
+  }
+}
+
+html { color: var(--text); background: var(--paper); font: 400 var(--size-body)/1.45 var(--font-body); }
+body { margin: 0; }
+h1, h2 { font-family: var(--font-display); margin: 0; }
+h1 { font-weight: 600; font-size: var(--size-title); line-height: 1.15; }
+h2 {
+  font-weight: 500;
+  font-size: var(--size-section);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: var(--space-3) 0 var(--space-1);
+  padding-bottom: 1mm;
+  border-bottom: 0.4pt solid var(--rule);
+  break-after: avoid;
+}
+p { margin: 0 0 var(--space-1); }
+
+.masthead {
+  background: var(--ink);
+  color: var(--on-ink);
+  padding: var(--space-2) var(--space-2) var(--space-2);
+}
+.masthead .meta { font: 400 var(--size-small) var(--font-figure); color: var(--ink-soft); margin-bottom: 1mm; }
+.masthead .address { font: 400 10pt var(--font-body); margin-top: 1mm; color: var(--ink-soft); }
+.chips { margin-top: var(--space-1); }
+.chip {
+  display: inline-block;
+  background: var(--ink-soft);
+  color: var(--ink);
+  font: 600 var(--size-small) var(--font-body);
+  padding: 0.6mm 2mm;
+  margin: 0 1.5mm 1mm 0;
+}
+.verdict { margin-top: var(--space-2); font-weight: 600; }
+
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 0.9mm 0; vertical-align: top; text-align: left; }
+tr { break-inside: avoid; }
+td.value, th.value { text-align: right; font-family: var(--font-figure); font-size: var(--size-figure); font-variant-numeric: tabular-nums; }
+table.pairs td { border-bottom: 0.3pt solid var(--rule); }
+table.grid th { font: 500 var(--size-small) var(--font-figure); color: var(--muted); border-bottom: 0.4pt solid var(--ink); }
+table.grid td { border-bottom: 0.3pt solid var(--rule); }
+.key td.value { font-weight: 500; }
+
+.two { display: flex; gap: var(--space-3); }
+.two > * { flex: 1; }
+
+.signal { margin: 0 0 1mm; }
+.signal .tag { font: 600 var(--size-small) var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; }
+.signal.risk .tag { color: var(--risk); }
+.signal.opportunity .tag { color: var(--opportunity); }
+.signal .source { color: var(--muted); font-size: var(--size-small); }
+
+.narrative .note { color: var(--muted); font-size: var(--size-small); }
+.narrative ul { margin: 1mm 0 0 4mm; padding: 0; }
+.narrative li { margin-bottom: 1mm; }
+.basis { font: 400 var(--size-small) var(--font-figure); color: var(--muted); }
+.muted { color: var(--muted); }
