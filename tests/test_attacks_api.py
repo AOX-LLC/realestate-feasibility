@@ -220,7 +220,6 @@ def briefed(migrated_engine: Engine) -> Iterator[Any]:
     empty_database(migrated_engine)
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o7_a_stored_brief_that_no_longer_matches_its_hash_is_not_served(briefed: Any) -> None:
     engine, run = briefed
     execute(

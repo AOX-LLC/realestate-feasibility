@@ -4,7 +4,7 @@ builds one, so this module imports the stored shape and one read function."""
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from feasibility.api.deps import EngineDep
 from feasibility.api.routes.sourcing import RunId, require_run
@@ -12,6 +12,8 @@ from feasibility.delivery.brief import Brief
 from feasibility.delivery.store import read_brief
 
 router = APIRouter(prefix="/sourcing", tags=["brief"])
+
+_FAILED_CHECK = "the stored brief failed its integrity check; build it again"
 
 
 class BriefOut(BaseModel):
@@ -31,8 +33,12 @@ def get_run_brief(engine: EngineDep, run_id: RunId) -> BriefOut:
         stored = read_brief(connection, run_id)
     if stored is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no brief has been built for this run")
-    return BriefOut(
-        content_sha256=stored.content_sha256,
-        built_at=stored.built_at,
-        brief=Brief.model_validate(stored.content),
-    )
+    # A stored row that no longer parses, or no longer matches its hash, is not served: the
+    # brief is what gets delivered, and a hand edit or a bug must not become a delivery.
+    try:
+        content = Brief.model_validate(stored.content)
+    except ValidationError:
+        raise HTTPException(status.HTTP_409_CONFLICT, _FAILED_CHECK) from None
+    if content.content_sha256() != stored.content_sha256:
+        raise HTTPException(status.HTTP_409_CONFLICT, _FAILED_CHECK)
+    return BriefOut(content_sha256=stored.content_sha256, built_at=stored.built_at, brief=content)
