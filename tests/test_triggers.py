@@ -251,3 +251,25 @@ def test_the_trigger_routes_take_post_and_nothing_else(engine: Engine) -> None:
     }
 
     assert triggers == {"/triggers/morning": {"post"}}
+
+
+def test_the_trigger_takes_the_markets_run_lock_before_it_checks_the_date(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order: list[str] = []
+    real_lock = triggers_module.sourcing_store.lock_market_runs
+    real_latest = triggers_module.sourcing_store.latest_run_as_of
+
+    def lock(connection: Any, market: str) -> None:
+        order.append("lock")
+        real_lock(connection, market)
+
+    def latest(connection: Any, market: str) -> Any:
+        order.append("check")
+        return real_latest(connection, market)
+
+    monkeypatch.setattr(triggers_module.sourcing_store, "lock_market_runs", lock)
+    monkeypatch.setattr(triggers_module.sourcing_store, "latest_run_as_of", latest)
+
+    assert post(client, {"market": "dallas", "as_of": "2026-10-01"}).status_code == 202
+    assert order == ["lock", "check"]

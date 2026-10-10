@@ -54,6 +54,8 @@ def trigger_morning(
         # These messages name only dates the snapshot holds or today's date.
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from None
     with engine.begin() as connection:
+        # Two triggers for different dates must not both pass the date check below.
+        sourcing_store.lock_market_runs(connection, pack.market.id)
         latest = sourcing_store.latest_run_as_of(connection, pack.market.id)
         # A morning run already waiting for its turn counts as well: the worker would refuse the
         # earlier date later, and its job would die.
