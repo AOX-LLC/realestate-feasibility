@@ -253,15 +253,18 @@ def _call_all(
 ) -> None:
     for position, target in enumerate(calls):
         waiting = len(calls) - position - 1
-        if (
-            run_period is not None
-            and position > 0
-            and not _may_still_spend(engine, client, policy, as_of, billing_anchor_day)
-        ):
-            # Another caller (the listing sync, a manual check) took units since the headroom was
-            # read: what is left may be only the sync reserve, which a call here must not eat.
-            tally.deferred += waiting + 1
-            return
+        if run_period is not None and position > 0:
+            try:
+                may_spend = _may_still_spend(engine, client, policy, as_of, billing_anchor_day)
+            except Exception:
+                # Not read: neither bought nor failed, so deferred, and the counts add up.
+                tally.deferred += waiting + 1
+                raise
+            if not may_spend:
+                # Another caller (the listing sync) took units since the headroom was read: what
+                # is left may be only the sync reserve, which a call here must not eat.
+                tally.deferred += waiting + 1
+                return
         if run_period is not None and client.billing_period() != run_period:
             # The clock crossed a period boundary since the headroom was read: a call now would
             # be reserved in a period whose cap and reserve were never consulted.

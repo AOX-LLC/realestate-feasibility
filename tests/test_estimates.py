@@ -635,3 +635,30 @@ def test_a_budget_that_nobody_else_touches_is_read_again_without_changing_what_i
 
     assert spend.transport.addresses == spend.one_lines()
     assert counts == EstimateCounts(estimates_targeted=5, estimates_called=5)
+
+
+def test_a_failing_budget_re_read_defers_the_rest_so_the_counts_still_add_up(
+    spend: Spend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from feasibility.sourcing import estimates as estimates_module
+
+    spend.monthly_budget = 12
+    spend.set_used(0)
+    real = estimates_module._may_still_spend
+    calls = {"n": 0}
+
+    def breaks_on_the_second_look(*args: Any, **kwargs: Any) -> bool:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the budget could not be read")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(estimates_module, "_may_still_spend", breaks_on_the_second_look)
+
+    with pytest.raises(RuntimeError, match="could not be read"):
+        spend.spend(date(2026, 10, 27))
+
+    saved = spend.run_counts()
+    assert spend.transport.addresses == spend.one_lines()[:2]
+    assert saved["estimates_called"] == 2 and saved["estimates_deferred"] == 3
+    assert saved["estimates_targeted"] == 5  # every target is accounted for
