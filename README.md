@@ -13,7 +13,7 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM l
 | 1 | Schema, job queue, source adapters (county appraisal CSV, RentCast, MLS stub), mock and live modes, synthetic snapshot, market packs, read-only API, Docker Compose | Built |
 | 2 | Sourcing and scoring: apply the buy box, match listings to parcels, diff each day's feed, score and rank candidates, read-only API | Built |
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
-| 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
+| 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss one of their targets, the extraction dev split's injection check (see [The LLM layer](#the-llm-layer)) |
 | 5 | Delivery: the morning brief, scheduling | Built in mock mode: the API auth gate and morning trigger, the brief, the PDF pro-forma, the Notion and Slack clients, a delivery ledger that sends each item once, and an opt-in n8n schedule; a morning run goes from the trigger to mock Notion rows, a mock Slack digest and PDFs (see [Delivery and the morning run](#delivery-and-the-morning-run)). The live Notion and Slack calls are unverified |
 | 6 | Evals, retention and the proof kit | Started: the two model evals exist (Phase 4); retention is built (see [Retention](#retention)); the eval report and the proof kit are to come |
 
@@ -178,11 +178,11 @@ After the pro-formas, a run reads each ranked candidate's signals (stage 6) and 
 | | Mock data (default) | Live data |
 | --- | --- | --- |
 | `AGENT_CORE_MODE` | `replay` (default): serves the committed recordings, no key, no network, no cost. `record` calls the model and writes recordings | `live`: calls the model (needs `AGENT_CORE_ANTHROPIC_API_KEY`). With no key, narratives are `deferred` and signals are the three field signals |
-| Cost | Replay reports the cost of the call that was recorded; nothing is spent | Narratives only: about $0.015 a call, so about $0.08 for a first day of five computed candidates and about $0.03 for a day with two changed ones (a projection; see `evals/scorecards/cost.md`) |
+| Cost | Replay reports the cost of the call that was recorded; nothing is spent | Narratives only: about $0.010 to $0.013 a call, so about $0.05 to $0.06 for a first day of five computed candidates and about $0.02 to $0.03 for a day with two changed ones (a projection; see `evals/scorecards/cost.md`) |
 
 Results are cached by a hash of their inputs, so a same-day re-run, or a day whose inputs did not change, makes no call. Every call has one row in the ledger (`llm_call`), and a run's spend is capped (`LLM_RUN_BUDGET_USD`, per run across all its attempts) as is a UTC month of billable calls (`LLM_MONTHLY_BUDGET_USD`). A candidate the cap cannot afford is stored as `deferred`, not as an error. The recordings are tied to the prompts, the inputs and the pinned `anthropic` and `pydantic` versions; changing any of them means a paid re-recording (see [ARCHITECTURE](docs/ARCHITECTURE.md#recordings-and-how-to-record-again)).
 
-On the snapshot, replayed from the committed recordings: day 1 stores 12 signals rows (10 extracted, 2 fields-only) and 12 narrative rows (4 accepted, 1 rejected by the figure check, 7 not eligible); day 2 stores 17 and 17 (5 accepted, 1 rejected, 11 not eligible) with 8 calls; running day 2 again makes none.
+On the snapshot, replayed from the committed recordings: day 1 stores 12 signals rows (10 extracted, 2 fields-only) and 12 narrative rows (5 accepted, 7 not eligible) with 15 calls; day 2 stores 17 and 17 (6 accepted, 11 not eligible) with 8 calls; running day 2 again makes none.
 
 ```bash
 docker compose run --rm migrate feasibility source run --as-of 2026-10-01
