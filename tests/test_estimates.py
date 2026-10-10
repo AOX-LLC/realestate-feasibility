@@ -15,13 +15,13 @@ from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import Estimates
 from feasibility.snapshot.load import seed
 from feasibility.sources.rentcast import budget
+from feasibility.sources.rentcast.budget import SPEND_LOCK
 from feasibility.sources.rentcast.client import RentCastClient, SchemaDriftError, Ttls
 from feasibility.sources.rentcast.transport import SnapshotTransport, TransportResponse
 from feasibility.sourcing import estimate_store
 from feasibility.sourcing import store as run_store
 from feasibility.sourcing.estimate_store import EstimateTarget
 from feasibility.sourcing.estimates import (
-    SPEND_LOCK,
     EstimateCounts,
     SpendLimits,
     plan_spend,
@@ -602,3 +602,63 @@ def test_a_period_boundary_crossed_mid_loop_defers_the_rest(spend: Spend) -> Non
 
     assert spend.transport.addresses == spend.one_lines()[:2]
     assert counts == EstimateCounts(estimates_targeted=5, estimates_called=2, estimates_deferred=3)
+
+
+def test_units_another_spender_takes_mid_loop_defer_the_rest_so_the_sync_reserve_holds(
+    spend: Spend,
+) -> None:
+    """Five calls fit on Oct 27 (12 units, four days of reserve to keep). During the second call
+    another caller (the listing sync) takes seven units; the stage reads the budget again before
+    the third call and sees that only the reserve is left."""
+    spend.monthly_budget = 12
+    spend.set_used(0)
+
+    def another_spender_takes_seven() -> None:
+        spend.set_used(9)  # this call's own unit and the seven the other caller took
+
+    spend.transport.before_call[2] = another_spender_takes_seven
+
+    counts = spend.spend(date(2026, 10, 27))
+
+    assert spend.transport.addresses == spend.one_lines()[:2]
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_called=2, estimates_deferred=3)
+    assert spend.used() == 9  # nothing spent on the reserve
+
+
+def test_a_budget_that_nobody_else_touches_is_read_again_without_changing_what_is_bought(
+    spend: Spend,
+) -> None:
+    spend.monthly_budget = 12
+    spend.set_used(0)
+
+    counts = spend.spend(date(2026, 10, 27))
+
+    assert spend.transport.addresses == spend.one_lines()
+    assert counts == EstimateCounts(estimates_targeted=5, estimates_called=5)
+
+
+def test_a_failing_budget_re_read_defers_the_rest_so_the_counts_still_add_up(
+    spend: Spend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from feasibility.sourcing import estimates as estimates_module
+
+    spend.monthly_budget = 12
+    spend.set_used(0)
+    real = estimates_module._may_still_spend
+    calls = {"n": 0}
+
+    def breaks_on_the_second_look(*args: Any, **kwargs: Any) -> bool:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the budget could not be read")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(estimates_module, "_may_still_spend", breaks_on_the_second_look)
+
+    with pytest.raises(RuntimeError, match="could not be read"):
+        spend.spend(date(2026, 10, 27))
+
+    saved = spend.run_counts()
+    assert spend.transport.addresses == spend.one_lines()[:2]
+    assert saved["estimates_called"] == 2 and saved["estimates_deferred"] == 3
+    assert saved["estimates_targeted"] == 5  # every target is accounted for

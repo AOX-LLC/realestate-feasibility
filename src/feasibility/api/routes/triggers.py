@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from feasibility.api.deps import MARKET_ID, EngineDep, SettingsDep
 from feasibility.jobs import queue
-from feasibility.jobs.payloads import MorningRunPayload
+from feasibility.jobs.payloads import MorningRunPayload, RetentionPrunePayload
 from feasibility.markets.loader import PackError, get_pack
 from feasibility.sourcing import store as sourcing_store
 from feasibility.sourcing.dates import resolve_run_date
@@ -77,3 +77,39 @@ def trigger_morning(
     return TriggerOut(
         job_id=job_id, already_active=job_id is None, market=pack.market.id, as_of=run_date
     )
+
+
+class RetentionTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Count what would go and delete nothing.
+    dry_run: bool = False
+
+
+class RetentionTriggerOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    job_id: int | None
+    already_active: bool
+
+
+@router.post("/retention", status_code=status.HTTP_202_ACCEPTED)
+def trigger_retention(
+    response: Response, engine: EngineDep, body: RetentionTrigger | None = None
+) -> RetentionTriggerOut:
+    """Queue `retention.prune`, which deletes data past its retention window. One of each kind at a
+    time: while a real prune (or a dry run) is queued or running, a second of the same kind answers
+    200 and queues nothing."""
+    chosen = body or RetentionTrigger()
+    with engine.begin() as connection:
+        job_id = queue.enqueue(
+            connection,
+            "retention.prune",
+            RetentionPrunePayload(dry_run=chosen.dry_run),
+            # Apart: a queued dry run must not make the weekly real prune answer "already active"
+            # and silently not happen.
+            dedupe_key="retention.prune:dry" if chosen.dry_run else "retention.prune:real",
+        )
+    if job_id is None:
+        response.status_code = status.HTTP_200_OK
+    return RetentionTriggerOut(job_id=job_id, already_active=job_id is None)

@@ -5,6 +5,7 @@ Payloads are validated against the model when a job is enqueued and again when i
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,11 +26,18 @@ from feasibility.jobs.payloads import (
     CadImportPayload,
     ListingsSyncPayload,
     MorningRunPayload,
+    RetentionPrunePayload,
     SourcingRunPayload,
 )
 from feasibility.listings import sync_listings
 from feasibility.llm.run import PermanentModelError
 from feasibility.markets.loader import PackError, get_pack
+from feasibility.retention.prune import (
+    RetentionRefusedError,
+    check_as_of_allowed,
+    policy_from,
+    prune,
+)
 from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
 from feasibility.sources.mls.reso import remarks_source_for
@@ -80,6 +88,8 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     PermanentModelError,
     # A brief that cannot be built (no such run, a run still running) is the same on every try.
     BriefError,
+    # A prune from a chosen day where that is not allowed: queueing it again changes nothing.
+    RetentionRefusedError,
     # The renderer refused a fetch: the same document is refused the same way.
     PdfRenderError,
     # Credentials, a channel or a database that is wrong stay wrong; retrying would only repeat the
@@ -186,6 +196,18 @@ def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None
     deliver_brief(context.engine, context.settings, payload.run_id)
 
 
+def run_retention_prune(payload: RetentionPrunePayload, context: JobContext) -> None:
+    """Delete what is past its retention window (or count it, for a dry run). Safe to repeat: a
+    second run finds nothing left to delete."""
+    check_as_of_allowed(context.engine, context.settings, payload.as_of, payload.dry_run)
+    prune(
+        context.engine,
+        policy_from(context.settings),
+        as_of=payload.as_of or datetime.now(UTC).date(),
+        dry_run=payload.dry_run,
+    )
+
+
 def build_registry() -> dict[str, JobKind]:
     """Every job kind this application runs."""
     return {
@@ -194,4 +216,5 @@ def build_registry() -> dict[str, JobKind]:
         "sourcing.run": JobKind(SourcingRunPayload, run_sourcing_job),
         "morning.run": JobKind(MorningRunPayload, run_morning),
         "brief.deliver": JobKind(BriefDeliverPayload, run_brief_deliver),
+        "retention.prune": JobKind(RetentionPrunePayload, run_retention_prune),
     }

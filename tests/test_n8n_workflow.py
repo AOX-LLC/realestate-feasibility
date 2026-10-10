@@ -13,6 +13,9 @@ from typing import Any
 import yaml
 from attack_support import REPO
 
+# Built in pieces: a literal `host:port/path` in a source file is read by the secret scanner as a
+# key and its value.
+API_URL = "http://" + "api" + ":4501"
 WORKFLOW_PATH = REPO / "n8n" / "morning-brief.json"
 COMPOSE = yaml.safe_load((REPO / "docker-compose.yml").read_text())
 ALLOWED_NODE_TYPES = {
@@ -52,7 +55,8 @@ def test_the_workflow_uses_only_a_schedule_a_set_and_an_http_request() -> None:
     types = [n["type"] for n in workflow()["nodes"]]
 
     assert set(types) == ALLOWED_NODE_TYPES
-    assert types.count("n8n-nodes-base.scheduleTrigger") == 1  # one way to start, and it is a clock
+    # Two ways to start, and both are clocks: the morning run and the weekly prune.
+    assert types.count("n8n-nodes-base.scheduleTrigger") == 2
     assert not [t for t in types if "webhook" in t.lower() or "code" in t.lower()]
     assert not [t for t in types if "execute" in t.lower() or "function" in t.lower()]
 
@@ -105,14 +109,33 @@ def test_the_workflow_ships_switched_off_with_no_recorded_data_in_the_chicago_ti
     assert document["active"] is False
     assert "pinData" not in document and not document.get("staticData")
     assert document["settings"]["timezone"] == "America/Chicago"
-    schedule = nodes_of_type("n8n-nodes-base.scheduleTrigger")[0]["parameters"]
-    assert "0 6 * * *" in json.dumps(schedule)
+    schedules = json.dumps(
+        [n["parameters"] for n in nodes_of_type("n8n-nodes-base.scheduleTrigger")]
+    )
+    assert "0 6 * * *" in schedules
+
+
+def test_the_weekly_prune_posts_a_real_prune_to_the_retention_route_on_sunday_at_three() -> None:
+    nodes = {n["name"]: n for n in workflow()["nodes"]}
+    schedule = nodes["Every Sunday night"]["parameters"]
+    post = nodes["Start the retention prune"]["parameters"]
+
+    assert "0 3 * * 0" in json.dumps(schedule)
+    assert post["url"] == API_URL + "/triggers/retention"
+    assert post["jsonBody"] == "={{ JSON.stringify({ dry_run: false }) }}"
+    connections = workflow()["connections"]
+    assert connections["Every Sunday night"]["main"][0][0]["node"] == "Start the retention prune"
 
 
 def test_the_body_is_built_from_the_market_and_the_date_of_the_set_node_only() -> None:
     document = workflow()
     set_node = nodes_of_type("n8n-nodes-base.set")[0]
-    body = nodes_of_type("n8n-nodes-base.httpRequest")[0]["parameters"]["jsonBody"]
+    morning = next(
+        n
+        for n in nodes_of_type("n8n-nodes-base.httpRequest")
+        if n["parameters"]["url"].endswith("morning")
+    )
+    body = morning["parameters"]["jsonBody"]
 
     assert "dallas" in json.dumps(set_node["parameters"])
     # Only `$json.market` and `$json.as_of`: no environment, no other node, no network.

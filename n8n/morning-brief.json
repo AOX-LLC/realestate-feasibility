@@ -17,7 +17,10 @@
       "name": "Every morning",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -43,7 +46,10 @@
       "name": "Markets",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -62,7 +68,61 @@
       "name": "Start the morning run",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 60000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "feasibility-trigger",
+          "name": "feasibility trigger"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "7d2a9c40-5b13-4e8f-a6c2-91f0e3b4d505",
+      "name": "Every Sunday night",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4501/triggers/retention",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ dry_run: false }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b4e6d1f2-8a37-4c09-b5d8-2f7a1c3e9606",
+      "name": "Start the retention prune",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        240
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 60000,
@@ -76,10 +136,37 @@
   ],
   "connections": {
     "Every morning": {
-      "main": [[{ "node": "Markets", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Markets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Markets": {
-      "main": [[{ "node": "Start the morning run", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Start the morning run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Sunday night": {
+      "main": [
+        [
+          {
+            "node": "Start the retention prune",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,

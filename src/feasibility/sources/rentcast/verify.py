@@ -9,13 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from sqlalchemy import Engine
 
 from feasibility.config import Settings
 from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import RentCastListings
 from feasibility.sources.base import ListingQuery
+from feasibility.sources.rentcast import budget
 from feasibility.sources.rentcast.client import RentCastClient, Ttls
 from feasibility.sources.rentcast.transport import HttpTransport, Transport, TransportResponse
 
@@ -72,12 +73,19 @@ def _dump(model: BaseModel | list[Any] | None) -> Any:
 
 
 def verify(engine: Engine, settings: Settings) -> Path:
+    """Check the live API once. Takes the spend lock first and does not wait for it: a check
+    that spends from the monthly budget must not run beside the daily run that counts it."""
     if not settings.is_live or settings.rentcast_api_key is None:
         raise RuntimeError("verify-rentcast needs DATA_MODE=live and RENTCAST_API_KEY")
+    with budget.spend_lock(engine, wait=False):
+        return _verify(engine, settings, settings.rentcast_api_key)
+
+
+def _verify(engine: Engine, settings: Settings, api_key: SecretStr) -> Path:
     spec = next(
         s for s in get_pack(settings.market).sources.listings if isinstance(s, RentCastListings)
     )
-    transport = CeilingTransport(HttpTransport(settings.rentcast_api_key))
+    transport = CeilingTransport(HttpTransport(api_key))
     client = RentCastClient(
         engine,
         transport,

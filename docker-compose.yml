@@ -83,6 +83,15 @@ x-delivery-environment: &delivery-environment
   # MEDIA_OUT_DIR to a folder the container user (uid 10001) can write; unset, nothing is written.
   MEDIA_OUT: ${MEDIA_OUT_DIR:+/media}
 
+# Retention settings, merged into worker and migrate only: pruning runs as a job or from the CLI.
+x-retention-environment: &retention-environment
+  RETENTION_RUN_DAYS: ${RETENTION_RUN_DAYS:-90}
+  RETENTION_ESTIMATE_DAYS: ${RETENTION_ESTIMATE_DAYS:-90}
+  RETENTION_MODEL_CACHE_DAYS: ${RETENTION_MODEL_CACHE_DAYS:-30}
+  RETENTION_LEDGER_MONTHS: ${RETENTION_LEDGER_MONTHS:-13}
+  RETENTION_JOB_DAYS: ${RETENTION_JOB_DAYS:-30}
+  RETENTION_LISTING_DAYS: ${RETENTION_LISTING_DAYS:-30}
+
 x-app: &app
   build:
     context: .
@@ -120,7 +129,7 @@ services:
   migrate:
     <<: [*app, *hardening, *local-dir]
     environment:
-      <<: [*app-environment, *llm-environment, *delivery-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment, *retention-environment]
     command: ["sh", "-c", "feasibility migrate && feasibility seed"]
     depends_on:
       db:
@@ -155,7 +164,7 @@ services:
   worker:
     <<: [*app, *hardening, *local-dir-read-only]
     environment:
-      <<: [*app-environment, *llm-environment, *delivery-environment]
+      <<: [*app-environment, *llm-environment, *delivery-environment, *retention-environment]
     command: ["feasibility", "worker"]
     depends_on:
       migrate:

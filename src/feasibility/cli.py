@@ -39,6 +39,7 @@ from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
+from feasibility.sources.rentcast.budget import SpendInProgressError
 from feasibility.sourcing import store as sourcing_store
 from feasibility.sourcing.dates import resolve_run_date
 from feasibility.sourcing.errors import SourcingError
@@ -56,6 +57,10 @@ llm_app = typer.Typer(no_args_is_help=True, help="Model results and their cost (
 app.add_typer(llm_app, name="llm")
 brief_app = typer.Typer(no_args_is_help=True, help="The brief of a run: build it, read it.")
 app.add_typer(brief_app, name="brief")
+retention_app = typer.Typer(
+    no_args_is_help=True, help="Delete stored data past its retention window."
+)
+app.add_typer(retention_app, name="retention")
 eval_app = typer.Typer(no_args_is_help=True, help="Model evals: replay by default, no live calls.")
 app.add_typer(eval_app, name="eval")
 
@@ -235,7 +240,7 @@ def source_show(
         )
         if shown_run is None:
             typer.echo("no completed run yet", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=2)
         lines = sourcing_store.candidate_summaries(connection, shown_run, status, limit)
     typer.echo(f"run {shown_run}, {status}: {len(lines)} shown")
     for line in lines:
@@ -698,6 +703,54 @@ def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) 
         raise typer.Exit(code=1) from None
 
 
+@retention_app.command("prune")
+def retention_prune(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Count what would be deleted; delete nothing")
+    ] = False,
+    as_of: Annotated[
+        str | None,
+        typer.Option(
+            "--as-of",
+            help="Measure the windows from this day, YYYY-MM-DD (default: today, UTC). A real "
+            "prune from a chosen day is refused where live data or real spend exists; --dry-run "
+            "may use any day.",
+        ),
+    ] = None,
+) -> None:
+    """Delete everything older than its retention window (RETENTION_* settings), or with
+    --dry-run say what would go. A market's latest run, a run being built and any spend record
+    inside its months are never touched. Copies already sent to Notion and Slack are out of
+    reach."""
+    from datetime import UTC, datetime
+
+    from feasibility.retention.prune import (
+        RULES,
+        RetentionRefusedError,
+        check_as_of_allowed,
+        policy_from,
+        prune,
+    )
+
+    settings = get_settings()
+    try:
+        day = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else datetime.now(UTC).date()
+    except ValueError:
+        raise typer.BadParameter("--as-of must be a date such as 2026-12-15") from None
+    engine = get_engine()
+    try:
+        check_as_of_allowed(engine, settings, day if as_of else None, dry_run)
+    except RetentionRefusedError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from None
+    report = prune(engine, policy_from(settings), as_of=day, dry_run=dry_run)
+    verb = "would delete" if dry_run else "deleted"
+    typer.echo(f"retention as of {day}: {verb}")
+    for rule in RULES:
+        typer.echo(f"  {rule:<22} {report.counts[rule]:>8}")
+    typer.echo("dry run: nothing deleted" if dry_run else f"{report.total()} rows deleted")
+
+
 @app.command("verify-rentcast")
 def verify_rentcast() -> None:
     """Check the live RentCast API against the models (at most 4 calls, from the budget)."""
@@ -705,7 +758,11 @@ def verify_rentcast() -> None:
     if not settings.is_live:
         typer.echo("verify-rentcast needs DATA_MODE=live and RENTCAST_API_KEY", err=True)
         raise typer.Exit(code=2)
-    report_path = verify.verify(get_engine(), settings)
+    try:
+        report_path = verify.verify(get_engine(), settings)
+    except SpendInProgressError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from None
     typer.echo(f"field report written to {report_path}")
 
 

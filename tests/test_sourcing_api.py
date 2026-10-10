@@ -62,7 +62,9 @@ def test_runs_are_listed_newest_first_with_their_counts(ran_both_days: TestClien
         "counts",
         "started_at",
         "finished_at",
+        "pruned_at",
     }
+    assert newest["pruned_at"] is None
     assert (newest["status"], newest["sync_status"]) == ("completed", "fresh")
     assert newest["counts"]["ranked"] == 17
     assert newest["counts"]["match_rate"] == "0.9048"

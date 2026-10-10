@@ -34,6 +34,7 @@ class RunHeader:
     error: str | None
     data_mode: str
     stages_finished: bool
+    pruned: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +76,7 @@ def read_run(connection: Connection, run_id: int) -> RunHeader | None:
             sourcing_run.c.error,
             sourcing_run.c.data_mode,
             sourcing_run.c.stages_finished_at.is_not(None).label("stages_finished"),
+            sourcing_run.c.pruned_at.is_not(None).label("pruned"),
         )
         .where(sourcing_run.c.id == run_id)
         # A shared row lock: if a re-run rebuilds the run after this build's snapshot, the build
@@ -84,7 +86,13 @@ def read_run(connection: Connection, run_id: int) -> RunHeader | None:
     if row is None:
         return None
     return RunHeader(
-        row.market, row.as_of, row.status, row.error, row.data_mode, row.stages_finished
+        row.market,
+        row.as_of,
+        row.status,
+        row.error,
+        row.data_mode,
+        row.stages_finished,
+        row.pruned,
     )
 
 

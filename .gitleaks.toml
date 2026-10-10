@@ -3,7 +3,7 @@
 useDefault = true
 
 [[allowlists]]
-description = "the workflow's one URL, http://api:4501/triggers/morning, is read as an api key: it is the address of the API service inside Compose (tests/test_n8n_workflow.py checks that the file holds no token)"
+description = "the workflow's URLs, http://api:4501/triggers/<name>, is read as an api key: it is the address of the API service inside Compose (tests/test_n8n_workflow.py checks that the file holds no token)"
 condition = "AND"
 paths = ['''^n8n/morning-brief\.json$''']
-regexes = ['''^4501/triggers/morning$''']
+regexes = ['''^4501/triggers/[a-z]+$''']

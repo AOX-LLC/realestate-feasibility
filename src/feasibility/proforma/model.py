@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from feasibility.markets.schema import CostAssumptions
+from feasibility.proforma.assumptions_v1 import CostAssumptionsV1
 
 
 def _reject_float(value: Any) -> Any:
@@ -217,7 +217,8 @@ class ProformaResult(ProformaModel):
     status: Status
     reason: str | None
     flags: tuple[str, ...]
-    assumptions: CostAssumptions
+    # The pack's assumptions as stored (frozen: see assumptions_v1.py), not the pack's own model.
+    assumptions: CostAssumptionsV1
     site: Site
     sizing: SizingResult | None
     arv: ArvDetail | None

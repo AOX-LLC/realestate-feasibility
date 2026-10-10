@@ -39,6 +39,11 @@ class BriefNotReadyError(BriefError):
     """The run has not finished: its rows are still being written."""
 
 
+class RunPrunedError(BriefError):
+    """The run's detail was deleted by retention; a brief built now would be empty, and sending it
+    would post a digest of nothing for a day that is long past."""
+
+
 def build_brief(connection: Connection, run_id: int) -> Brief:
     """The run's brief: its computed pro-formas in rank order (at most ten), each with its
     signals and its narrative if the narrative still passes the figure check.
@@ -48,6 +53,8 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
     header = store.read_run(connection, run_id)
     if header is None:
         raise RunNotFoundError(f"run {run_id} does not exist")
+    if header.pruned:
+        raise RunPrunedError(f"run {run_id} was pruned by retention")
     if header.status != "completed":
         raise BriefNotReadyError(f"run {run_id} is {header.status}, not completed")
     if not header.stages_finished:

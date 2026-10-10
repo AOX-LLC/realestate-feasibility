@@ -60,6 +60,7 @@ RUN_COLUMNS = (
     sourcing_run.c.counts,
     sourcing_run.c.started_at,
     sourcing_run.c.finished_at,
+    sourcing_run.c.pruned_at,
 )
 
 
