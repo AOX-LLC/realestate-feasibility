@@ -205,6 +205,8 @@ sourcing_run = Table(
     # The mode the run ran in, and when its last stage ended (null while stages remain).
     Column("data_mode", Text, nullable=False, server_default=text("'mock'")),
     _timestamp("stages_finished_at", nullable=True),
+    # Set when retention deleted the run's detail rows; the run's own row, counts and error stay.
+    _timestamp("pruned_at", nullable=True),
     UniqueConstraint("market", "as_of"),
     CheckConstraint(_in_list("status", RUN_STATUSES), name="status"),
     CheckConstraint(_in_list("sync_status", SYNC_STATUSES), name="sync_status"),
@@ -572,6 +574,8 @@ llm_result = Table(
     CheckConstraint("prompt_version >= 1", name="prompt_version"),
     CheckConstraint(_in_list("tier", LLM_TIERS), name="tier"),
     CheckConstraint("input_sha256 ~ '^[0-9a-f]{64}$'", name="input_sha256"),
+    # Deleting an old llm_call row nulls llm_call_id; without this the foreign key reads the table.
+    Index(None, "llm_call_id"),
 )
 
 candidate_signals = Table(
