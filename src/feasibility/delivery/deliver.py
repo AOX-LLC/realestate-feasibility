@@ -69,7 +69,8 @@ class Clients:
 @dataclass(frozen=True)
 class ItemResult:
     """What happened to one item in this delivery. `skipped` means nothing was sent because it
-    was already there; `not_attempted` means a configuration error stopped the target first."""
+    was already there; `superseded` means a later day's figures are on the page; `not_attempted`
+    means a configuration error stopped the target first."""
 
     target: str
     item: str
@@ -259,6 +260,11 @@ def _deliver_notion(
         properties = row_properties(brief, entry)
         sha = digest_of(properties)
         last = ledger.remembered(engine, "notion", item, mode)
+        if last is not None and last.as_of > brief.as_of:
+            # The page already carries a later day's figures; an older brief (a resend, a late
+            # job) must not write them back.
+            report.items.append(ItemResult("notion", item, "superseded", None, last.remote_ref))
+            continue
         if last is not None and last.content_sha256 == sha:
             ledger.note_skipped(engine, report.run_id, "notion", item, mode, sha, last.remote_ref)
             report.items.append(ItemResult("notion", item, "skipped", None, last.remote_ref))

@@ -344,3 +344,39 @@ def test_a_resend_after_one_lost_file_posts_that_file_again_and_not_the_digest(d
     assert again.posted == []  # the digest that is in the channel is not posted again
     assert len(again.uploads) == 5  # every file's completion had been lost
     assert status_of(report, "slack", "digest") == "skipped"
+
+
+def test_delivering_an_older_day_does_not_write_its_figures_over_a_later_days_rows(
+    days: Any,
+) -> None:
+    engine, one, two = days
+    deliver(engine, one.run_id, MockNotionTransport(), MockSlackTransport())
+    deliver(engine, two.run_id, MockNotionTransport(), MockSlackTransport())
+    pages_before = {
+        r["item"]: (r["remote_ref"], r["content_sha256"])
+        for r in ledger(engine, two.run_id)
+        if r["target"] == "notion"
+    }
+    clear_day_one_notion(engine, one.run_id)
+    notion = MockNotionTransport()
+
+    report = deliver(engine, one.run_id, notion, MockSlackTransport(), only="notion")
+
+    # Every candidate of day one is also on day two's page set, so nothing is written.
+    assert {i.status for i in report.items if i.target == "notion"} == {"superseded"}
+    assert [r for r in notion.requests if r.method in ("PATCH", "POST")] == []
+    pages_after = {
+        r["item"]: (r["remote_ref"], r["content_sha256"])
+        for r in ledger(engine, two.run_id)
+        if r["target"] == "notion"
+    }
+    assert pages_after == pages_before
+
+
+def clear_day_one_notion(engine: Engine, run_id: int) -> None:
+    from sqlalchemy import text
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM delivery WHERE run_id = :r AND target = 'notion'"), {"r": run_id}
+        )

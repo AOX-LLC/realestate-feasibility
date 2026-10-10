@@ -11,7 +11,7 @@ Nothing here takes a payload, a URL or a service's words. The table's own checks
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import Engine, text
 
@@ -42,6 +42,7 @@ class Remembered:
     """The newest delivered row of an item in any run: where it went and what it said."""
 
     run_id: int
+    as_of: date
     remote_ref: str
     content_sha256: str
 
@@ -178,10 +179,11 @@ def remembered(engine: Engine, target: str, item: str, mode: str) -> Remembered 
     with engine.connect() as connection:
         row = connection.execute(
             text(
-                "SELECT run_id, remote_ref, content_sha256 FROM delivery "
-                "WHERE target = :target AND item = :item AND mode = :mode "
-                "AND status IN ('sent', 'skipped') AND remote_ref IS NOT NULL "
-                "ORDER BY updated_at DESC, id DESC LIMIT 1"
+                "SELECT d.run_id, r.as_of, d.remote_ref, d.content_sha256 FROM delivery d "
+                "JOIN sourcing_run r ON r.id = d.run_id "
+                "WHERE d.target = :target AND d.item = :item AND d.mode = :mode "
+                "AND d.status IN ('sent', 'skipped') AND d.remote_ref IS NOT NULL "
+                "ORDER BY d.updated_at DESC, d.id DESC LIMIT 1"
             ),
             {"target": target, "item": item, "mode": mode},
         ).one_or_none()
