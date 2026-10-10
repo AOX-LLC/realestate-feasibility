@@ -13,8 +13,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from feasibility.llm.catalogue import Polarity, SignalCode
-from feasibility.llm.field_signals import FieldSignal, FieldSignalCode
+from feasibility.llm.catalogue import DEFINITIONS, Polarity, SignalCode
+from feasibility.llm.field_signals import FIELD_SIGNAL_POLARITY, FieldSignal, FieldSignalCode
 from feasibility.llm.signals import DroppedClaim, VerifiedSignal
 
 Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -72,6 +72,24 @@ class StoredSignal(ResultModel):
                 raise ValueError("a field signal has a field, not a quote")
             if not self.field or self.field_value is None:
                 raise ValueError("a field signal needs its field and its value")
+        return self
+
+    @model_validator(mode="after")
+    def _the_code_belongs_to_the_source_and_has_its_polarity(self) -> Self:
+        """A stored signal whose code is of the other kind, or whose polarity is not the
+        catalogue's, is not one this code wrote: a row like that would turn a risk into an
+        opportunity or fail a lookup downstream."""
+        expected = (
+            DEFINITIONS[self.code].polarity
+            if self.source == "remarks" and self.code in DEFINITIONS
+            else FIELD_SIGNAL_POLARITY.get(self.code)
+            if self.source == "fields"
+            else None
+        )
+        if expected is None:
+            raise ValueError("the signal's code is not a code of its source")
+        if self.polarity != expected:
+            raise ValueError("the signal's polarity is not the catalogue's")
         return self
 
     @classmethod

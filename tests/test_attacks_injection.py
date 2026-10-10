@@ -308,7 +308,6 @@ def test_a7_a_flag_code_is_a_code(plain: Any) -> None:
         assert all(flag.code.replace("_", "").isalpha() for flag in entry.flags)
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a8_a_stored_signal_that_disagrees_with_the_catalogue_is_not_delivered(plain: Any) -> None:
     from feasibility.delivery.build import BriefError
 
