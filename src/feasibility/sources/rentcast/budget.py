@@ -11,6 +11,10 @@ from sqlalchemy import Connection, Engine, text
 SPEND_LOCK = {"key": "rentcast:estimate-spend"}
 
 
+class SpendInProgressError(RuntimeError):
+    """Another caller holds the spend lock: a paid call now could add to what it is counting."""
+
+
 @dataclass(frozen=True)
 class BudgetUsage:
     period_start: date
@@ -79,11 +83,22 @@ def usage(connection: Connection, provider: str, period: date, limit: int) -> Bu
 
 
 @contextmanager
-def spend_lock(engine: Engine) -> Iterator[None]:
+def spend_lock(engine: Engine, *, wait: bool = True) -> Iterator[None]:
     """Hold the session-level lock that lets one spender at a time read the cap and the budget and
-    act on them. No transaction stays open while it is held. Waits for the lock."""
+    act on them. No transaction stays open while it is held. By default waits for the lock; with
+    `wait=False` raises `SpendInProgressError` at once if another caller holds it."""
     with engine.connect() as connection:
-        connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK)
+        if wait:
+            connection.execute(
+                text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
+            )
+        else:
+            taken = connection.execute(
+                text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK
+            ).scalar_one()
+            if not taken:
+                connection.rollback()
+                raise SpendInProgressError("a spend is in progress; try again")
         connection.commit()
         try:
             yield

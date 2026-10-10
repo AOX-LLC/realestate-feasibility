@@ -39,6 +39,7 @@ from feasibility.snapshot.load import seed as seed_snapshot
 from feasibility.sources.base import ImportRequest
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource
 from feasibility.sources.rentcast import verify
+from feasibility.sources.rentcast.budget import SpendInProgressError
 from feasibility.sourcing import store as sourcing_store
 from feasibility.sourcing.dates import resolve_run_date
 from feasibility.sourcing.errors import SourcingError
@@ -747,7 +748,11 @@ def verify_rentcast() -> None:
     if not settings.is_live:
         typer.echo("verify-rentcast needs DATA_MODE=live and RENTCAST_API_KEY", err=True)
         raise typer.Exit(code=2)
-    report_path = verify.verify(get_engine(), settings)
+    try:
+        report_path = verify.verify(get_engine(), settings)
+    except SpendInProgressError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from None
     typer.echo(f"field report written to {report_path}")
 
 
