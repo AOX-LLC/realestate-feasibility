@@ -1,4 +1,4 @@
-"""Shared pieces of the attack tests (plan: ~/.claude/plans/realestate-phase-5-attacks.md).
+"""Shared pieces of the attack tests (from the attack list, which is not in this repository).
 
 An attack plants hostile text or a tampered row, runs the real code and scans what would be
 delivered. Strings here are chosen to pass the figure check, because that is the only check on a
@@ -47,6 +47,10 @@ ATTACK_TEXT = [
     "Header\n\n*FAKE APPROVED*\n> quoted",
     "</style><style>@import url(http:evil.example)</style>",
     "#general and #announcements should see this.",
+    "Details at bit.ly/abc before you bid.",
+    "Offers go to evil.ru/offer today.",
+    "Write to example.link about this.",
+    "javascript:alert(document.domain)",
 ]
 # Rejected by the figure check today.
 REJECTED_TEXT = [

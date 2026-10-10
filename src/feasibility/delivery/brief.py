@@ -247,9 +247,9 @@ def signals_of(signals: SignalsResult | None) -> BriefSignals:
 # markup or template syntax, none of the listing's own words, no injection phrasing, and no
 # street name from the comps (an address). These characters and shapes have no place in it.
 _PLAIN_PROSE = re.compile(r"[A-Za-z0-9 .,;:'\"%$()!?/-]*")
-_LINK = re.compile(
-    r"(?i)(?:://|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|us|gov|edu|info|biz|app|dev|xyz)\b)"
-)
+# A link in any form: a scheme, "www.", or a dot between letters with no space after it (ordinary
+# prose has a space after a full stop, and a figure's dot sits between digits).
+_LINK = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*:(?!\s)|\bwww\.|\b[a-z0-9-]+\.[a-z]{2,}\b)")
 # A made-up marker word such as a planted canary: five or more capital letters in a row.
 _SHOUTED_WORD = re.compile(r"\b[A-Z]{5,}\b")
 _ECHO_WIDTH = 24
