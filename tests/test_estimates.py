@@ -15,13 +15,13 @@ from feasibility.markets.loader import get_pack
 from feasibility.markets.schema import Estimates
 from feasibility.snapshot.load import seed
 from feasibility.sources.rentcast import budget
+from feasibility.sources.rentcast.budget import SPEND_LOCK
 from feasibility.sources.rentcast.client import RentCastClient, SchemaDriftError, Ttls
 from feasibility.sources.rentcast.transport import SnapshotTransport, TransportResponse
 from feasibility.sourcing import estimate_store
 from feasibility.sourcing import store as run_store
 from feasibility.sourcing.estimate_store import EstimateTarget
 from feasibility.sourcing.estimates import (
-    SPEND_LOCK,
     EstimateCounts,
     SpendLimits,
     plan_spend,

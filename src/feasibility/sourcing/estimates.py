@@ -12,12 +12,11 @@ unrankable. It is stored for the pro-forma.
 """
 
 import logging
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import Connection, Engine, text
+from sqlalchemy import Connection, Engine
 
 from feasibility.domain.models import ValueEstimate
 from feasibility.logging import redact
@@ -33,8 +32,6 @@ from feasibility.sourcing import estimate_store, store
 from feasibility.sourcing.estimate_store import EstimateTarget, EstimateWrite
 
 log = logging.getLogger(__name__)
-
-SPEND_LOCK = {"key": "rentcast:estimate-spend"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,23 +131,6 @@ class _Tally:
         )
 
 
-@contextmanager
-def _one_spender(engine: Engine) -> Iterator[None]:
-    """Hold the session-level lock that lets one spend stage at a time read the cap and the
-    budget and act on them. No transaction stays open while it is held."""
-    with engine.connect() as connection:
-        connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK)
-        connection.commit()
-        try:
-            yield
-        finally:
-            connection.rollback()
-            connection.execute(
-                text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK
-            )
-            connection.commit()
-
-
 def spend_estimates(
     engine: Engine,
     client: RentCastClient,
@@ -171,7 +151,7 @@ def spend_estimates(
     Only one stage spends at a time, so two overlapping runs cannot both read the same
     headroom under the cap and the sync reserve.
     """
-    with _one_spender(engine):
+    with budget.spend_lock(engine):
         return _spend(engine, client, policy, run_id, as_of, billing_anchor_day, secrets)
 
 

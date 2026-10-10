@@ -1,10 +1,14 @@
 """A hard monthly request budget per provider. A unit is reserved before every paid call
 and refunded only when the provider cannot have billed it."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, Engine, text
+
+SPEND_LOCK = {"key": "rentcast:estimate-spend"}
 
 
 @dataclass(frozen=True)
@@ -72,3 +76,20 @@ def usage(connection: Connection, provider: str, period: date, limit: int) -> Bu
         {"provider": provider, "period": period},
     ).scalar()
     return BudgetUsage(period_start=period, limit=limit, used=int(used or 0))
+
+
+@contextmanager
+def spend_lock(engine: Engine) -> Iterator[None]:
+    """Hold the session-level lock that lets one spender at a time read the cap and the budget and
+    act on them. No transaction stays open while it is held. Waits for the lock."""
+    with engine.connect() as connection:
+        connection.execute(text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"), SPEND_LOCK)
+        connection.commit()
+        try:
+            yield
+        finally:
+            connection.rollback()
+            connection.execute(
+                text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), SPEND_LOCK
+            )
+            connection.commit()
