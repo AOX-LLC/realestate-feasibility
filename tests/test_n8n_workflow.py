@@ -196,6 +196,10 @@ def test_n8n_is_hardened_like_the_other_services() -> None:
     assert service["cap_drop"] == ["ALL"]
     assert "no-new-privileges:true" in service["security_opt"]
     assert service["pids_limit"] <= 256
+    assert service["read_only"] is True
+    # Read-only root, so the places n8n writes to at start are memory.
+    assert any(t.startswith("/home/node/.cache:") for t in service["tmpfs"])
+    assert any(t.startswith("/tmp:") for t in service["tmpfs"])  # noqa: S108
     assert service["mem_limit"]
     assert service["depends_on"]["api"]["condition"] == "service_healthy"
     volumes = service["volumes"]

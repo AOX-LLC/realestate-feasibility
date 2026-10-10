@@ -65,3 +65,15 @@ def test_the_readme_links_to_the_notices_from_its_license_section() -> None:
     license_section = readme.split("## License", 1)[1]
 
     assert "(THIRD_PARTY_NOTICES.md)" in license_section
+
+
+def test_the_services_delivery_uses_and_the_scheduler_image_are_credited() -> None:
+    flat = " ".join(NOTICES.split())
+
+    assert "Notion" in NOTICES and "Slack" in NOTICES
+    assert "mock mode nothing is sent and no token is read" in flat
+    assert "n8n" in NOTICES and "Sustainable Use License" in NOTICES
+    # The pinned image in the notices is the one the compose file pulls.
+    compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    version = re.search(r"n8nio/n8n:([0-9.]+)@sha256", compose)
+    assert version is not None and f"n8nio/n8n:{version.group(1)}" in NOTICES

@@ -27,6 +27,13 @@ endorsed by RentCast.
 Nothing is sent in the default replay mode. The committed listing text (`data/mls/dallas.json`) is
 synthetic.
 
+**Notion and Slack.** With `DELIVERY_MODE=live` the brief is sent to a [Notion](https://www.notion.so/)
+database and a [Slack](https://slack.com/) channel over their public APIs, using a Notion internal
+integration token and a Slack bot token the operator supplies; each service's terms apply to what is
+sent there. In the default mock mode nothing is sent and no token is read. Nothing from either
+service is stored beyond a page or message reference in the delivery ledger. This project is not
+affiliated with or endorsed by Notion or Slack.
+
 ## Python dependencies
 
 Runtime dependencies (installed in the container image), with the licence each declares:
@@ -161,3 +168,10 @@ The final image also installs three Debian packages for PDF rendering: `libpango
 licence). They are linked dynamically by WeasyPrint's `ctypes` loading, not modified and not
 copied into this repository. They are installed from the base image's Debian release without a
 version pin, so a rebuild takes the release's current package.
+
+The `schedule` profile of `docker-compose.yml` (off by default, never pulled by `docker compose up`
+or by CI) runs the official [n8n](https://n8n.io/) image, `docker.n8n.io/n8nio/n8n:2.42.6`, pinned by
+its index digest. n8n is distributed under its Sustainable Use License and, for its enterprise
+files, the n8n Enterprise License (see its repository's `LICENSE.md`). This project does not copy,
+modify or redistribute n8n: the compose file names the image and the operator's Docker pulls it. It
+is used only as a clock that sends one authenticated request to this project's API.
