@@ -5,6 +5,7 @@ delivered. Strings here are chosen to pass the figure check, because that is the
 narrative that existed before delivery: they show what a digit-free narrative can still carry.
 """
 
+import copy
 import json
 import re
 import shutil
@@ -315,6 +316,20 @@ def display_forms(value: Any) -> set[str]:
         forms.add(f"{number:,.1f}")
         return {f for f in forms if f}
     return forms
+
+
+def without_model_text(dump: dict[str, Any]) -> dict[str, Any]:
+    """A brief's dump with what a model wrote taken out of every candidate's narrative. The
+    digit scans must not treat that text as a stored value that stands for itself: a number a
+    model invented would then excuse itself. Its figures are allowed only where they equal a
+    stored value shown in one of the forms above."""
+    stripped = copy.deepcopy(dump)
+    for entry in stripped["candidates"]:
+        narrative = entry["narrative"]
+        narrative["summary"] = None
+        narrative["risks"] = []
+        narrative["checks_before_offer"] = []
+    return stripped
 
 
 def allowed_displays(*structures: Any) -> list[str]:

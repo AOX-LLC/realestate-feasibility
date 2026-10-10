@@ -391,10 +391,33 @@ def test_b13_control_the_digit_scan_finds_an_invented_number() -> None:
     assert digits_left_over("Profit $7,560.14.", allowed) != []  # not a piece of a longer figure
 
 
+def test_b13_control_a_model_written_number_does_not_excuse_itself() -> None:
+    from attack_support import allowed_displays, digits_left_over, without_model_text
+
+    dump = {
+        "candidates": [
+            {
+                "profit": "107560.14",
+                "narrative": {
+                    "summary": "Profit is about 108,000.",
+                    "risks": [{"text": "Rent 2,345 a month."}],
+                    "checks_before_offer": ["Verify 77 things."],
+                },
+            }
+        ]
+    }
+
+    allowed = allowed_displays(without_model_text(dump))
+
+    assert digits_left_over("Profit is about 108,000.", allowed) != []
+    assert digits_left_over("Rent 2,345 a month. Verify 77 things.", allowed) != []
+    assert digits_left_over("Profit is $107,560.14.", allowed) == []
+
+
 def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> None:
     import io
 
-    from attack_support import allowed_displays, digits_left_over
+    from attack_support import allowed_displays, digits_left_over, without_model_text
     from pypdf import PdfReader
 
     from feasibility.delivery.document import proforma_document
@@ -414,14 +437,14 @@ def test_b13_every_figure_in_the_pdf_is_a_formatted_stored_value(plain: Any) -> 
     reader = PdfReader(io.BytesIO(render_pdf(document)))
     text_ = "\n".join(page.extract_text() for page in reader.pages)
     # Stored values, the page numbers ("Page n of m", at most three pages) and nothing else.
-    allowed = allowed_displays(brief.model_dump(mode="json"), stored, [1, 2, 3])
+    allowed = allowed_displays(without_model_text(brief.model_dump(mode="json")), stored, [1, 2, 3])
 
     assert digits_left_over(text_, allowed) == []
     assert "7.6%" not in text_
 
 
 def test_b14_every_visible_number_in_the_slack_payload_is_a_stored_value(plain: Any) -> None:
-    from attack_support import allowed_displays, digits_left_over
+    from attack_support import allowed_displays, digits_left_over, without_model_text
 
     from feasibility.delivery.slack import digest_blocks
 
@@ -431,7 +454,7 @@ def test_b14_every_visible_number_in_the_slack_payload_is_a_stored_value(plain: 
     blocks, fallback = digest_blocks(brief)
 
     visible = " ".join([fallback, *[leaf for leaf in leaves_of(blocks) if isinstance(leaf, str)]])
-    allowed = allowed_displays(brief.model_dump(mode="json"))
+    allowed = allowed_displays(without_model_text(brief.model_dump(mode="json")))
     assert digits_left_over(visible, allowed) == []
 
 
