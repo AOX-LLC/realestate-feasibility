@@ -155,3 +155,9 @@ reserves the name "Plex".
 packages in it, each under its own licence) and builds on a Python 3.12 slim image (the Python
 Software Foundation licence, plus the Debian packages in it, each under its own licence). The
 build stage that fetches agent-core installs `git` and is not part of the final image.
+
+The final image also installs three Debian packages for PDF rendering: `libpango-1.0-0` and
+`libpangoft2-1.0-0` (Pango, LGPL-2.0-or-later) and `libharfbuzz-subset0` (HarfBuzz, the "Old MIT"
+licence). They are linked dynamically by WeasyPrint's `ctypes` loading, not modified and not
+copied into this repository. They are installed from the base image's Debian release without a
+version pin, so a rebuild takes the release's current package.
