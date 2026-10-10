@@ -97,15 +97,18 @@ class RetentionTriggerOut(BaseModel):
 def trigger_retention(
     response: Response, engine: EngineDep, body: RetentionTrigger | None = None
 ) -> RetentionTriggerOut:
-    """Queue `retention.prune`, which deletes data past its retention window. One at a time: while
-    one is queued or running, a second trigger answers 200 and queues nothing."""
+    """Queue `retention.prune`, which deletes data past its retention window. One of each kind at a
+    time: while a real prune (or a dry run) is queued or running, a second of the same kind answers
+    200 and queues nothing."""
     chosen = body or RetentionTrigger()
     with engine.begin() as connection:
         job_id = queue.enqueue(
             connection,
             "retention.prune",
             RetentionPrunePayload(dry_run=chosen.dry_run),
-            dedupe_key="retention.prune",
+            # Apart: a queued dry run must not make the weekly real prune answer "already active"
+            # and silently not happen.
+            dedupe_key="retention.prune:dry" if chosen.dry_run else "retention.prune:real",
         )
     if job_id is None:
         response.status_code = status.HTTP_200_OK

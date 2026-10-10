@@ -189,24 +189,32 @@ def test_the_job_prunes_with_the_settings_windows_and_a_dry_run_job_deletes_noth
     assert count(engine, "run_candidate") == before - 2
 
 
-def test_the_trigger_queues_one_prune_job_and_a_second_while_it_waits_queues_none(
+def test_the_trigger_queues_one_prune_of_each_kind_and_a_repeat_of_a_kind_queues_none(
     engine: Engine,
 ) -> None:
     with TestClient(create_app(_settings(), engine), raise_server_exceptions=False) as client:
         first = client.post("/triggers/retention", headers=TRIGGER_HEADERS)
-        second = client.post("/triggers/retention", headers=TRIGGER_HEADERS, json={"dry_run": True})
+        dry = client.post("/triggers/retention", headers=TRIGGER_HEADERS, json={"dry_run": True})
+        again = client.post("/triggers/retention", headers=TRIGGER_HEADERS)
+        dry_again = client.post(
+            "/triggers/retention", headers=TRIGGER_HEADERS, json={"dry_run": True}
+        )
         read_token = client.post("/triggers/retention", headers=READ_HEADERS)
         no_token = client.post("/triggers/retention")
         bad_body = client.post(
             "/triggers/retention", headers=TRIGGER_HEADERS, json={"as_of": "2020-01-01"}
         )
 
+    # A queued dry run does not stop the weekly real prune from being queued, and the reverse.
     assert (first.status_code, first.json()["already_active"]) == (202, False)
-    assert (second.status_code, second.json()) == (200, {"job_id": None, "already_active": True})
+    assert (dry.status_code, dry.json()["already_active"]) == (202, False)
+    assert (again.status_code, again.json()) == (200, {"job_id": None, "already_active": True})
+    assert dry_again.status_code == 200 and dry_again.json()["already_active"] is True
     assert (read_token.status_code, no_token.status_code, bad_body.status_code) == (403, 401, 422)
-    jobs = run_sql(engine, "SELECT kind, payload FROM job").all()
-    assert [(j.kind, j.payload) for j in jobs] == [
-        ("retention.prune", {"dry_run": False, "as_of": None})
+    jobs = run_sql(engine, "SELECT kind, payload FROM job ORDER BY id").all()
+    assert [(j.kind, j.payload["dry_run"]) for j in jobs] == [
+        ("retention.prune", False),
+        ("retention.prune", True),
     ]
 
 
