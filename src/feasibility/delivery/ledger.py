@@ -189,10 +189,15 @@ def remembered(engine: Engine, target: str, item: str, mode: str) -> Remembered 
 
 
 def drop(engine: Engine, run_id: int, target: str, mode: str) -> int:
-    """Forget a run's rows for one target and mode (an operator's `--resend`)."""
+    """Forget the rows of a run's target and mode whose outcome is not settled (`unknown`,
+    `sending` or `failed`), for an operator's `--resend`. What was `sent` stays: a resend posts
+    again only what may be missing, never the digest that is already there."""
     with engine.begin() as connection:
         return connection.execute(
-            text("DELETE FROM delivery WHERE run_id = :run AND target = :target AND mode = :mode"),
+            text(
+                "DELETE FROM delivery WHERE run_id = :run AND target = :target AND mode = :mode "
+                "AND status IN ('unknown', 'sending', 'failed')"
+            ),
             {"run": run_id, "target": target, "mode": mode},
         ).rowcount
 

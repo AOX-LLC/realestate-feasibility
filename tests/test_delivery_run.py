@@ -330,3 +330,17 @@ def test_a_configuration_error_and_an_unknown_outcome_are_permanent_and_the_rest
     # and a refusal that another try may fix.
     for retried in (DeliveryIncompleteError, DeliveryBusyError, NotionError, SlackError):
         assert not issubclass(retried, PERMANENT_ERRORS)
+
+
+def test_a_resend_after_one_lost_file_posts_that_file_again_and_not_the_digest(days: Any) -> None:
+    engine, one, _ = days
+    slack = LossySlack(Faults(lose_reply=["/files.completeUploadExternal"]))
+    with pytest.raises(DeliveryUnknownOutcomeError):
+        deliver(engine, one.run_id, MockNotionTransport(), slack)
+    again = MockSlackTransport()
+
+    report = deliver(engine, one.run_id, MockNotionTransport(), again, resend=frozenset({"slack"}))
+
+    assert again.posted == []  # the digest that is in the channel is not posted again
+    assert len(again.uploads) == 5  # every file's completion had been lost
+    assert status_of(report, "slack", "digest") == "skipped"

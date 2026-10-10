@@ -140,20 +140,23 @@ def test_a_skipped_row_keeps_where_the_content_already_is_and_a_sent_row_is_left
     assert remembered is not None and remembered.run_id == second
 
 
-def test_dropping_a_target_forgets_only_that_runs_rows_for_that_target_and_mode(
+def test_dropping_a_target_forgets_only_what_is_unsettled_for_that_run_target_and_mode(
     engine: Engine,
 ) -> None:
     run, other = make_run(engine, 1), make_run(engine, 2)
     for r in (run, other):
-        for target, item in (("slack", "digest"), ("notion", "row:7")):
+        for target, item in (("slack", "digest"), ("slack", "file:7"), ("notion", "row:7")):
             for mode in ("mock", "live"):
                 ledger.start(engine, r, target, item, mode, SHA)
+    ledger.finish(engine, run, "slack", "digest", "mock", "sent", remote_ref="1.1")
+    ledger.finish(engine, run, "slack", "file:7", "mock", "unknown", error_code="network_error")
 
-    assert ledger.drop(engine, run, "slack", "mock") == 1
+    assert ledger.drop(engine, run, "slack", "mock") == 1  # the unknown file, not the sent digest
 
-    kept = {(r.target, r.mode) for r in ledger.rows_for_run(engine, run)}
-    assert kept == {("slack", "live"), ("notion", "mock"), ("notion", "live")}
-    assert len(ledger.rows_for_run(engine, other)) == 4
+    kept = {(r.target, r.item, r.mode) for r in ledger.rows_for_run(engine, run)}
+    assert ("slack", "digest", "mock") in kept and ("slack", "file:7", "mock") not in kept
+    assert len(kept) == 5
+    assert len(ledger.rows_for_run(engine, other)) == 6
 
 
 def test_deleting_a_run_deletes_its_ledger(engine: Engine) -> None:
