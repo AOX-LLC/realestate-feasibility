@@ -326,7 +326,7 @@ def test_downgrade_to_0006_drops_the_tables_and_upgrades_again(migrated_engine: 
     upgrade_to_head(migrated_engine)
 
     with migrated_engine.connect() as connection:
-        assert current_schema_version(connection) == "0009"
+        assert current_schema_version(connection) == "0010"
         assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 
