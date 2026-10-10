@@ -189,7 +189,9 @@ services:
       # The editor is plain http on 127.0.0.1 (reach it through an SSH tunnel), so its cookie
       # cannot be marked Secure.
       N8N_SECURE_COOKIE: "false"
-      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.code","n8n-nodes-base.function","n8n-nodes-base.functionItem","n8n-nodes-base.webhook","n8n-nodes-base.ssh","n8n-nodes-base.ftp","n8n-nodes-base.wait","n8n-nodes-base.localFileTrigger"]'
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.code","n8n-nodes-base.function","n8n-nodes-base.functionItem","n8n-nodes-base.aiTransform","n8n-nodes-base.git","n8n-nodes-base.ssh","n8n-nodes-base.ftp","n8n-nodes-base.localFileTrigger","n8n-nodes-base.emailReadImap","n8n-nodes-base.webhook","n8n-nodes-base.respondToWebhook","n8n-nodes-base.formTrigger","n8n-nodes-base.wait","@n8n/n8n-nodes-langchain.code","@n8n/n8n-nodes-langchain.chatTrigger","@n8n/n8n-nodes-langchain.mcpTrigger"]'
+      # Nobody with editor access can install an npm package that runs code in n8n.
+      N8N_COMMUNITY_PACKAGES_ENABLED: "false"
     volumes:
       - n8ndata:/home/node/.n8n
       - ./n8n:/workflows:ro

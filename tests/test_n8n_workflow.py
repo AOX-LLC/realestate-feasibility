@@ -161,19 +161,34 @@ def test_n8n_holds_none_of_the_apps_variables_and_phones_nobody_home() -> None:
         assert variable not in json.dumps(n8n())
 
 
-def test_n8n_cannot_run_a_command_or_read_the_file_system_from_a_node() -> None:
-    excluded = json.loads(n8n()["environment"]["NODES_EXCLUDE"])
+def test_n8n_cannot_run_a_command_read_a_file_run_code_or_listen_from_a_node() -> None:
+    environment = n8n()["environment"]
+    excluded = set(json.loads(environment["NODES_EXCLUDE"]))
 
-    for node in (
+    assert excluded >= {
+        # a command, the file system, code
         "n8n-nodes-base.executeCommand",
         "n8n-nodes-base.readWriteFile",
         "n8n-nodes-base.code",
         "n8n-nodes-base.function",
-        "n8n-nodes-base.webhook",
+        "n8n-nodes-base.functionItem",
+        "n8n-nodes-base.aiTransform",
+        "n8n-nodes-base.git",
         "n8n-nodes-base.ssh",
-    ):
-        assert node in excluded, node
-    assert n8n()["environment"]["N8N_BLOCK_ENV_ACCESS_IN_NODE"] == "true"
+        "n8n-nodes-base.ftp",
+        "@n8n/n8n-nodes-langchain.code",
+        # anything that waits for a request to arrive
+        "n8n-nodes-base.webhook",
+        "n8n-nodes-base.respondToWebhook",
+        "n8n-nodes-base.formTrigger",
+        "n8n-nodes-base.wait",
+        "n8n-nodes-base.localFileTrigger",
+        "@n8n/n8n-nodes-langchain.chatTrigger",
+        "@n8n/n8n-nodes-langchain.mcpTrigger",
+    }
+    assert environment["N8N_BLOCK_ENV_ACCESS_IN_NODE"] == "true"
+    # An npm package installed from the editor would run its own code, whatever the list says.
+    assert environment["N8N_COMMUNITY_PACKAGES_ENABLED"] == "false"
 
 
 def test_n8n_shares_a_network_with_the_api_and_nothing_else() -> None:
