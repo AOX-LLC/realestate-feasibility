@@ -15,7 +15,7 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM l
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss two of their targets (see [The LLM layer](#the-llm-layer)) |
 | 5 | Delivery: the morning brief, scheduling | Built in mock mode: the API auth gate and morning trigger, the brief, the PDF pro-forma, the Notion and Slack clients, a delivery ledger that sends each item once, and an opt-in n8n schedule; a morning run goes from the trigger to mock Notion rows, a mock Slack digest and PDFs (see [Delivery and the morning run](#delivery-and-the-morning-run)). The live Notion and Slack calls are unverified |
-| 6 | Evals and the proof kit | Started: the two model evals exist (Phase 4); more suites to come |
+| 6 | Evals, retention and the proof kit | Started: the two model evals exist (Phase 4); retention is built (see [Retention](#retention)); the eval report and the proof kit are to come |
 
 ## Quick start
 
@@ -321,6 +321,17 @@ In mock mode the trigger needs a date the snapshot holds: set the `as_of` field 
 
 Nothing here has been run against the real services. To try them you supply: a Notion internal integration (read, update and insert content; no user information) shared with one empty database, its token and the database id; a Slack app with the bot scopes `chat:write` and `files:write`, installed in a test workspace, its `xoxb-` token and a channel id with the app invited. Set `DELIVERY_MODE=live` and those four values for the worker and migrate services, run `feasibility brief notion-setup` and `brief smoke notion` / `brief smoke slack`, then `brief deliver`. The Notion API version is pinned to `2022-06-28`; the 2025 move to data sources is not adopted.
 
+## Retention
+
+Stored data is deleted once it is older than its window: run detail (a run's listings, candidates, pro-formas, signals, narratives, brief and delivery ledger) and value estimates with their comparable sales' addresses after 90 days, the model cache after 30 days, the model-call ledger (spend) after 13 months, finished jobs and unreferenced listings after 30 days. The numbers are the `RETENTION_*` settings (`.env.example`), each with a floor. A market's latest run is never pruned, nor is a run still being built nor any spend record inside its months; a pruned run keeps its summary row, marked `pruned_at`.
+
+```bash
+docker compose run --rm migrate feasibility retention prune --dry-run     # what would go; deletes nothing
+docker compose run --rm migrate feasibility retention prune               # delete it (also: the weekly n8n node, POST /triggers/retention)
+```
+
+Rows already sent to Notion, and messages and PDFs already in Slack, are out of reach and are not deleted.
+
 ## CLI
 
 Run `uv run feasibility --help` (or `docker compose exec worker feasibility --help`).
@@ -337,13 +348,14 @@ Run `uv run feasibility --help` (or `docker compose exec worker feasibility --he
 | `source run`, `source show` | Source a day and read a stored run (see [Sourcing](#sourcing-the-daily-candidate-list)) |
 | `proforma list`, `proforma show` | Read a run's pro-formas (see [Pro-forma](#pro-forma)) |
 | `brief build`, `brief show` | Build and read a run's brief (see [The brief](#the-brief)) |
+| `retention prune` | Delete data past its retention window (`--dry-run`, `--as-of`; see [Retention](#retention)) |
 | `brief deliver`, `brief deliveries` | Send a run's brief once (`--dry-run`, `--resend slack`, `--only`, `--out`) and read the delivery ledger (see [Delivery and the morning run](#delivery-and-the-morning-run)) |
 | `brief pdf`, `brief preview`, `brief notion-check`, `brief notion-setup`, `brief smoke` | Render the PDFs, preview the Notion and Slack payloads, check or extend the Notion database, and (live only) smoke-test a credential (see [The PDF pro-forma, Notion and Slack](#the-pdf-pro-forma-notion-and-slack)) |
 | `llm show`, `llm cost` | Read a candidate's signals and narrative, and a run's or a month's model cost (see [The LLM layer](#the-llm-layer)) |
 | `eval signals`, `eval narrative` | Score the model tasks against their answer keys, in replay by default (see [Evals and scorecards](#evals-and-scorecards)) |
 | `verify-rentcast` | Check the live RentCast API against the models (at most 4 calls) |
 
-Job kinds: `cad.import`, `listings.sync`, `sourcing.run`, `morning.run` and `brief.deliver`.
+Job kinds: `cad.import`, `listings.sync`, `sourcing.run`, `morning.run`, `brief.deliver` and `retention.prune`.
 
 ## Development
 
