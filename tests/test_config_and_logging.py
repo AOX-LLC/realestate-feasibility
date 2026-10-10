@@ -155,3 +155,14 @@ def test_the_rate_limits_have_the_planned_defaults_and_bounds() -> None:
     assert (settings.api_reads_per_minute, settings.api_triggers_per_hour) == (120, 12)
     with pytest.raises(ValidationError):
         _api_settings(api_reads_per_minute=0)
+
+
+def test_media_out_is_unset_by_default_and_must_be_absolute_and_outside_the_repository() -> None:
+    from feasibility.config import REPO_ROOT
+
+    assert _api_settings().media_out is None
+    assert _api_settings(media_out="").media_out is None
+    assert str(_api_settings(media_out="/srv/media-out").media_out) == "/srv/media-out"
+    for bad in ("media-out", str(REPO_ROOT / "media-out"), str(REPO_ROOT)):
+        with pytest.raises(ValidationError, match="MEDIA_OUT"):
+            _api_settings(media_out=bad)

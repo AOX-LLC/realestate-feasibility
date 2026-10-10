@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # RENTCAST_API_KEY to every service): kept only so that redaction still covers them.
     _ignored_secrets: list[str] = PrivateAttr(default_factory=list)
 
+    # Where generated media (sample PDFs, screenshots, payload dumps) is written. It must be an
+    # absolute path outside this repository, so that none of it can be committed by accident.
+    media_out: Path | None = None
+
     snapshot_dir: Path = REPO_ROOT / "data" / "snapshot"
     # Synthetic RESO records (listing remarks) for mock mode, one `<market>.json` per market.
     mls_dir: Path = REPO_ROOT / "data" / "mls"
@@ -101,6 +105,18 @@ class Settings(BaseSettings):
         if key is not None and not key.get_secret_value().strip():
             return None
         return key
+
+    @field_validator("media_out", mode="before")
+    @classmethod
+    def _media_out_is_outside_the_repository(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        path = Path(str(value)).expanduser()
+        if not path.is_absolute():
+            raise ValueError("MEDIA_OUT must be an absolute path")
+        if path.resolve().is_relative_to(REPO_ROOT.resolve()):
+            raise ValueError("MEDIA_OUT must be outside the repository")
+        return path
 
     @field_validator("api_read_token", "api_trigger_token", "api_client_ip_header", mode="before")
     @classmethod

@@ -41,3 +41,6 @@ data/local/
 local/
 *.zip
 *.ZIP
+
+# Generated media is written outside the repository (MEDIA_OUT); this is a backstop.
+media-out/
