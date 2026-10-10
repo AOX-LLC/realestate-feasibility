@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import FrameType
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import uvicorn
@@ -409,6 +409,166 @@ def brief_show(
     brief, stored = verified
     for line in brief_render.lines(brief, stored.content_sha256):
         typer.echo(line)
+
+
+def _verified_brief(market: str | None, run_id: int | None) -> tuple[int, Any]:
+    """The run id and its stored brief, checked against its hash; exit 2 when there is none."""
+    with get_engine().connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+        try:
+            verified = brief_store.read_verified_brief(connection, shown_run)
+        except brief_store.BriefIntegrityError as error:
+            typer.echo(f"run {shown_run}: {error}; build it again", err=True)
+            raise typer.Exit(code=1) from None
+    if verified is None:
+        typer.echo(
+            f"run {shown_run} has no brief; build one with `feasibility brief build`", err=True
+        )
+        raise typer.Exit(code=2)
+    return shown_run, verified[0]
+
+
+@brief_app.command("pdf")
+def brief_pdf(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    candidate: Annotated[int | None, typer.Option(help="One candidate's id")] = None,
+    all_candidates: Annotated[
+        bool, typer.Option("--all", help="Every candidate of the brief")
+    ] = False,
+    out: Annotated[
+        Path | None, typer.Option(help="Folder for the PDFs (default: MEDIA_OUT)")
+    ] = None,
+) -> None:
+    """Render the pro-forma PDFs of a run's brief to a folder. Nothing is sent anywhere."""
+    from feasibility.delivery.document import proforma_document
+    from feasibility.delivery.pdf import render_pdf
+    from feasibility.delivery.slack import file_name
+    from feasibility.proforma.model import ProformaResult
+
+    if (candidate is None) == (not all_candidates):
+        raise typer.BadParameter("give --candidate ID or --all, not both and not neither")
+    folder = out or get_settings().media_out
+    if folder is None:
+        typer.echo("give --out DIR, or set MEDIA_OUT", err=True)
+        raise typer.Exit(code=2)
+    shown_run, brief = _verified_brief(market, run_id)
+    chosen = [e for e in brief.candidates if all_candidates or e.candidate_id == candidate]
+    if not chosen:
+        typer.echo(f"candidate {candidate} is not in run {shown_run}'s brief", err=True)
+        raise typer.Exit(code=2)
+    folder.mkdir(parents=True, exist_ok=True)
+    with get_engine().connect() as connection:
+        for entry in chosen:
+            stored = proforma_store.read_proforma(connection, shown_run, entry.candidate_id)
+            if stored is None or stored.result is None:
+                typer.echo(f"candidate {entry.candidate_id} has no pro-forma", err=True)
+                raise typer.Exit(code=2)
+            document = proforma_document(brief, entry, ProformaResult.model_validate(stored.result))
+            path = folder / file_name(entry)
+            path.write_bytes(render_pdf(document))
+            typer.echo(f"wrote {path}")
+
+
+@brief_app.command("preview")
+def brief_preview(
+    target: Annotated[str, typer.Argument(help="slack or notion")],
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    rank: Annotated[int | None, typer.Option(help="Notion: the candidate at this rank")] = None,
+) -> None:
+    """Print the payload a delivery would send (read-only, sends nothing)."""
+    from feasibility.delivery.notion import row_properties
+    from feasibility.delivery.slack import digest_blocks
+
+    if target not in ("slack", "notion"):
+        raise typer.BadParameter("target must be slack or notion")
+    _, brief = _verified_brief(market, run_id)
+    if target == "slack":
+        blocks, text = digest_blocks(brief)
+        typer.echo(json.dumps({"text": text, "blocks": blocks}, indent=2))
+        return
+    entries = [e for e in brief.candidates if rank is None or e.rank == rank]
+    if not entries:
+        typer.echo("no such rank in the brief", err=True)
+        raise typer.Exit(code=2)
+    for entry in entries:
+        typer.echo(json.dumps(row_properties(brief, entry), indent=2))
+
+
+def _notion_client() -> Any:
+    from feasibility.delivery.notion import NotionClient, build_notion_transport
+
+    settings = get_settings()
+    if settings.notion_database_id is None:
+        typer.echo("NOTION_DATABASE_ID is not set", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"delivery mode: {settings.delivery_mode.value}", err=True)
+    return NotionClient(build_notion_transport(settings), settings.notion_database_id)
+
+
+@brief_app.command("notion-check")
+def brief_notion_check() -> None:
+    """Report which properties the Notion database lacks or has with another type."""
+    from feasibility.delivery.errors import DeliveryError
+
+    try:
+        report = _notion_client().check_schema()
+    except DeliveryError as error:
+        typer.echo(f"notion check failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(json.dumps(report, indent=2))
+    if report["missing"] or report["wrong_type"]:
+        raise typer.Exit(code=1)
+
+
+@brief_app.command("notion-setup")
+def brief_notion_setup() -> None:
+    """Add the properties the app owns to the Notion database. Never removes or renames one."""
+    from feasibility.delivery.errors import DeliveryError
+
+    try:
+        added = _notion_client().setup_schema()
+    except DeliveryError as error:
+        typer.echo(f"notion setup failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo("added: " + (", ".join(added) if added else "nothing, the database is complete"))
+
+
+@brief_app.command("smoke")
+def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) -> None:
+    """Live only: send one fixed synthetic row or message to check the credentials. Prints the
+    remote id and nothing else."""
+    from feasibility.config import DeliveryMode
+    from feasibility.delivery.errors import DeliveryError
+    from feasibility.delivery.notion import KEY_PROPERTY, NotionClient, build_notion_transport
+    from feasibility.delivery.slack import SlackClient, build_transport
+
+    settings = get_settings()
+    if target not in ("notion", "slack") or target not in settings.targets:
+        raise typer.BadParameter("target must be notion or slack, and enabled in DELIVERY_TARGETS")
+    if settings.delivery_mode is not DeliveryMode.LIVE:
+        typer.echo("smoke needs DELIVERY_MODE=live and that service's credentials", err=True)
+        raise typer.Exit(code=2)
+    try:
+        if target == "notion":
+            if settings.notion_database_id is None:
+                raise typer.BadParameter("NOTION_DATABASE_ID is not set")
+            notion = NotionClient(build_notion_transport(settings), settings.notion_database_id)
+            properties = {
+                "Name": {"title": [{"type": "text", "text": {"content": "Smoke test"}}]},
+                KEY_PROPERTY: {"rich_text": [{"type": "text", "text": {"content": "smoke-test"}}]},
+            }
+            typer.echo(f"notion page {notion.create_row(properties)}")
+        else:
+            if settings.slack_channel_id is None:
+                raise typer.BadParameter("SLACK_CHANNEL_ID is not set")
+            slack = SlackClient(build_transport(settings), settings.slack_channel_id)
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Smoke test"}}]
+            typer.echo(f"slack message {slack.post_digest(blocks, 'Smoke test')}")
+    except DeliveryError as error:
+        typer.echo(f"smoke failed: {error}", err=True)
+        raise typer.Exit(code=1) from None
 
 
 @app.command("verify-rentcast")
