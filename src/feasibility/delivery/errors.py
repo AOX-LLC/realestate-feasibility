@@ -40,3 +40,8 @@ class SlackError(DeliveryError):
 
 class TransportError(DeliveryError):
     """The request did not complete (a network error or a timeout)."""
+
+
+class PdfRenderError(DeliveryError):
+    """The renderer refused the document (it asked for something outside the package). The same
+    document renders the same way again, so a retry cannot fix it."""

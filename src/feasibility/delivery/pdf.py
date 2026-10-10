@@ -12,6 +12,7 @@ from typing import Any
 from urllib.request import url2pathname
 
 from feasibility.delivery.document import ProformaDocument
+from feasibility.delivery.errors import PdfRenderError
 from feasibility.delivery.html import FONTS, TEMPLATES, render_html
 
 ALLOWED_FOLDERS = (TEMPLATES.resolve(), FONTS.resolve())
@@ -52,11 +53,17 @@ def safe_fetcher() -> Any:
 
 def render_pdf(document: ProformaDocument) -> bytes:
     from weasyprint import HTML
+    from weasyprint.urls import FatalURLFetchingError
 
     html = HTML(
         string=render_html(document),
         base_url=TEMPLATES.resolve().as_uri() + "/",
         url_fetcher=safe_fetcher(),
     )
-    pdf: bytes = html.write_pdf()
+    try:
+        pdf: bytes = html.write_pdf()
+    except FatalURLFetchingError:
+        # It derives from BaseException, which a worker's `except Exception` does not catch: left
+        # alone it would end the process and the job would be claimed and run again, for ever.
+        raise PdfRenderError("blocked_fetch") from None
     return pdf

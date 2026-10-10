@@ -185,3 +185,24 @@ def test_importing_the_api_does_not_load_weasyprint() -> None:
 
 def test_the_fixtures_exist() -> None:
     assert sorted(p.name for p in FIXTURES.glob("*.json")) == [f"{n}.json" for n in sorted(NAMES)]
+
+
+def test_a_blocked_fetch_is_a_permanent_exception_a_worker_can_catch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from feasibility.delivery import pdf
+    from feasibility.delivery.errors import PdfRenderError
+    from feasibility.jobs.handlers import PERMANENT_ERRORS
+
+    monkeypatch.setattr(
+        pdf,
+        "render_html",
+        lambda _: '<html><body><img src="http://127.0.0.1:9/x.png"></body></html>',
+    )
+
+    with pytest.raises(PdfRenderError) as raised:
+        pdf.render_pdf(document(NAMES[0]))
+
+    assert isinstance(raised.value, Exception)  # not a BaseException: `except Exception` sees it
+    assert isinstance(raised.value, PERMANENT_ERRORS)
+    assert str(raised.value) == "blocked_fetch"

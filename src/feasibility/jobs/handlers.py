@@ -13,6 +13,7 @@ from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
 from feasibility.delivery.build import BriefError, build_and_store
+from feasibility.delivery.errors import PdfRenderError
 from feasibility.jobs import queue
 from feasibility.jobs.payloads import (
     BriefDeliverPayload,
@@ -74,6 +75,8 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     PermanentModelError,
     # A brief that cannot be built (no such run, a run still running) is the same on every try.
     BriefError,
+    # The renderer refused a fetch: the same document is refused the same way.
+    PdfRenderError,
 )
 
 
