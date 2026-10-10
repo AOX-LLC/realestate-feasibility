@@ -179,61 +179,78 @@ def test_r1_a_pruned_run_is_not_the_run_a_later_diff_compares_against(engine: En
 
 
 def test_r2_no_llm_call_inside_thirteen_months_is_deleted_or_changed(engine: Engine) -> None:
-    edge = months_before(AS_OF, 13)
+    edge = months_before(AS_OF.replace(day=1), 13)
     inside = [
         add_llm_call(engine, called=AS_OF, cost="0.010000"),
         add_llm_call(engine, called=months_before(AS_OF, 1), cost="0.020000"),
         add_llm_call(engine, called=months_before(AS_OF, 12), cost="0.030000"),
-        add_llm_call(engine, called=edge, cost="0.040000"),  # exactly 13 months: kept
+        add_llm_call(engine, called=edge, cost="0.040000"),  # the first day of the window: kept
     ]
     outside = [
         add_llm_call(engine, called=edge - timedelta(days=1), cost="0.050000"),
         add_llm_call(engine, called=months_before(AS_OF, 20), cost="0.060000"),
     ]
+    # A call made for a candidate whose run is pruned: inside the window, so it stays.
+    add_run(engine, age=1, tag="newest")
+    old = add_run(engine, age=100, tag="old")
+    linked = add_llm_call(engine, called=months_before(AS_OF, 3), cost="0.070000")
+    run_sql(
+        engine,
+        "UPDATE llm_call SET candidate_id = :c, run_id = :r WHERE id = :i",
+        c=old.candidate_id,
+        r=old.run_id,
+        i=linked,
+    )
     # A cached result in the window points at a call that is outside it.
     add_llm_result(engine, created=days_ago(5), key="d", call_id=outside[0])
-    before = run_sql(
-        engine,
-        "SELECT id, called_at, cost_usd, reserved_usd, billable, outcome, run_id, mode, "
-        "input_tokens FROM llm_call WHERE id = ANY(:ids) ORDER BY id",
-        ids=inside,
-    ).all()
+    columns = (
+        "id, called_at, cost_usd, reserved_usd, billable, outcome, run_id, mode, stage, tier, "
+        "model, input_tokens, output_tokens, prompt_id, input_sha256"
+    )
+    sql = f"SELECT {columns} FROM llm_call WHERE id = ANY(:ids) ORDER BY id"  # noqa: S608
+    kept = [*inside, linked]
+    before = run_sql(engine, sql, ids=kept).all()
     total_before = scalar(
         engine, "SELECT sum(cost_usd) FROM llm_call WHERE called_at >= :c", c=at(edge)
     )
 
     purge(engine)
 
-    after = run_sql(
-        engine,
-        "SELECT id, called_at, cost_usd, reserved_usd, billable, outcome, run_id, mode, "
-        "input_tokens FROM llm_call WHERE id = ANY(:ids) ORDER BY id",
-        ids=inside,
-    ).all()
-    assert after == before  # every column of every row inside the window
-    assert {r[0] for r in run_sql(engine, "SELECT id FROM llm_call")} == set(inside)
+    assert run_sql(engine, sql, ids=kept).all() == before  # every column, amounts and dates too
+    assert {r[0] for r in run_sql(engine, "SELECT id FROM llm_call")} == set(kept)
     assert (
         scalar(engine, "SELECT sum(cost_usd) FROM llm_call WHERE called_at >= :c", c=at(edge))
         == total_before
     )
+    # The one thing that changes is the link to a candidate that no longer exists, which the
+    # foreign key clears; the call's cost, date and outcome stay.
+    assert scalar(engine, "SELECT candidate_id FROM llm_call WHERE id = :i", i=linked) is None
     # The cached result stays, and no longer points at a call that is gone.
     assert scalar(engine, "SELECT llm_call_id FROM llm_result") is None
 
 
 def test_r2_the_months_the_spend_caps_read_are_the_same_before_and_after(engine: Engine) -> None:
-    for months, cost in ((0, "0.100000"), (1, "0.200000"), (12, "0.300000"), (14, "0.400000")):
-        add_llm_call(engine, called=months_before(AS_OF, months), cost=cost)
+    first = months_before(AS_OF.replace(day=1), 13)
+    for called, cost in (
+        (AS_OF, "0.100000"),
+        (months_before(AS_OF, 1), "0.200000"),
+        (months_before(AS_OF, 12), "0.300000"),
+        (first, "0.350000"),  # the first day of the oldest month the reports read
+        (first + timedelta(days=3), "0.360000"),  # and a day in the middle of it, before the 15th
+        (first - timedelta(days=1), "0.400000"),  # the month before: gone
+    ):
+        add_llm_call(engine, called=called, cost=cost)
     sql = (
         "SELECT date_trunc('month', called_at) AS m, sum(cost_usd) FROM llm_call "
         "WHERE billable AND called_at >= :c GROUP BY 1 ORDER BY 1"
     )
-    window = at(months_before(AS_OF, 13))
+    window = at(months_before(AS_OF.replace(day=1), 13))
     before = run_sql(engine, sql, c=window).all()
 
     purge(engine)
 
     assert run_sql(engine, sql, c=window).all() == before
-    assert count(engine, "llm_call") == 3
+    assert count(engine, "llm_call") == 5
 
 
 # --- comparable sales' addresses leave both places they are stored ------------------------------

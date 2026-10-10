@@ -34,6 +34,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column("sourcing_run", sa.Column("pruned_at", sa.DateTime(timezone=True), nullable=True))
     op.create_index(op.f("ix_llm_result_llm_call_id"), "llm_result", ["llm_call_id"])
+    # Deleting a candidate nulls llm_call.candidate_id through the foreign key (the call's cost and
+    # date stay): without an index that reads the whole ledger once per candidate deleted.
+    op.create_index(op.f("ix_llm_call_candidate_id"), "llm_call", ["candidate_id"])
     op.create_index(op.f("ix_run_listing_listing_id"), "run_listing", ["listing_id"])
     op.create_index(op.f("ix_run_candidate_candidate_id"), "run_candidate", ["candidate_id"])
     op.create_index(
@@ -43,6 +46,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_llm_call_candidate_id"), table_name="llm_call")
     op.drop_index(op.f("ix_candidate_signals_listing_id"), table_name="candidate_signals")
     op.drop_index(op.f("ix_run_candidate_primary_listing_id"), table_name="run_candidate")
     op.drop_index(op.f("ix_run_candidate_candidate_id"), table_name="run_candidate")

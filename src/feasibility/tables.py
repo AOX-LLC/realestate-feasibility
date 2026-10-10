@@ -533,6 +533,8 @@ llm_call = Table(
     ),
     CheckConstraint("(outcome = 'ok') = (cost_usd IS NOT NULL)", name="ok_has_cost"),
     Index(None, "run_id"),
+    # Deleting a candidate nulls candidate_id here (the foreign key); this keeps that cheap.
+    Index(None, "candidate_id"),
     Index("ix_llm_call_billable_called_at", "called_at", postgresql_where=text("billable")),
 )
 

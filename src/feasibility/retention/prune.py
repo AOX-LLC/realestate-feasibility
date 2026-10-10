@@ -149,7 +149,9 @@ class Cutoffs:
             run=run,
             estimate=as_of - timedelta(days=policy.estimate_days),
             model_cache=midnight(as_of - timedelta(days=policy.model_cache_days)),
-            ledger=midnight(months_before(as_of, policy.ledger_months)),
+            # Whole months: the first day of the month `ledger_months` before this one, so no month
+            # the cost reports read is cut in the middle.
+            ledger=midnight(months_before(as_of.replace(day=1), policy.ledger_months)),
             job=midnight(as_of - timedelta(days=policy.job_days)),
             listing=midnight(as_of - timedelta(days=policy.listing_days)),
             run_time=midnight(run),
