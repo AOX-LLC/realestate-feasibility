@@ -440,3 +440,34 @@ def test_the_pdf_is_never_sent_to_a_url_that_is_not_slacks_upload_host(url: str)
         client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0")
 
     assert sent == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        TransportResponse(200, {"ok": False, "error": "internal_error"}),
+        TransportResponse(200, {"ok": False, "error": "fatal_error"}),
+        TransportResponse(200, {"ok": False, "error": "request_timeout"}),
+        TransportResponse(200, {"ok": False, "error": "service_unavailable"}),
+        TransportResponse(200, None),  # not JSON at all
+    ],
+)
+def test_an_answer_that_may_mean_it_was_posted_is_an_unknown_outcome_for_a_post_and_a_completion(
+    answer: TransportResponse,
+) -> None:
+    with pytest.raises(SlackOutcomeUnknownError):
+        client(Scripted(answer)).post_digest([], "digest")
+    upload_started = TransportResponse(
+        200, {"ok": True, "upload_url": "https://files.slack.com/upload/v1/u", "file_id": "F1"}
+    )
+    with pytest.raises(SlackOutcomeUnknownError):
+        client(Scripted(upload_started, answer)).upload_file("a.pdf", b"%PDF", "t", "1.0")
+
+
+def test_the_same_answers_to_a_request_that_is_safe_to_repeat_are_plain_failures() -> None:
+    answer = TransportResponse(200, {"ok": False, "error": "internal_error"})
+
+    with pytest.raises(SlackError) as raised:
+        client(Scripted(answer)).upload_file("a.pdf", b"%PDF", "t", "1.0")
+
+    assert not isinstance(raised.value, SlackOutcomeUnknownError)

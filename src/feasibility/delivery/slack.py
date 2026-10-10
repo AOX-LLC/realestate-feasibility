@@ -44,6 +44,10 @@ MIN_INTERVAL_S = 1.1
 MAX_BLOCKS = 50
 MAX_TEXT = 3000
 DOT = chr(0xB7)
+# Error codes on which Slack may already have done what was asked.
+AMBIGUOUS_ERRORS = frozenset(
+    {"internal_error", "fatal_error", "request_timeout", "service_unavailable"}
+)
 CONFIG_ERRORS = frozenset(
     {
         "invalid_auth",
@@ -183,16 +187,21 @@ class SlackClient:
             fail=SlackError,
             unknown=SlackOutcomeUnknownError,
         )
-        return self._checked(response)
+        return self._checked(response, repeatable)
 
     @staticmethod
-    def _checked(response: TransportResponse) -> dict[str, Any]:
+    def _checked(response: TransportResponse, repeatable: bool) -> dict[str, Any]:
         body = response.body or {}
         if response.status == 200 and body.get("ok") is True:
             return body
         code = safe_code(body.get("error")) if response.status == 200 else f"http_{response.status}"
         if code in CONFIG_ERRORS:
             raise DeliveryConfigError(code)
+        # Slack says of these that part of the operation may have happened before the error, and
+        # an answer that is not JSON says nothing at all: for a request that posts something that
+        # is an unknown outcome, never a refusal that is safe to try again.
+        if not repeatable and (code in AMBIGUOUS_ERRORS or (response.status == 200 and not body)):
+            raise SlackOutcomeUnknownError(code)
         raise SlackError(code)
 
     def post_digest(self, blocks: list[dict[str, Any]], text: str) -> str:
