@@ -266,6 +266,35 @@ def test_a_runs_cost_is_what_its_recorded_tokens_cost_at_the_packaged_prices(
         assert str(total.quantize(Decimal("0.000001"))) == run.counts.llm_cost_usd
 
 
+def test_cost_md_is_what_the_replayed_ledger_holds(replayed_days: Days) -> None:
+    from report_support import load_report_script
+
+    engine, one, two = replayed_days
+    documented = load_report_script().day_cost_rows()
+
+    found = []
+    for day, run in ((DAY_ONE, one), (DAY_TWO, two)):
+        for line in _rows(
+            engine,
+            "SELECT stage, count(*) AS calls, sum(input_tokens) AS tokens_in, "
+            "sum(output_tokens) AS tokens_out, sum(cost_usd) AS cost "
+            "FROM llm_call WHERE run_id = :run GROUP BY stage ORDER BY stage DESC",
+            run=run.run_id,
+        ):
+            found.append(
+                {
+                    "day": day.isoformat(),
+                    "stage": {"signals": "signals", "narrative": "narratives"}[line.stage],
+                    "calls": line.calls,
+                    "tokens_in": int(line.tokens_in),
+                    "tokens_out": int(line.tokens_out),
+                    "cost": line.cost,
+                }
+            )
+
+    assert found == documented
+
+
 # --- a cap, with the real client --------------------------------------------------------------
 
 

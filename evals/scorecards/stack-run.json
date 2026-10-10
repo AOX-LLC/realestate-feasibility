@@ -1,0 +1,27 @@
+{
+  "format_version": 1,
+  "measured_on": "2026-10-10",
+  "how": "One morning run for each snapshot day on the Compose stack (api and worker) against a fresh database, model calls replayed from the committed recordings, delivery in mock mode. Times are from the job table (a job's created_at to its finished_at); requests are the lines in the mock outbox; memory is the highest value `docker stats` printed once a second during both runs. One sample each, on a shared development machine.",
+  "days": {
+    "2026-10-01": {
+      "morning_run_seconds": 3.0,
+      "brief_deliver_seconds": 2.7,
+      "trigger_to_delivered_seconds": 5.6,
+      "notion_requests": 11,
+      "slack_requests": 16,
+      "pdfs": 5
+    },
+    "2026-10-02": {
+      "morning_run_seconds": 3.0,
+      "brief_deliver_seconds": 2.3,
+      "trigger_to_delivered_seconds": 5.3,
+      "notion_requests": 8,
+      "slack_requests": 19,
+      "pdfs": 6
+    }
+  },
+  "memory_peak_mib": {
+    "worker": 176,
+    "api": 122
+  }
+}
