@@ -350,6 +350,9 @@ class MockSlackTransport:
         self.requests.append(RecordedRequest("POST", "upload", None, len(content)))
         self.uploads.append(content)
         if self._outbox is not None:
+            self._outbox.record(
+                "slack", "POST", "upload", {"file": self._file_name, "bytes": len(content)}
+            )
             self._outbox.save_file(self._file_name, content)
         return TransportResponse(200, None, {})
 
