@@ -131,6 +131,24 @@ Development and test dependencies (not in the image):
 - **tzdata, colorama, httpx2-jsfetch, brotlicffi** are installed only on some platforms (Windows, Emscripten) and
   are listed so the lock file is fully accounted for (brotlicffi is the PyPy build of the brotli binding).
 
+## Fonts
+
+The printed pro-forma uses three font families, self-hosted under `src/feasibility/delivery/fonts/`
+with each family's licence text (`OFL.txt`), all under the SIL Open Font License 1.1. The fonts are
+embedded in the PDFs as subsets, which the licence allows; they are not sold on their own.
+
+| Family | Used for | Files | Source | Licence |
+| --- | --- | --- | --- | --- |
+| Space Grotesk | display (500, 600) | Medium; SemiBold | [floriankarsten/space-grotesk](https://github.com/floriankarsten/space-grotesk), release 2.0.0 (the static Medium file; SemiBold is a static instance at weight 600 cut from the project's variable font, see below) | SIL OFL 1.1 |
+| IBM Plex Sans | body (400, 600) | Regular; SemiBold | [IBM/plex](https://github.com/IBM/plex), commit 763c36ef91 | SIL OFL 1.1, Reserved Font Name "Plex" |
+| IBM Plex Mono | figures (400, 500) | Regular; Medium | [IBM/plex](https://github.com/IBM/plex), commit 763c36ef91 | SIL OFL 1.1, Reserved Font Name "Plex" |
+
+Space Grotesk publishes no static SemiBold, so `SpaceGrotesk-SemiBold.ttf` is the project's variable
+font (`SpaceGrotesk[wght].ttf`, sha256 `acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72`) instantiated at weight 600 with fontTools and with
+its name table set to match; no outline was edited. Space Grotesk declares no Reserved Font Name,
+so a modified version may keep its name. The IBM Plex files are unmodified, because their licence
+reserves the name "Plex".
+
 ## Container images
 
 `docker-compose.yml` pulls the PostgreSQL 16 Alpine image (the PostgreSQL licence, plus the Alpine
