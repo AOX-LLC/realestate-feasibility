@@ -15,6 +15,7 @@ from feasibility.delivery.brief import (
     FOOTER,
     Brief,
     BriefCandidate,
+    figures_of,
 )
 from feasibility.llm import figures
 from feasibility.llm.facts import CODE_FACT_MEANINGS
@@ -216,6 +217,10 @@ def proforma_document(
     made from; nothing is read from it that the brief's own entry does not already allow."""
     if result.status != "computed":
         raise ValueError(f"a pro-forma document needs a computed pro-forma, got {result.status}")
+    if figures_of(result) != entry.figures:
+        # The brief and the pro-forma are read separately; a run rebuilt in between would put new
+        # figures beside a narrative that was checked against the old ones.
+        raise ValueError("the pro-forma no longer matches the brief; build the brief again")
     columns, grid_rows, grid_note = _grid(result)
     narrative = entry.narrative
     return ProformaDocument(

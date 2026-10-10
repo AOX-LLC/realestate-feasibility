@@ -464,7 +464,13 @@ def brief_pdf(
             if stored is None or stored.result is None:
                 typer.echo(f"candidate {entry.candidate_id} has no pro-forma", err=True)
                 raise typer.Exit(code=2)
-            document = proforma_document(brief, entry, ProformaResult.model_validate(stored.result))
+            try:
+                document = proforma_document(
+                    brief, entry, ProformaResult.model_validate(stored.result)
+                )
+            except ValueError as error:
+                typer.echo(f"candidate {entry.candidate_id}: {error}", err=True)
+                raise typer.Exit(code=1) from None
             path = folder / file_name(entry)
             path.write_bytes(render_pdf(document))
             typer.echo(f"wrote {path}")

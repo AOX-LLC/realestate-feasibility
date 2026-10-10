@@ -172,3 +172,19 @@ def test_a_comp_address_in_the_stored_result_never_reaches_the_document() -> Non
 
     assert "QUILLFEATHER" not in doc.model_dump_json()
     assert "QUILLFEATHER" not in render_html(doc)
+
+
+def test_a_document_is_refused_when_the_pro_forma_no_longer_matches_the_brief() -> None:
+    from delivery_support import sample
+
+    from feasibility.delivery.document import proforma_document
+
+    brief, entries = sample()
+    entry, result = next(iter(entries.values()))
+    changed = entry.model_copy(
+        update={"figures": entry.figures.model_copy(update={"profit": "1.00"})}
+    )
+
+    with pytest.raises(ValueError, match="build the brief again"):
+        proforma_document(brief, changed, result)
+    assert proforma_document(brief, entry, result).street == entry.street
