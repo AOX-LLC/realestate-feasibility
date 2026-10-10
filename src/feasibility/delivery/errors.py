@@ -6,6 +6,7 @@ reaches a log, a job's `last_error` or a delivery row.
 """
 
 import re
+from typing import Any
 
 _CODE = re.compile(r"[a-z0-9_]{1,64}")
 
@@ -18,6 +19,9 @@ def safe_code(raw: object) -> str:
 class DeliveryError(RuntimeError):
     """Base class; `code` is all anyone may print."""
 
+    # The delivery report, set when a delivery ends in one of its own errors.
+    report: Any = None
+
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = safe_code(code)
@@ -26,12 +30,31 @@ class DeliveryError(RuntimeError):
         return self.code
 
 
+class DeliveryBusyError(DeliveryError):
+    """Another delivery of this run is in the middle of its call, or a call left a row that is too
+    new to call unknown. Nothing was sent; trying again later is right."""
+
+
+class DeliveryIncompleteError(DeliveryError):
+    """Some items were refused or failed in a way another try may fix. The report says which; a
+    retry sends only what is left."""
+
+
+class DeliveryUnknownOutcomeError(DeliveryError):
+    """A Slack item may or may not have been sent. Never retried by itself: a person looks in the
+    channel and decides (`brief deliver --resend slack`)."""
+
+
 class DeliveryConfigError(DeliveryError):
     """The credentials, the database or the channel are wrong or missing: a retry cannot fix it."""
 
 
 class NotionError(DeliveryError):
     """Notion refused or failed a request."""
+
+
+class NotionPageGoneError(NotionError):
+    """The page a row was last written to is not there (deleted, or moved to the trash)."""
 
 
 class SlackError(DeliveryError):
