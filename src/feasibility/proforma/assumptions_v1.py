@@ -8,6 +8,10 @@ of the pack's models as they stood when stored results were first written (versi
 `ProformaResult`). The pack may change freely; the engine converts the pack's assumptions into this
 shape when it builds a result, and a change to this file is a new version of the result.
 
+A new required field in the pack is read by nothing here (stored results stay readable), but the
+conversion refuses a pack that has fields these classes do not (`extra="forbid"`), so building a new
+pro-forma fails until a v2 exists: the pack and this file change together, on purpose.
+
 Do not edit the fields. To change what a result records, add `assumptions_v2.py`, a new
 `ProformaResult` version and a reader for both.
 """

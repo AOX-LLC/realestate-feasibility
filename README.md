@@ -323,14 +323,14 @@ Nothing here has been run against the real services. To try them you supply: a N
 
 ## Retention
 
-Stored data is deleted once it is older than its window: run detail (a run's listings, candidates, pro-formas, signals, narratives, brief and delivery ledger) and value estimates with their comparable sales' addresses after 90 days, the model cache after 30 days, the model-call ledger (spend) after 13 months, finished jobs and unreferenced listings after 30 days. The numbers are the `RETENTION_*` settings (`.env.example`), each with a floor. A market's latest run is never pruned, nor is a run still being built nor any spend record inside its months; a pruned run keeps its summary row, marked `pruned_at`.
+Stored data is deleted once it is older than its window: run detail (a run's listings, candidates, pro-formas, signals, narratives, brief and delivery ledger) and value estimates, with the comparable sales' addresses in them and in the cached provider response, after 90 days; the model cache after 30 days; the model-call ledger (spend) after 13 whole months; finished jobs and unreferenced listings after 30 days. The numbers are the `RETENTION_*` settings (`.env.example`), each with a floor. A market's latest run and its latest completed run are never pruned, nor is any spend record inside its months, nor the record of which Notion page a candidate's row is on while the candidate exists. A pruned run keeps its summary row, marked `pruned_at`, and cannot be briefed or delivered again.
 
 ```bash
 docker compose run --rm migrate feasibility retention prune --dry-run     # what would go; deletes nothing
 docker compose run --rm migrate feasibility retention prune               # delete it (also: the weekly n8n node, POST /triggers/retention)
 ```
 
-Rows already sent to Notion, and messages and PDFs already in Slack, are out of reach and are not deleted.
+Rows already sent to Notion, and messages and PDFs already in Slack, are out of reach and are not deleted. `--as-of DATE` exists to show pruning on the synthetic snapshot; a real prune from a chosen day is refused where live data or real spend exists.
 
 ## CLI
 
