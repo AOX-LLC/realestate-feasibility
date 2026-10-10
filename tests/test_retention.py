@@ -370,3 +370,46 @@ def test_deleting_listings_and_candidates_waits_for_the_markets_run_lock(engine:
     assert finished.is_set()
     assert count(engine, "listing", f"id = {orphan.listing_id}") == 0
     assert count(engine, "candidate", f"id = {orphan.candidate_id}") == 0
+
+
+# --- the edges, exactly --------------------------------------------------------------------------
+
+
+def test_a_row_exactly_at_a_timestamp_cut_off_is_kept_and_one_microsecond_earlier_is_deleted(
+    engine: Engine,
+) -> None:
+    add_run(engine, age=1, tag="newest")
+    cut = at(days_ago(30)).replace(hour=0)  # midnight UTC, 30 days before the day
+    before = cut - timedelta(microseconds=1)
+    for stamp, key in ((cut, "a"), (before, "b")):
+        run_sql(
+            engine,
+            "INSERT INTO llm_result (prompt_id, prompt_version, tier, input_sha256, result, "
+            "created_at) VALUES ('narrative.write', 1, 'mid', :h, CAST('{}' AS jsonb), :t)",
+            h=key * 64,
+            t=stamp,
+        )
+        run_sql(
+            engine,
+            "INSERT INTO job (kind, payload, status, finished_at) VALUES ('x', "
+            "CAST('{}' AS jsonb), 'done', :t)",
+            t=stamp,
+        )
+
+    prune(engine, POLICY, as_of=AS_OF)
+
+    assert [r[0] for r in run_sql(engine, "SELECT created_at FROM llm_result").all()] == [cut]
+    assert [r[0] for r in run_sql(engine, "SELECT finished_at FROM job").all()] == [cut]
+
+
+def test_the_months_back_clamp_to_the_last_day_of_a_shorter_month() -> None:
+    from datetime import date
+
+    from feasibility.retention.prune import months_before as real
+
+    assert real(date(2026, 3, 31), 13) == date(2025, 2, 28)
+    assert real(date(2026, 3, 31), 1) == date(2026, 2, 28)
+    assert real(date(2024, 3, 31), 1) == date(2024, 2, 29)  # a leap year
+    assert real(date(2026, 1, 30), 2) == date(2025, 11, 30)
+    assert real(date(2026, 12, 15), 13) == date(2025, 11, 15)
+    assert real(date(2026, 1, 15), 1) == date(2025, 12, 15)

@@ -57,17 +57,23 @@ def test_a_result_is_typed_with_the_frozen_model_and_not_the_packs() -> None:
             assert not set(frozen.__mro__) & pack_classes, frozen
 
 
-def test_a_pack_model_with_a_new_required_field_still_reads_a_stored_result() -> None:
+def test_reading_a_stored_result_never_goes_through_the_packs_own_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the read path used the pack's class, a new required field in the pack would break it.
+    Making that class refuse to validate anything stands in for that change."""
     stored: dict[str, Any] = next(iter(json.loads(FIXTURE.read_text())["2026-10-01"].values()))
 
-    class NewerAssumptions(CostAssumptions):
-        brand_new_required_field: int
+    def refuses(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("a stored result was read through the pack's model")
 
-    with pytest.raises(ValueError, match="brand_new_required_field"):
-        NewerAssumptions.model_validate(stored["assumptions"])  # the pack's own model would break
+    monkeypatch.setattr(CostAssumptions, "model_validate", refuses)
+    monkeypatch.setattr(CostAssumptions, "__init__", refuses)
+
     read = ProformaResult.model_validate(stored)
 
     assert read.assumptions.status == stored["assumptions"]["status"]
+    assert isinstance(read.assumptions, CostAssumptionsV1)
 
 
 def test_a_stored_result_with_an_unknown_assumption_is_still_refused() -> None:
