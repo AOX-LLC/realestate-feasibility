@@ -16,6 +16,7 @@ FAILURES_BEFORE_BAN = 20
 FAILURE_WINDOW_S = 600
 BAN_S = 900
 LIVEZ_PER_MINUTE = 60
+ANONYMOUS_PER_MINUTE = 60
 MAX_KEYS = 10_000
 
 
@@ -109,4 +110,8 @@ class ApiLimits:
         self.reads = WindowCounter(reads_per_minute, 60, clock)
         self.triggers = WindowCounter(triggers_per_hour, 3600, clock)
         self.livez = WindowCounter(LIVEZ_PER_MINUTE, 60, clock)
+        # Requests that present no credential at all: they guess nothing, so they do not count
+        # toward a ban, but they are not free either. And one log line per address a minute.
+        self.anonymous = WindowCounter(ANONYMOUS_PER_MINUTE, 60, clock)
+        self.failure_log = WindowCounter(1, 60, clock)
         self.ban = Ban(clock=clock)

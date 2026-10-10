@@ -128,7 +128,15 @@ class ApiGate:
             # browser asking for a favicon would otherwise ban the operator's own curl).
             if sent:
                 self._limits.ban.record_failure(address)
-            log.warning("auth failed from %s on %s", address, _loggable(path))
+            else:
+                # Not free either: past a minute's allowance the answer is a 429.
+                free = self._limits.anonymous.hit(address)
+                if not free.allowed:
+                    await _respond(send, 429, "too many requests", _retry_after(free.retry_after_s))
+                    return
+            # One line per address a minute, so that a flood cannot fill the log.
+            if self._limits.failure_log.hit(address).allowed:
+                log.warning("auth failed from %s on %s", address, _loggable(path))
             await _respond(send, 401, "authentication required", [(b"www-authenticate", b"Bearer")])
             return
         if access is Access.DENY:

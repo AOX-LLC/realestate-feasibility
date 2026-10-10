@@ -193,3 +193,20 @@ def test_a_spoofed_header_cannot_be_used_to_ban_someone_else_unless_configured(
 
 def test_the_token_constant_is_not_a_literal_in_this_file() -> None:
     assert READ_BEARER == "r" * 40
+
+
+def test_requests_with_no_credential_are_limited_and_logged_once_a_minute(
+    engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    clock = Clock()
+    caplog.set_level("WARNING")
+    with _client(engine, clock) as client:
+        codes = [client.get("/favicon.ico").status_code for _ in range(70)]
+        lines = [r for r in caplog.records if "auth failed" in r.getMessage()]
+        clock.now += 61
+        later = client.get("/favicon.ico").status_code
+
+    assert codes[:60] == [401] * 60
+    assert set(codes[60:]) == {429}
+    assert len(lines) == 1
+    assert later == 401
