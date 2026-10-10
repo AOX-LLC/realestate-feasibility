@@ -326,7 +326,7 @@ def test_b9_the_counts_add_up(plain: Any) -> None:
 def test_b7_a_brief_is_built_from_one_snapshot_of_the_database(plain: Any) -> None:
     from sqlalchemy import event
 
-    from feasibility.delivery.build import build_brief_snapshot
+    from feasibility.delivery.build import build_and_store
 
     engine, one, _ = plain
     fired: list[bool] = []
@@ -346,7 +346,7 @@ def test_b7_a_brief_is_built_from_one_snapshot_of_the_database(plain: Any) -> No
 
     event.listen(engine, "before_cursor_execute", tear)
     try:
-        brief = build_brief_snapshot(engine, one.run_id)
+        brief, _ = build_and_store(engine, one.run_id)
     finally:
         event.remove(engine, "before_cursor_execute", tear)
         execute(

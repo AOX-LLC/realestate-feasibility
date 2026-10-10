@@ -119,6 +119,24 @@ def test_brief_show_without_a_brief_and_for_a_missing_run_exit_two(
     assert not_ready.exit_code == 2
 
 
+def test_brief_show_refuses_a_stored_brief_that_fails_its_hash(
+    cli_engine: Engine, days: Any
+) -> None:
+    runner = CliRunner()
+    run_id = str(days[2].run_id)
+    runner.invoke(cli.app, ["brief", "build", "--run-id", run_id])
+    with cli_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE brief SET content = jsonb_set(content, '{market}', '\"edited\"')")
+        )
+
+    shown = runner.invoke(cli.app, ["brief", "show", "--run-id", run_id])
+
+    assert shown.exit_code == 1
+    assert "hash" in shown.output
+    assert "edited" not in shown.output
+
+
 # --- the jobs -----------------------------------------------------------------------------------
 
 

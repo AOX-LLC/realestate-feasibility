@@ -21,7 +21,6 @@ from feasibility.config import REPO_ROOT, Settings, get_settings
 from feasibility.db import get_engine, upgrade_to_head
 from feasibility.delivery import render as brief_render
 from feasibility.delivery import store as brief_store
-from feasibility.delivery.brief import Brief
 from feasibility.delivery.build import BriefError, build_and_store
 from feasibility.jobs.handlers import build_registry, enqueue_job
 from feasibility.jobs.payloads import SourcingRunPayload
@@ -394,16 +393,21 @@ def brief_show(
     market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
     run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
 ) -> None:
-    """Print a run's stored brief (read-only)."""
+    """Print a run's stored brief (read-only). A stored brief that fails its hash is not printed."""
     with get_engine().connect() as connection:
         shown_run = _proforma_run(connection, market, run_id)
-        stored = brief_store.read_brief(connection, shown_run)
-    if stored is None:
+        try:
+            verified = brief_store.read_verified_brief(connection, shown_run)
+        except brief_store.BriefIntegrityError as error:
+            typer.echo(f"run {shown_run}: {error}; build it again", err=True)
+            raise typer.Exit(code=1) from None
+    if verified is None:
         typer.echo(
             f"run {shown_run} has no brief; build one with `feasibility brief build`", err=True
         )
         raise typer.Exit(code=2)
-    for line in brief_render.lines(Brief.model_validate(stored.content), stored.content_sha256):
+    brief, stored = verified
+    for line in brief_render.lines(brief, stored.content_sha256):
         typer.echo(line)
 
 

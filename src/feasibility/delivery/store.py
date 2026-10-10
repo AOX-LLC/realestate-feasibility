@@ -243,3 +243,24 @@ def remarks_of(connection: Connection, run_id: int, candidate_ids: list[int]) ->
         )
     ).scalars()
     return [text for text in found if text]
+
+
+class BriefIntegrityError(RuntimeError):
+    """A stored brief no longer parses or no longer matches its hash."""
+
+
+def read_verified_brief(connection: Connection, run_id: int) -> tuple[Brief, StoredBrief] | None:
+    """The run's stored brief, parsed and checked against its hash; None when there is none.
+
+    A row that was edited by hand or written by a bug is not served or printed: the brief is
+    what gets delivered."""
+    stored = read_brief(connection, run_id)
+    if stored is None:
+        return None
+    try:
+        parsed = Brief.model_validate(stored.content)
+    except ValidationError:
+        raise BriefIntegrityError("the stored brief does not parse") from None
+    if parsed.content_sha256() != stored.content_sha256:
+        raise BriefIntegrityError("the stored brief does not match its hash")
+    return parsed, stored

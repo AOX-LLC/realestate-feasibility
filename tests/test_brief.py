@@ -394,6 +394,5 @@ def test_the_build_locks_the_run_row_so_a_rebuild_cannot_be_overwritten_by_a_sta
             event.remove(migrated_engine, "before_cursor_execute", record)
 
         assert any("FROM sourcing_run" in s and "FOR SHARE" in s for s in seen)
-        assert any("REPEATABLE READ" in s.upper() for s in seen) or True
     finally:
         empty_database(migrated_engine)
