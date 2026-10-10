@@ -130,7 +130,43 @@ def test_notion_check_and_setup_against_the_mock(monkeypatch: pytest.MonkeyPatch
     setup = runner.invoke(cli.app, ["brief", "notion-setup"])
 
     assert checked.exit_code == 0, checked.output
+    assert json.loads(
+        checked.output.split("\n", 1)[1] if "delivery mode" in checked.output else checked.output
+    ) == {"missing": [], "wrong_type": []}
     assert setup.exit_code == 0, setup.output
+    assert "nothing, the database is complete" in setup.output
+
+
+def test_notion_setup_reports_a_property_of_the_wrong_type_and_exits_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from feasibility.delivery import notion
+
+    _with_settings(monkeypatch, notion_database_id="a" * 32)
+    monkeypatch.setattr(
+        notion,
+        "build_notion_transport",
+        lambda settings: notion.MockNotionTransport(missing=("Profit",), wrong_type=("Rank",)),
+    )
+
+    result = CliRunner().invoke(cli.app, ["brief", "notion-setup"])
+
+    assert result.exit_code == 1
+    assert "Profit" in result.output and "Rank" in result.output
+    assert "database is complete" not in result.output
+
+
+def test_notion_commands_refuse_when_notion_is_not_a_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _with_settings(monkeypatch, notion_database_id="a" * 32, delivery_targets="slack")
+    runner = CliRunner()
+
+    for command in ("notion-check", "notion-setup"):
+        result = runner.invoke(cli.app, ["brief", command])
+
+        assert result.exit_code == 2, command
+        assert "DELIVERY_TARGETS" in result.output
 
 
 def test_notion_check_without_a_database_id_exits_two(monkeypatch: pytest.MonkeyPatch) -> None:

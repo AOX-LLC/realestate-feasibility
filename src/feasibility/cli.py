@@ -500,6 +500,9 @@ def _notion_client() -> Any:
     from feasibility.delivery.notion import NotionClient, build_notion_transport
 
     settings = get_settings()
+    if "notion" not in settings.targets:
+        typer.echo("notion is not in DELIVERY_TARGETS", err=True)
+        raise typer.Exit(code=2)
     if settings.notion_database_id is None:
         typer.echo("NOTION_DATABASE_ID is not set", err=True)
         raise typer.Exit(code=2)
@@ -527,11 +530,20 @@ def brief_notion_setup() -> None:
     """Add the properties the app owns to the Notion database. Never removes or renames one."""
     from feasibility.delivery.errors import DeliveryError
 
+    client = _notion_client()
     try:
-        added = _notion_client().setup_schema()
+        added = client.setup_schema()
+        wrong_type = client.check_schema()["wrong_type"]
     except DeliveryError as error:
         typer.echo(f"notion setup failed: {error}", err=True)
         raise typer.Exit(code=1) from None
+    if wrong_type:
+        typer.echo(
+            "added: " + (", ".join(added) or "nothing") + "; with another type (change them in "
+            "Notion, the app never alters a property): " + ", ".join(wrong_type),
+            err=True,
+        )
+        raise typer.Exit(code=1)
     typer.echo("added: " + (", ".join(added) if added else "nothing, the database is complete"))
 
 
