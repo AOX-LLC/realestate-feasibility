@@ -13,6 +13,8 @@ character what the narrative was checked against.
 
 import hashlib
 import json
+import re
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -25,6 +27,7 @@ from feasibility.llm.field_signals import FIELD_SIGNAL_MEANINGS
 from feasibility.llm.narrative import NarrativeResult, draft_of
 from feasibility.llm.narrative_check import check_narrative
 from feasibility.llm.results import SignalsResult
+from feasibility.llm.untrusted import scan_injection
 from feasibility.proforma.model import ProformaResult
 
 # At most this many candidates are shown, in rank order; the rest are counted.
@@ -36,6 +39,7 @@ NARRATIVE_LABEL = (
 NOTE_NOT_AVAILABLE = "Not available today."
 NOTE_REJECTED = "Withheld: the draft did not pass the figure check."
 NOTE_RECHECK_FAILED = "Withheld: the narrative no longer matches this pro-forma."
+NOTE_UNSAFE_TEXT = "Withheld: the narrative held text that is not safe to deliver."
 NOTE_FLAGGED = "Withheld: the listing text was flagged as an attempt to steer the model."
 
 DecimalString = Annotated[str, Field(pattern=r"^-?[0-9]+(\.[0-9]+)?$")]
@@ -228,8 +232,110 @@ def signals_of(signals: SignalsResult | None) -> BriefSignals:
     )
 
 
+# The figure check is the only check on what a model wrote, and it looks at numbers. Before
+# anything a model wrote is delivered, it must also be plain prose: no link, no mention, no
+# markup or template syntax, none of the listing's own words, no injection phrasing, and no
+# street name from the comps (an address). These characters and shapes have no place in it.
+_FORBIDDEN_CHARACTERS = re.compile(r"[<>{}\[\]\\`~*_|@#&^=+\x00-\x1f\x7f]")
+_LINK = re.compile(
+    r"(?i)(?:://|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|io|co|us|gov|edu|info|biz|app|dev|xyz)\b)"
+)
+# A made-up marker word such as a planted canary: five or more capital letters in a row.
+_SHOUTED_WORD = re.compile(r"\b[A-Z]{5,}\b")
+_ECHO_WIDTH = 24
+_STREET_SUFFIXES = frozenset(
+    [
+        "ave",
+        "avenue",
+        "blvd",
+        "boulevard",
+        "cir",
+        "circle",
+        "ct",
+        "court",
+        "dr",
+        "drive",
+        "ln",
+        "lane",
+        "pkwy",
+        "parkway",
+        "pl",
+        "place",
+        "rd",
+        "road",
+        "st",
+        "street",
+        "ter",
+        "terrace",
+        "trl",
+        "trail",
+        "way",
+        "north",
+        "south",
+        "east",
+        "west",
+    ]
+)
+
+
+@dataclass(frozen=True)
+class TextContext:
+    """What a delivered narrative must not repeat: the listing text of the shown candidates and
+    the street names of this candidate and its comps."""
+
+    remarks: list[str] = field(default_factory=list)
+    street_names: frozenset[str] = frozenset()
+
+
+def street_names_of(addresses: list[str]) -> frozenset[str]:
+    """The distinctive words of street addresses: letters only, six or more of them, and not a
+    suffix or a direction."""
+    words = set()
+    for address in addresses:
+        for word in re.findall(r"[a-z]+", address.casefold()):
+            if len(word) >= 6 and word not in _STREET_SUFFIXES:
+                words.add(word)
+    return frozenset(words)
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def unsafe_text(texts: list[str], context: TextContext) -> list[str]:
+    """Why the model-written `texts` may not be delivered, as short reasons; empty if they may."""
+    reasons = []
+    joined = " ".join(texts)
+    if _FORBIDDEN_CHARACTERS.search(joined):
+        reasons.append("markup or control characters")
+    if _LINK.search(joined):
+        reasons.append("a link")
+    if _SHOUTED_WORD.search(joined):
+        reasons.append("a word in capitals")
+    if scan_injection(joined):
+        reasons.append("injection phrasing")
+    flat = _flat(joined)
+    words = set(re.findall(r"[a-z]+", flat))
+    if words & context.street_names:
+        reasons.append("a street name")
+    for remarks in context.remarks:
+        source = _flat(remarks)
+        for start in range(0, max(1, len(source) - _ECHO_WIDTH + 1)):
+            window = source[start : start + _ECHO_WIDTH]
+            if re.search(r"[a-z]", window) and window in flat:
+                reasons.append("the listing's own words")
+                break
+        else:
+            continue
+        break
+    return reasons
+
+
 def narrative_of(
-    narrative: NarrativeResult | None, result: ProformaResult, signals: SignalsResult | None
+    narrative: NarrativeResult | None,
+    result: ProformaResult,
+    signals: SignalsResult | None,
+    context: TextContext | None = None,
 ) -> BriefNarrative:
     """An accepted narrative is checked again against facts built from today's rows; every
     other state is a fixed note and no model text at all."""
@@ -243,6 +349,10 @@ def narrative_of(
     facts = build_facts(result, signals)
     if not check_narrative(draft_of(narrative), facts).passed:
         return BriefNarrative(status="withheld", note=NOTE_RECHECK_FAILED)
+    spoken = [narrative.summary or "", *[r.text for r in narrative.risks]]
+    spoken += narrative.checks_before_offer
+    if unsafe_text(spoken, context or TextContext()):
+        return BriefNarrative(status="withheld", note=NOTE_UNSAFE_TEXT)
     return BriefNarrative(
         status="accepted",
         note=NARRATIVE_LABEL,

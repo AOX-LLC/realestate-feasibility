@@ -213,7 +213,6 @@ def test_a4_control_a_benign_tamper_is_delivered(plain: Any) -> None:
     assert {e.narrative.status for e in brief.candidates} == {"accepted"}
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 @pytest.mark.parametrize("said", ATTACK_TEXT)
 def test_a4_links_mentions_markup_and_templates_in_an_accepted_narrative_are_withheld(
     plain: Any, said: str
@@ -232,7 +231,6 @@ def test_a4_links_mentions_markup_and_templates_in_an_accepted_narrative_are_wit
     assert scan(document) == []
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a5_a_narrative_that_echoes_remarks_or_an_injection_phrase_is_withheld(
     plain: Any,
 ) -> None:
@@ -452,7 +450,6 @@ def test_a13_end_to_end_every_plant_stays_out_of_every_request(plain: Any) -> No
 
 
 # This one empties the database for itself, so it runs after every test that shares `plain`.
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_a4_the_same_attacks_written_by_the_model_are_withheld_at_write_time(
     migrated_engine: Engine,
 ) -> None:

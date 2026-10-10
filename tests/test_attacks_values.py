@@ -284,7 +284,6 @@ def test_b10_the_comp_count_must_match_the_comps_used(plain: Any) -> None:
     assert shown.comps.count_used != 99
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b11_a_comps_street_name_in_a_narrative_is_withheld(plain: Any) -> None:
     engine, one, _ = plain
     base = build_with(engine, one.run_id)

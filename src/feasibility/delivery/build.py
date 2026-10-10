@@ -9,10 +9,12 @@ from feasibility.delivery.brief import (
     BriefCandidate,
     BriefCode,
     NotShown,
+    TextContext,
     comps_of,
     figures_of,
     narrative_of,
     signals_of,
+    street_names_of,
 )
 from feasibility.llm.facts import build_facts
 from feasibility.proforma.model import ProformaResult
@@ -50,10 +52,17 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
     ids = [row.candidate_id for row in rows]
     signals = store.signals_for(connection, run_id, ids)
     narratives = store.narratives_for(connection, run_id, ids)
+    remarks = store.remarks_of(connection, run_id, ids)
+
+    results = [ProformaResult.model_validate(row.result) for row in rows]
+    # What no narrative of this brief may name: the streets of every candidate shown and of the
+    # sales their values rest on (an address is not for a model to repeat).
+    addresses = [row.street for row in rows]
+    addresses += [line.address for result in results if result.arv for line in result.arv.comps]
+    context = TextContext(remarks=remarks, street_names=street_names_of(addresses))
 
     candidates = []
-    for row in rows:
-        result = ProformaResult.model_validate(row.result)
+    for row, result in zip(rows, results, strict=True):
         stored_signals = signals.get(row.candidate_id)
         facts = build_facts(result, stored_signals)
         candidates.append(
@@ -69,7 +78,9 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
                 comps=comps_of(result),
                 flags=[BriefCode(code=flag.code, meaning=flag.meaning) for flag in facts.flags],
                 signals=signals_of(stored_signals),
-                narrative=narrative_of(narratives.get(row.candidate_id), result, stored_signals),
+                narrative=narrative_of(
+                    narratives.get(row.candidate_id), result, stored_signals, context
+                ),
             )
         )
     computed = counts.get("computed", 0)

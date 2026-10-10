@@ -192,3 +192,20 @@ def read_brief(connection: Connection, run_id: int) -> StoredBrief | None:
         )
     ).first()
     return None if row is None else StoredBrief(row.content, row.content_sha256, row.built_at)
+
+
+def remarks_of(connection: Connection, run_id: int, candidate_ids: list[int]) -> list[str]:
+    """The stored (redacted) listing text of the candidates' primary listings, for checking that
+    a delivered narrative does not repeat it."""
+    found = connection.execute(
+        select(listing.c.remarks)
+        .select_from(
+            run_candidate.join(listing, listing.c.id == run_candidate.c.primary_listing_id)
+        )
+        .where(
+            run_candidate.c.run_id == run_id,
+            run_candidate.c.candidate_id.in_(candidate_ids),
+            listing.c.remarks.is_not(None),
+        )
+    ).scalars()
+    return [text for text in found if text]
