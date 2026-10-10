@@ -39,11 +39,16 @@ Runtime dependencies (installed in the container image), with the licence each d
 | anthropic | 1.12.1 | MIT |  |
 | anyio | 4.15.1 | MIT |  |
 | aox-agent-core | 0.1.0 | MIT | pinned to the git tag v0.1.0 of its repository |
+| brotli | 1.2.0 | MIT |  |
+| brotlicffi | 1.2.0.2 | MIT | PyPy-only, not installed on CPython; licence from upstream, not read from this environment |
 | certifi | 2026.7.22 | MPL-2.0 |  |
+| cffi | 2.1.1 | MIT-0 |  |
 | click | 8.5.0 | BSD-3-Clause |  |
 | colorama | 0.4.6 | BSD-3-Clause | platform-specific, not installed on Linux; licence from upstream, not read from this environment |
+| cssselect2 | 0.10.1 | BSD-3-Clause |  |
 | docstring-parser | 0.18.0 | MIT |  |
 | fastapi | 0.142.2 | MIT |  |
+| fonttools | 4.66.1 | MIT |  |
 | h11 | 0.16.0 | MIT |  |
 | httpcore | 1.0.9 | BSD-3-Clause |  |
 | httpcore2 | 2.13.1 | BSD-3-Clause |  |
@@ -51,30 +56,40 @@ Runtime dependencies (installed in the container image), with the licence each d
 | httpx2 | 2.13.1 | BSD-3-Clause |  |
 | httpx2-jsfetch | 1.0 | not checked | platform-specific, not installed on Linux; licence not checked |
 | idna | 3.20 | BSD-3-Clause |  |
+| jinja2 | 3.1.6 | BSD-3-Clause |  |
 | jiter | 0.17.0 | MIT |  |
 | mako | 1.4.3 | MIT |  |
 | markdown-it-py | 4.2.0 | MIT |  |
 | markupsafe | 3.0.3 | BSD-3-Clause |  |
 | mdurl | 0.1.2 | MIT |  |
 | opentelemetry-api | 1.45.0 | Apache-2.0 |  |
+| pillow | 12.3.0 | MIT-CMU |  |
 | psycopg | 3.3.6 | LGPL-3.0-only |  |
 | psycopg-binary | 3.3.6 | LGPL-3.0-only |  |
+| pycparser | 3.11 | BSD-3-Clause |  |
 | pydantic | 2.13.5 | MIT |  |
 | pydantic-core | 2.46.5 | MIT |  |
 | pydantic-settings | 2.15.0 | MIT |  |
+| pydyf | 0.12.1 | BSD-3-Clause |  |
 | pygments | 2.21.0 | BSD-2-Clause |  |
+| pyphen | 0.18.1 | GPL-2.0-or-later OR LGPL-2.1-or-later OR MPL-1.1 | used under the LGPL or MPL option, unmodified |
 | python-dotenv | 1.2.4 | BSD-3-Clause |  |
 | rich | 15.0.0 | MIT |  |
 | shellingham | 1.5.4 | ISC |  |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 |  |
 | sqlalchemy | 2.1.2 | MIT |  |
 | starlette | 1.7.0 | BSD-3-Clause |  |
+| tinycss2 | 1.5.1 | BSD-3-Clause |  |
+| tinyhtml5 | 2.1.0 | MIT |  |
 | truststore | 0.10.4 | MIT |  |
 | typer | 0.27.2 | MIT |  |
 | typing-extensions | 4.16.0 | PSF-2.0 |  |
 | typing-inspection | 0.4.4 | MIT |  |
 | tzdata | 2026.4 | Apache-2.0 | platform-specific, not installed on Linux; licence from upstream, not read from this environment |
 | uvicorn | 0.54.0 | BSD-3-Clause |  |
+| weasyprint | 70.0 | BSD-3-Clause |  |
+| webencodings | 0.6.1 | BSD-3-Clause |  |
+| zopfli | 0.4.3 | Apache-2.0 |  |
 
 Development and test dependencies (not in the image):
 
@@ -90,6 +105,7 @@ Development and test dependencies (not in the image):
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |  |
 | pathspec | 1.1.1 | MPL-2.0 |  |
 | pluggy | 1.6.0 | MIT |  |
+| pypdf | 6.20.0 | BSD-3-Clause |  |
 | pytest | 9.1.1 | MIT |  |
 | pyyaml | 6.0.3 | MIT |  |
 | respx | 0.23.1 | BSD-3-Clause |  |
@@ -109,8 +125,11 @@ Development and test dependencies (not in the image):
   should obtain and keep their notices.
 - **MPL-2.0: certifi** (a root-certificate bundle, unmodified) and, for development only, **pathspec**.
   File-level copyleft: it applies to modifications of those files, which this project does not make.
-- **tzdata, colorama, httpx2-jsfetch** are installed only on some platforms (Windows, Emscripten) and
-  are listed so the lock file is fully accounted for.
+- **GPL-2.0-or-later OR LGPL-2.1-or-later OR MPL-1.1: pyphen** (WeasyPrint's hyphenation dictionaries).
+  It is triple-licensed; this project uses it unmodified, as a separate library installed from PyPI,
+  under the LGPL or MPL option, and it is replaceable by installing another build.
+- **tzdata, colorama, httpx2-jsfetch, brotlicffi** are installed only on some platforms (Windows, Emscripten) and
+  are listed so the lock file is fully accounted for (brotlicffi is the PyPy build of the brotli binding).
 
 ## Container images
 

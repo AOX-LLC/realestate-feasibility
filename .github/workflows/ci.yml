@@ -50,6 +50,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
+      # The PDF renderer's libraries (the same three the image installs).
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
       - run: uv run pytest
         env:
           TEST_DATABASE_URL: postgresql+psycopg://feasibility:feasibility@localhost:5432/feasibility_test
