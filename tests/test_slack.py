@@ -315,9 +315,38 @@ def test_a_post_is_never_sent_twice_after_a_server_error_or_a_lost_connection() 
 def test_a_read_only_style_call_is_still_retried_after_a_server_error() -> None:
     transport = Scripted(
         TransportResponse(503),
-        TransportResponse(200, {"ok": True, "upload_url": "https://x.invalid/u", "file_id": "F1"}),
+        TransportResponse(
+            200, {"ok": True, "upload_url": "https://files.slack.com/upload/v1/u", "file_id": "F1"}
+        ),
         TransportResponse(200, {"ok": True}),
     )
 
     assert client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0") == "F1"
     assert transport.calls == 3
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://files.slack.com/upload/v1/x",
+        "https://files.slack.com.evil.example/upload/v1/x",
+        "https://evil.example/upload/v1/x",
+        "https://files.slack.com:8443/upload/v1/x",
+        "https://user@evil.example/upload",
+        "file:///etc/passwd",
+    ],
+)
+def test_the_pdf_is_never_sent_to_a_url_that_is_not_slacks_upload_host(url: str) -> None:
+    sent: list[bytes] = []
+
+    class Transport(Scripted):
+        def upload(self, url: str, content: bytes) -> TransportResponse:
+            sent.append(content)
+            return TransportResponse(200)
+
+    transport = Transport(TransportResponse(200, {"ok": True, "upload_url": url, "file_id": "F1"}))
+
+    with pytest.raises(SlackError, match="bad_upload_url"):
+        client(transport).upload_file("a.pdf", b"%PDF", "t", "1.0")
+
+    assert sent == []

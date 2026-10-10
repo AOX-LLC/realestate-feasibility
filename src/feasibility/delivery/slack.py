@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -143,6 +144,14 @@ class SlackTransport(Protocol):
     def upload(self, url: str, content: bytes) -> TransportResponse: ...
 
 
+UPLOAD_HOSTS = ("files.slack.com",)
+
+
+def _is_slack_upload_url(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme == "https" and parts.hostname in UPLOAD_HOSTS and parts.port in (None, 443)
+
+
 class SlackClient:
     def __init__(
         self,
@@ -227,6 +236,9 @@ class SlackClient:
         url, file_id = started.get("upload_url"), started.get("file_id")
         if not isinstance(url, str) or not isinstance(file_id, str):
             raise SlackError("no_upload_url")
+        if not _is_slack_upload_url(url):
+            # The bytes of a pro-forma go only to Slack's own upload host, over TLS.
+            raise SlackError("bad_upload_url")
         self._pacer.wait()
         try:
             sent = self._transport.upload(url, content)
@@ -320,7 +332,7 @@ class MockSlackTransport:
                 200,
                 {
                     "ok": True,
-                    "upload_url": f"https://upload.invalid/{self._files}",
+                    "upload_url": f"https://files.slack.com/upload/v1/mock-{self._files}",
                     "file_id": f"mock-file-{self._files}",
                 },
             )
