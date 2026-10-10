@@ -32,7 +32,12 @@ from feasibility.jobs.payloads import (
 from feasibility.listings import sync_listings
 from feasibility.llm.run import PermanentModelError
 from feasibility.markets.loader import PackError, get_pack
-from feasibility.retention.prune import policy_from, prune
+from feasibility.retention.prune import (
+    RetentionRefusedError,
+    check_as_of_allowed,
+    policy_from,
+    prune,
+)
 from feasibility.sources.base import ImportRequest, NotConfiguredError
 from feasibility.sources.cad_csv.importer import CadCsvParcelSource, CadImportError
 from feasibility.sources.mls.reso import remarks_source_for
@@ -83,6 +88,8 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     PermanentModelError,
     # A brief that cannot be built (no such run, a run still running) is the same on every try.
     BriefError,
+    # A prune from a chosen day where that is not allowed: queueing it again changes nothing.
+    RetentionRefusedError,
     # The renderer refused a fetch: the same document is refused the same way.
     PdfRenderError,
     # Credentials, a channel or a database that is wrong stay wrong; retrying would only repeat the
@@ -192,6 +199,7 @@ def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None
 def run_retention_prune(payload: RetentionPrunePayload, context: JobContext) -> None:
     """Delete what is past its retention window (or count it, for a dry run). Safe to repeat: a
     second run finds nothing left to delete."""
+    check_as_of_allowed(context.engine, context.settings, payload.as_of, payload.dry_run)
     prune(
         context.engine,
         policy_from(context.settings),

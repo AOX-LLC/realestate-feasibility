@@ -712,8 +712,9 @@ def retention_prune(
         str | None,
         typer.Option(
             "--as-of",
-            help="Measure the windows from this day, YYYY-MM-DD (default: today, UTC). "
-            "With live data only together with --dry-run.",
+            help="Measure the windows from this day, YYYY-MM-DD (default: today, UTC). A real "
+            "prune from a chosen day is refused where live data or real spend exists; --dry-run "
+            "may use any day.",
         ),
     ] = None,
 ) -> None:
@@ -723,17 +724,26 @@ def retention_prune(
     reach."""
     from datetime import UTC, datetime
 
-    from feasibility.retention.prune import RULES, policy_from, prune
+    from feasibility.retention.prune import (
+        RULES,
+        RetentionRefusedError,
+        check_as_of_allowed,
+        policy_from,
+        prune,
+    )
 
     settings = get_settings()
     try:
         day = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else datetime.now(UTC).date()
     except ValueError:
         raise typer.BadParameter("--as-of must be a date such as 2026-12-15") from None
-    if as_of and settings.is_live and not dry_run:
-        typer.echo("--as-of without --dry-run is refused with live data", err=True)
-        raise typer.Exit(code=2)
-    report = prune(get_engine(), policy_from(settings), as_of=day, dry_run=dry_run)
+    engine = get_engine()
+    try:
+        check_as_of_allowed(engine, settings, day if as_of else None, dry_run)
+    except RetentionRefusedError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from None
+    report = prune(engine, policy_from(settings), as_of=day, dry_run=dry_run)
     verb = "would delete" if dry_run else "deleted"
     typer.echo(f"retention as of {day}: {verb}")
     for rule in RULES:

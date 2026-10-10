@@ -60,6 +60,42 @@ RUN_DETAIL = (
 )
 
 
+class RetentionRefusedError(ValueError):
+    """A prune that was asked to measure from a day of the caller's choosing, where that is not
+    allowed. Retrying cannot change it."""
+
+
+def holds_live_data(engine: Engine) -> bool:
+    """Whether this database has ever held live data or live spend: a run made in live mode, or a
+    model call that cost money. (Replayed calls are free and are not counted.)"""
+    with engine.connect() as connection:
+        return bool(
+            connection.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM sourcing_run WHERE data_mode = 'live') "
+                    "OR EXISTS (SELECT 1 FROM llm_call WHERE billable)"
+                )
+            ).scalar_one()
+        )
+
+
+def check_as_of_allowed(
+    engine: Engine, settings: Settings, as_of: date | None, dry_run: bool
+) -> None:
+    """A real prune measured from a chosen day (`--as-of`, or an `as_of` in a queued job) can be
+    pointed at a day in the future, which deletes everything past a shorter window, spend records
+    included. That is for demonstrating on synthetic data. It is refused with live data in the
+    settings, and with a database that has held live data or real spend, whatever the settings
+    say now. A dry run, which deletes nothing, may use any day."""
+    if as_of is None or dry_run:
+        return
+    if settings.is_live or holds_live_data(engine):
+        raise RetentionRefusedError(
+            "a prune from a chosen day is refused here: this database holds live data or spend; "
+            "use --dry-run to see what a day would delete"
+        )
+
+
 @dataclass(frozen=True)
 class RetentionPolicy:
     run_days: int

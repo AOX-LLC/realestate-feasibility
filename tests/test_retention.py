@@ -26,7 +26,11 @@ from feasibility import cli
 from feasibility.api.app import create_app
 from feasibility.config import DataMode, Settings
 from feasibility.jobs import queue
-from feasibility.jobs.handlers import JobContext, build_registry, run_retention_prune
+from feasibility.jobs.handlers import (
+    JobContext,
+    build_registry,
+    run_retention_prune,
+)
 from feasibility.jobs.payloads import RetentionPrunePayload
 from feasibility.jobs.worker import Worker
 from feasibility.retention.prune import RULES, RetentionPolicy, policy_from, prune
@@ -42,12 +46,12 @@ POLICY = RetentionPolicy(
 )
 
 
-def populate(engine: Engine) -> None:
+def populate(engine: Engine, *, spend: bool = True) -> None:
     add_run(engine, age=1, tag="newest")
     add_run(engine, age=40, tag="mid")
     add_run(engine, age=100, tag="old")
     add_run(engine, age=130, tag="older")
-    call = add_llm_call(engine, called=months_before(AS_OF, 14))
+    call = add_llm_call(engine, called=months_before(AS_OF, 14)) if spend else None
     add_llm_result(engine, created=days_ago(45), key="a", call_id=call)
     add_job(engine, finished=days_ago(60))
     run_sql(
@@ -172,7 +176,7 @@ def test_a_run_that_started_again_after_the_batch_was_chosen_is_left_alone(
 def test_the_job_prunes_with_the_settings_windows_and_a_dry_run_job_deletes_nothing(
     engine: Engine,
 ) -> None:
-    populate(engine)
+    populate(engine, spend=False)  # a database with no real spend, so a chosen day is allowed
     settings = _settings()
     context = JobContext(engine, settings, 1)
     before = count(engine, "run_candidate")
@@ -224,7 +228,7 @@ def cli_engine_(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Engine:
 def test_the_command_prints_a_row_per_rule_and_a_dry_run_says_nothing_was_deleted(
     cli_engine_: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    populate(cli_engine_)
+    populate(cli_engine_, spend=False)
     monkeypatch.setattr(cli, "get_settings", lambda: _settings())
     before = count(cli_engine_, "run_candidate")
 
@@ -255,13 +259,17 @@ def test_the_command_refuses_as_of_without_dry_run_when_the_data_is_live(
     assert dry.exit_code == 0 and bad.exit_code == 2
 
 
-def test_the_spend_rows_the_monthly_cap_reads_survive_a_prune_by_the_command(
+def test_a_prune_from_a_chosen_day_is_refused_by_the_command_where_there_is_real_spend(
     cli_engine_: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(cli, "get_settings", lambda: _settings())
     for months in (0, 1, 2):
         add_llm_call(cli_engine_, called=months_before(AS_OF, months))
+    run_sql(cli_engine_, "UPDATE llm_call SET billable = true, mode = 'live'")
 
-    CliRunner().invoke(cli.app, ["retention", "prune", "--as-of", "2026-12-15"])
+    refused = CliRunner().invoke(cli.app, ["retention", "prune", "--as-of", "2030-01-15"])
+    dry = CliRunner().invoke(cli.app, ["retention", "prune", "--as-of", "2030-01-15", "--dry-run"])
 
-    assert count(cli_engine_, "llm_call") == 3
+    assert refused.exit_code == 2 and "refused" in refused.output
+    assert dry.exit_code == 0 and "llm_call" in dry.output
+    assert count(cli_engine_, "llm_call") == 3  # a chosen future day would have deleted them all
