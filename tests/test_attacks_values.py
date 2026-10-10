@@ -365,7 +365,6 @@ def test_b7_a_brief_is_built_from_one_snapshot_of_the_database(plain: Any) -> No
     assert "TORN" not in brief.model_dump_json()
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b8_the_briefs_data_mode_is_the_runs_not_the_readers(plain: Any) -> None:
     from feasibility.config import DataMode, Settings
     from feasibility.jobs.handlers import JobContext, run_brief_deliver
@@ -431,7 +430,6 @@ def test_b15_the_notion_numbers_equal_the_stored_decimals(plain: Any) -> None:
 
 
 # These two empty the database for themselves, so they run after every test that shares `plain`.
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b6_a_brief_cannot_be_built_while_the_run_still_has_stages_to_go(
     migrated_engine: Engine,
 ) -> None:
@@ -457,16 +455,13 @@ def test_b6_a_brief_cannot_be_built_while_the_run_still_has_stages_to_go(
         empty_database(migrated_engine)
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_b5_the_endpoint_never_serves_a_stale_brief(migrated_engine: Engine) -> None:
     empty_database(migrated_engine)
     seed(migrated_engine, _settings())
     try:
         first = run_day(migrated_engine, _settings(), DAY_ONE, RunModel(**FREE))
         with migrated_engine.begin() as connection:
-            store.write_brief(
-                connection, build_brief(connection, first.run_id, _settings().data_mode)
-            )
+            store.write_brief(connection, build_brief(connection, first.run_id))
         # The same day again with an empty cache and a different narrative: the rows the brief
         # was built from change.
         execute(migrated_engine, "DELETE FROM llm_result")

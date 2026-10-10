@@ -377,11 +377,10 @@ def brief_build(
 ) -> None:
     """Build a run's brief from what it stored and keep it. It makes no model call, and sends
     nothing anywhere."""
-    settings = get_settings()
     with get_engine().begin() as connection:
         shown_run = _proforma_run(connection, market, run_id)
         try:
-            built = build_brief(connection, shown_run, settings.data_mode)
+            built = build_brief(connection, shown_run)
         except BriefError as error:
             typer.echo(f"brief not built: {error}", err=True)
             raise typer.Exit(code=2) from None

@@ -8,7 +8,6 @@ from typing import Any
 from llm_fakes import RunModel
 from sqlalchemy import Engine, text
 
-from feasibility.config import DataMode
 from feasibility.delivery.brief import Brief
 from feasibility.delivery.build import build_brief
 from feasibility.llm.signals import SignalClaim, SignalExtraction
@@ -40,7 +39,7 @@ def quoting_model() -> RunModel:
 
 def built(engine: Engine, run_id: int) -> Brief:
     with engine.connect() as connection:
-        return build_brief(connection, run_id, DataMode.MOCK)
+        return build_brief(connection, run_id)
 
 
 def keys_matching(node: Any) -> list[str]:

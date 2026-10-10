@@ -178,6 +178,7 @@ listing = Table(
 
 RUN_STATUSES = ("running", "completed", "failed")
 SYNC_STATUSES = ("fresh", "stale", "skipped", "pending")
+DATA_MODES = ("mock", "live")
 MATCH_STATUSES = ("matched", "ambiguous", "unmatched")
 MATCH_METHODS = ("exact", "stem", "gis_group", "street_only")
 LISTING_CHANGE_KINDS = ("new", "relisted", "price_changed", "unchanged", "gone", "aged_out")
@@ -201,9 +202,13 @@ sourcing_run = Table(
     Column("error", Text),
     _timestamp("started_at"),
     _timestamp("finished_at", nullable=True),
+    # The mode the run ran in, and when its last stage ended (null while stages remain).
+    Column("data_mode", Text, nullable=False, server_default=text("'mock'")),
+    _timestamp("stages_finished_at", nullable=True),
     UniqueConstraint("market", "as_of"),
     CheckConstraint(_in_list("status", RUN_STATUSES), name="status"),
     CheckConstraint(_in_list("sync_status", SYNC_STATUSES), name="sync_status"),
+    CheckConstraint(_in_list("data_mode", DATA_MODES), name="data_mode"),
 )
 
 listing_match = Table(

@@ -215,7 +215,7 @@ def briefed(migrated_engine: Engine) -> Iterator[Any]:
     seed(migrated_engine, _settings())
     run = run_day(migrated_engine, _settings(), DAY_ONE, RunModel(**FREE))
     with migrated_engine.begin() as connection:
-        store.write_brief(connection, build_brief(connection, run.run_id, _settings().data_mode))
+        store.write_brief(connection, build_brief(connection, run.run_id))
     yield migrated_engine, run
     empty_database(migrated_engine)
 

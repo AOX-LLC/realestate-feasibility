@@ -2,7 +2,6 @@
 
 from sqlalchemy import Connection
 
-from feasibility.config import DataMode
 from feasibility.delivery import store
 from feasibility.delivery.brief import (
     MAX_CANDIDATES,
@@ -31,7 +30,7 @@ class BriefNotReadyError(BriefError):
     """The run has not finished: its rows are still being written."""
 
 
-def build_brief(connection: Connection, run_id: int, data_mode: DataMode) -> Brief:
+def build_brief(connection: Connection, run_id: int) -> Brief:
     """The run's brief: its computed pro-formas in rank order (at most ten), each with its
     signals and its narrative if the narrative still passes the figure check.
 
@@ -42,6 +41,10 @@ def build_brief(connection: Connection, run_id: int, data_mode: DataMode) -> Bri
         raise RunNotFoundError(f"run {run_id} does not exist")
     if header.status != "completed":
         raise BriefNotReadyError(f"run {run_id} is {header.status}, not completed")
+    if not header.stages_finished:
+        # The ranking is stored and the run completed before the estimates, pro-formas, signals
+        # and narratives are: a brief built now would call every narrative "not available".
+        raise BriefNotReadyError(f"run {run_id} has stages that have not ended")
     counts = store.proforma_status_counts(connection, run_id)
     rows = store.top_computed(connection, run_id, MAX_CANDIDATES)
     ids = [row.candidate_id for row in rows]
@@ -75,7 +78,7 @@ def build_brief(connection: Connection, run_id: int, data_mode: DataMode) -> Bri
         market=header.market,
         as_of=header.as_of,
         run_id=run_id,
-        data_mode=data_mode.value,
+        data_mode=header.data_mode,  # type: ignore[arg-type]
         completeness="partial" if partial else "complete",
         notice="later_stage_failed" if partial else None,
         ranked=store.ranked_count(connection, run_id),

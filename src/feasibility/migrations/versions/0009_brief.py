@@ -1,5 +1,8 @@
 """The brief: what is delivered for a run, built by code and stored for audit.
 
+Also two columns on the run: the data mode it ran in (a brief says "synthetic" from the run, not
+from whoever reads it) and when its last stage ended (a brief is built only after that).
+
 Revision ID: 0009
 Revises: 0008
 Create Date: 2026-10-09
@@ -18,6 +21,20 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.add_column(
+        "sourcing_run",
+        sa.Column("data_mode", sa.Text(), server_default="mock", nullable=False),
+    )
+    op.add_column(
+        "sourcing_run", sa.Column("stages_finished_at", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.create_check_constraint(
+        op.f("ck_sourcing_run_data_mode"), "sourcing_run", "data_mode IN ('mock', 'live')"
+    )
+    # Runs that exist now finished all their stages (or recorded the error that stopped them).
+    op.execute(
+        "UPDATE sourcing_run SET stages_finished_at = finished_at WHERE status = 'completed'"
+    )
     op.create_table(
         "brief",
         sa.Column("run_id", sa.BigInteger(), nullable=False),
@@ -47,3 +64,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("brief")
+    # Dropping the column drops its check constraint, whatever the constraint is called.
+    op.drop_column("sourcing_run", "stages_finished_at")
+    op.drop_column("sourcing_run", "data_mode")

@@ -214,7 +214,6 @@ def copy_tree(source: Path, target: Path) -> Path:
 
 def build_with(engine: Engine, run_id: int, *updates: tuple[str, dict[str, Any]]) -> Any:
     """The run's brief as built after `updates` (SQL, parameters), which are rolled back."""
-    from feasibility.config import DataMode
     from feasibility.delivery.build import build_brief
 
     with engine.connect() as connection:
@@ -222,7 +221,7 @@ def build_with(engine: Engine, run_id: int, *updates: tuple[str, dict[str, Any]]
         try:
             for sql, params in updates:
                 connection.execute(text(sql), params)
-            return build_brief(connection, run_id, DataMode.MOCK)
+            return build_brief(connection, run_id)
         finally:
             transaction.rollback()
 

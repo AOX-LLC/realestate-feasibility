@@ -32,6 +32,8 @@ class RunHeader:
     as_of: date
     status: str
     error: str | None
+    data_mode: str
+    stages_finished: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,10 +59,19 @@ class StoredBrief:
 def read_run(connection: Connection, run_id: int) -> RunHeader | None:
     row = connection.execute(
         select(
-            sourcing_run.c.market, sourcing_run.c.as_of, sourcing_run.c.status, sourcing_run.c.error
+            sourcing_run.c.market,
+            sourcing_run.c.as_of,
+            sourcing_run.c.status,
+            sourcing_run.c.error,
+            sourcing_run.c.data_mode,
+            sourcing_run.c.stages_finished_at.is_not(None).label("stages_finished"),
         ).where(sourcing_run.c.id == run_id)
     ).first()
-    return None if row is None else RunHeader(row.market, row.as_of, row.status, row.error)
+    if row is None:
+        return None
+    return RunHeader(
+        row.market, row.as_of, row.status, row.error, row.data_mode, row.stages_finished
+    )
 
 
 def ranked_count(connection: Connection, run_id: int) -> int:

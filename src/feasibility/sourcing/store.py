@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from feasibility.sourcing.matching import MatchResult, aggregate
 from feasibility.tables import (
+    brief,
     candidate,
     listing,
     listing_match,
@@ -204,10 +205,10 @@ def previous_fresh_run(connection: Connection, market: str, before: date) -> int
     ).scalar_one_or_none()
 
 
-def start_run(connection: Connection, market: str, as_of: date) -> int:
+def start_run(connection: Connection, market: str, as_of: date, data_mode: str = "mock") -> int:
     """Create the run row, or reset the existing one for a re-run of the same date."""
     statement = insert(sourcing_run).values(
-        market=market, as_of=as_of, status="running", sync_status="pending"
+        market=market, as_of=as_of, status="running", sync_status="pending", data_mode=data_mode
     )
     run_id: int = connection.execute(
         statement.on_conflict_do_update(
@@ -219,6 +220,8 @@ def start_run(connection: Connection, market: str, as_of: date) -> int:
                 "error": None,
                 "started_at": func.now(),
                 "finished_at": None,
+                "stages_finished_at": None,
+                "data_mode": data_mode,
             },
         ).returning(sourcing_run.c.id)
     ).scalar_one()
@@ -260,7 +263,21 @@ def set_run_error(
     )
     if attempt is not None:
         statement = statement.where(sourcing_run.c.started_at == attempt)
-    connection.execute(statement.values(error=error))
+    # A stage that failed is the last one: nothing runs after it.
+    connection.execute(statement.values(error=error, stages_finished_at=func.now()))
+
+
+def mark_stages_finished(
+    connection: Connection, run_id: int, attempt: datetime | None = None
+) -> None:
+    """Record that every stage of the run has ended, so that a brief may be built from it. Not
+    for a run that is no longer completed, or that a newer attempt has since rebuilt."""
+    statement = update(sourcing_run).where(
+        sourcing_run.c.id == run_id, sourcing_run.c.status == "completed"
+    )
+    if attempt is not None:
+        statement = statement.where(sourcing_run.c.started_at == attempt)
+    connection.execute(statement.values(stages_finished_at=func.now()))
 
 
 def run_started_at(connection: Connection, run_id: int) -> datetime | None:
@@ -371,6 +388,8 @@ def upsert_candidates(
 
 
 def clear_run_rows(connection: Connection, run_id: int) -> None:
+    # The brief is built from these rows, so it goes with them.
+    connection.execute(delete(brief).where(brief.c.run_id == run_id))
     connection.execute(delete(run_candidate).where(run_candidate.c.run_id == run_id))
     connection.execute(delete(run_listing).where(run_listing.c.run_id == run_id))
 

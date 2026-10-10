@@ -167,7 +167,7 @@ def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
 def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None:
     """Build the run's brief and store it. (Delivery to the outside comes in a later session.)"""
     with context.engine.begin() as connection:
-        brief = build_brief(connection, payload.run_id, context.settings.data_mode)
+        brief = build_brief(connection, payload.run_id)
         brief_store.write_brief(connection, brief)
 
 
