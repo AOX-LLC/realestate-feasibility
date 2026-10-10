@@ -50,6 +50,7 @@ from feasibility.delivery.slack import (
     file_name,
     file_title,
 )
+from feasibility.delivery.transport import Pacer
 from feasibility.proforma import store as proforma_store
 from feasibility.proforma.model import ProformaResult
 
@@ -103,14 +104,19 @@ def outbox_for(settings: Settings, brief: Brief) -> Outbox | None:
 def build_clients(settings: Settings, outbox: Outbox | None = None) -> Clients:
     """The clients for the enabled targets: over mock transports, or live ones with the tokens."""
     notion = slack = None
+    # A mock answers at once; only a live service is paced to its rate limit.
+    pacer = Pacer(0.0) if settings.delivery_mode is DeliveryMode.MOCK else None
     if "notion" in settings.targets:
         notion = NotionClient(
             build_notion_transport(settings, outbox),
             settings.notion_database_id or MOCK_DATABASE_ID,
+            pacer=pacer,
         )
     if "slack" in settings.targets:
         slack = SlackClient(
-            build_slack_transport(settings, outbox), settings.slack_channel_id or MOCK_CHANNEL_ID
+            build_slack_transport(settings, outbox),
+            settings.slack_channel_id or MOCK_CHANNEL_ID,
+            pacer=pacer,
         )
     return Clients(notion=notion, slack=slack)
 

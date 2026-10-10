@@ -12,8 +12,13 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
-from feasibility.delivery.build import BriefError, build_and_store
-from feasibility.delivery.errors import PdfRenderError
+from feasibility.delivery.build import BriefError
+from feasibility.delivery.deliver import deliver_brief
+from feasibility.delivery.errors import (
+    DeliveryConfigError,
+    DeliveryUnknownOutcomeError,
+    PdfRenderError,
+)
 from feasibility.jobs import queue
 from feasibility.jobs.payloads import (
     BriefDeliverPayload,
@@ -77,6 +82,11 @@ PERMANENT_ERRORS: tuple[type[Exception], ...] = (
     BriefError,
     # The renderer refused a fetch: the same document is refused the same way.
     PdfRenderError,
+    # Credentials, a channel or a database that is wrong stay wrong; retrying would only repeat the
+    # request. (An incomplete delivery is not here: a retry sends only what is left.)
+    DeliveryConfigError,
+    # A Slack item may have been sent. Only a person can look in the channel and decide.
+    DeliveryUnknownOutcomeError,
 )
 
 
@@ -171,8 +181,9 @@ def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
 
 
 def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None:
-    """Build the run's brief and store it. (Delivery to the outside comes in a later session.)"""
-    build_and_store(context.engine, payload.run_id)
+    """Build the run's brief and deliver it to the enabled targets (mock or live). It sends only
+    what the ledger says is not there yet, so a retry or a second job for the run is harmless."""
+    deliver_brief(context.engine, context.settings, payload.run_id)
 
 
 def build_registry() -> dict[str, JobKind]:

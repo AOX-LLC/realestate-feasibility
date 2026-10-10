@@ -553,6 +553,104 @@ def brief_notion_setup() -> None:
     typer.echo("added: " + (", ".join(added) if added else "nothing, the database is complete"))
 
 
+def _print_report(report: Any) -> None:
+    for item in report.items:
+        code = f"  {item.error_code}" if item.error_code else ""
+        typer.echo(f"{item.target:<7} {item.item:<12} {item.status}{code}")
+    counts = ", ".join(f"{n} {status}" for status, n in sorted(report.counts().items()))
+    typer.echo(f"run {report.run_id} ({report.mode} delivery): {counts or 'nothing to deliver'}")
+
+
+@brief_app.command("deliver")
+def brief_deliver(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Build and print every payload and render the PDFs; send "
+            "nothing and write no ledger row",
+        ),
+    ] = False,
+    resend: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--resend",
+            help="slack: post again what Slack may already have, after looking in the channel",
+        ),
+    ] = None,
+    only: Annotated[str | None, typer.Option(help="notion or slack")] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="Folder for a dry run's PDFs (default: local/briefs/DATE)")
+    ] = None,
+) -> None:
+    """Send a run's brief to Notion and Slack (mock unless DELIVERY_MODE=live), once.
+
+    The brief is built from the database now, and only what the ledger says is not there yet is
+    sent, so running it again sends nothing. A Slack item whose outcome is unknown is never sent
+    again by itself: look in the channel, then use --resend slack."""
+    from feasibility.delivery.deliver import deliver_brief
+    from feasibility.delivery.errors import DeliveryBusyError, DeliveryError
+
+    settings = get_settings()
+    engine = get_engine()
+    with engine.connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+    typer.echo(
+        f"delivery mode: {settings.delivery_mode.value}; targets: {', '.join(settings.targets)}",
+        err=True,
+    )
+    try:
+        report = deliver_brief(
+            engine, settings, shown_run, dry_run=dry_run, resend=resend or (), only=only, out=out
+        )
+    except DeliveryBusyError:
+        typer.echo(f"run {shown_run}: another delivery of it is going; nothing was sent", err=True)
+        raise typer.Exit(code=2) from None
+    except BriefError as error:
+        typer.echo(f"brief not built: {error}", err=True)
+        raise typer.Exit(code=2) from None
+    except DeliveryError as error:
+        if error.report is not None:
+            _print_report(error.report)
+        typer.echo(f"delivery did not finish: {error} ({type(error).__name__})", err=True)
+        raise typer.Exit(code=1) from None
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from None
+    if dry_run:
+        for payload in report.payloads:
+            typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        for path in report.files:
+            typer.echo(f"wrote {path}")
+        typer.echo("dry run: nothing was sent and no ledger row was written")
+        return
+    _print_report(report)
+
+
+@brief_app.command("deliveries")
+def brief_deliveries(
+    market: Annotated[str | None, typer.Option(help="Default: MARKET setting")] = None,
+    run_id: Annotated[int | None, typer.Option(help="Default: the latest completed run")] = None,
+) -> None:
+    """What was sent to Notion and Slack for a run, from the delivery ledger (read-only)."""
+    from feasibility.delivery import ledger
+
+    engine = get_engine()
+    with engine.connect() as connection:
+        shown_run = _proforma_run(connection, market, run_id)
+    found = ledger.rows_for_run(engine, shown_run)
+    if not found:
+        typer.echo(f"run {shown_run} has no deliveries yet")
+        return
+    for row in found:
+        code = f"  {row.error_code}" if row.error_code else ""
+        typer.echo(
+            f"{row.target:<7} {row.item:<12} {row.mode:<5} {row.status:<8} "
+            f"attempts {row.attempts}  {row.remote_ref or '-'}{code}"
+        )
+
+
 @brief_app.command("smoke")
 def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) -> None:
     """Live only: send one fixed synthetic row or message to check the credentials. Prints the

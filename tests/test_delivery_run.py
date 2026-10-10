@@ -316,3 +316,17 @@ def test_a_run_that_does_not_exist_delivers_nothing(days: Any) -> None:
         deliver(engine, 999999, notion, slack)
 
     assert notion.requests == [] and slack.requests == [] and ledger(engine) == []
+
+
+def test_a_configuration_error_and_an_unknown_outcome_are_permanent_and_the_rest_are_retried() -> (
+    None
+):
+    from feasibility.delivery.errors import DeliveryBusyError, NotionError, SlackError
+    from feasibility.jobs.handlers import PERMANENT_ERRORS
+
+    for permanent in (DeliveryConfigError, DeliveryUnknownOutcomeError):
+        assert issubclass(permanent, PERMANENT_ERRORS)
+    # An incomplete delivery retries (the ledger sends only what is left), and so does a busy run
+    # and a refusal that another try may fix.
+    for retried in (DeliveryIncompleteError, DeliveryBusyError, NotionError, SlackError):
+        assert not issubclass(retried, PERMANENT_ERRORS)

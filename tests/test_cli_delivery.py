@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (a fixture imported from another test module is shadowed by its parameter)
 """The delivery commands: PDFs to a folder, previews of the payloads, the Notion checks and the
 live-only smoke test. In mock mode nothing here reaches a network."""
 
@@ -23,7 +24,7 @@ def _run(runs: Any) -> str:
 
 
 @pytest.fixture
-def built(cli_engine: Engine, days: Any) -> str:  # noqa: F811
+def built(cli_engine: Engine, days: Any) -> str:
     run_id = _run(days)
     result = CliRunner().invoke(cli.app, ["brief", "build", RUN, run_id])
     assert result.exit_code == 0, result.output
@@ -194,3 +195,120 @@ def test_smoke_refuses_to_run_outside_live_mode(
 
 def test_smoke_refuses_an_unknown_target() -> None:
     assert CliRunner().invoke(cli.app, ["brief", "smoke", "email"]).exit_code != 0
+
+
+# --- brief deliver and brief deliveries ----------------------------------------------------------
+
+
+def test_brief_deliver_sends_once_and_a_second_run_sends_nothing(
+    cli_engine: Engine, built: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from delivery_harness import clear_ledger
+
+    clear_ledger(cli_engine)
+    _with_settings(monkeypatch, media_out=tmp_path)
+    run_id = built
+    runner = CliRunner()
+
+    first = runner.invoke(cli.app, ["brief", "deliver", RUN, run_id])
+    second = runner.invoke(cli.app, ["brief", "deliver", RUN, run_id])
+
+    assert first.exit_code == 0, first.output
+    assert "run " + run_id + " (mock delivery): 13 sent" in first.output
+    assert "digest" in first.output and "row:" in first.output and "file:" in first.output
+    assert second.exit_code == 0, second.output
+    assert "13 skipped" in second.output
+    # Mock delivery left what it would have sent where MEDIA_OUT says.
+    folder = tmp_path / "dallas-2026-10-02"
+    assert len(list(folder.glob("pro-forma-rank-*.pdf"))) == 6
+    assert (folder / "mock-notion-requests.jsonl").is_file()
+    assert (folder / "mock-slack-requests.jsonl").is_file()
+    lines = (folder / "mock-slack-requests.jsonl").read_text().splitlines()
+    assert json.loads(lines[0])["path"] == "/chat.postMessage"
+
+
+def test_brief_deliveries_lists_the_ledger_of_a_run(
+    cli_engine: Engine, built: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from delivery_harness import clear_ledger
+
+    clear_ledger(cli_engine)
+    _with_settings(monkeypatch, media_out=None)
+    run_id = built
+    runner = CliRunner()
+    before = runner.invoke(cli.app, ["brief", "deliveries", RUN, run_id])
+    runner.invoke(cli.app, ["brief", "deliver", RUN, run_id])
+
+    after = runner.invoke(cli.app, ["brief", "deliveries", RUN, run_id])
+
+    assert "has no deliveries yet" in before.output
+    assert after.exit_code == 0
+    assert len(after.output.strip().splitlines()) == 13
+    assert "slack   digest" in after.output and "sent" in after.output
+
+
+def test_brief_deliver_dry_run_prints_payloads_writes_pdfs_and_keeps_no_ledger_row(
+    cli_engine: Engine, built: str, tmp_path: Path
+) -> None:
+    from delivery_harness import clear_ledger, ledger
+
+    clear_ledger(cli_engine)
+    run_id = built
+
+    result = CliRunner().invoke(
+        cli.app, ["brief", "deliver", RUN, run_id, "--dry-run", "--out", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "dry run: nothing was sent and no ledger row was written" in result.output
+    assert len(list(tmp_path.glob("*.pdf"))) == 6
+    assert '"item": "digest"' in result.output and '"properties"' in result.output
+    assert ledger(cli_engine) == []
+
+
+def test_brief_deliver_refuses_an_unknown_target_or_resend(cli_engine: Engine, built: str) -> None:
+    run_id = built
+    runner = CliRunner()
+
+    only = runner.invoke(cli.app, ["brief", "deliver", RUN, run_id, "--only", "email"])
+    again = runner.invoke(cli.app, ["brief", "deliver", RUN, run_id, "--resend", "notion"])
+
+    assert only.exit_code == 2 and again.exit_code == 2
+
+
+def test_brief_deliver_exits_one_and_says_what_is_unknown_when_a_post_may_have_happened(
+    cli_engine: Engine, built: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from delivery_harness import Faults, LossySlack, clear_ledger, notion_client, slack_client
+
+    from feasibility.delivery import deliver as deliver_module
+    from feasibility.delivery.deliver import Clients
+
+    clear_ledger(cli_engine)
+    lost = LossySlack(Faults(lose_reply=["/chat.postMessage"]))
+    monkeypatch.setattr(
+        deliver_module,
+        "build_clients",
+        lambda settings, outbox=None: Clients(notion_client(), slack_client(lost)),
+    )
+    run_id = built
+
+    result = CliRunner().invoke(cli.app, ["brief", "deliver", RUN, run_id])
+
+    assert result.exit_code == 1
+    assert "DeliveryUnknownOutcomeError" in result.output
+    assert "slack   digest       unknown" in result.output
+    assert "--resend" not in result.output.split("delivery did not finish")[0]
+
+
+def test_brief_deliver_exits_two_when_another_delivery_holds_the_run(
+    cli_engine: Engine, built: str
+) -> None:
+    from feasibility.delivery import ledger
+
+    run_id = int(built)
+    with ledger.run_lock(cli_engine, run_id):
+        result = CliRunner().invoke(cli.app, ["brief", "deliver", RUN, str(run_id)])
+
+    assert result.exit_code == 2
+    assert "another delivery of it is going" in result.output
