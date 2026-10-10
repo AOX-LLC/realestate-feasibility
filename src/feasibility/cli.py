@@ -22,7 +22,7 @@ from feasibility.db import get_engine, upgrade_to_head
 from feasibility.delivery import render as brief_render
 from feasibility.delivery import store as brief_store
 from feasibility.delivery.brief import Brief
-from feasibility.delivery.build import BriefError, build_brief
+from feasibility.delivery.build import BriefError, build_and_store
 from feasibility.jobs.handlers import build_registry, enqueue_job
 from feasibility.jobs.payloads import SourcingRunPayload
 from feasibility.jobs.worker import Worker
@@ -377,14 +377,14 @@ def brief_build(
 ) -> None:
     """Build a run's brief from what it stored and keep it. It makes no model call, and sends
     nothing anywhere."""
-    with get_engine().begin() as connection:
+    engine = get_engine()
+    with engine.connect() as connection:
         shown_run = _proforma_run(connection, market, run_id)
-        try:
-            built = build_brief(connection, shown_run)
-        except BriefError as error:
-            typer.echo(f"brief not built: {error}", err=True)
-            raise typer.Exit(code=2) from None
-        digest = brief_store.write_brief(connection, built)
+    try:
+        built, digest = build_and_store(engine, shown_run)
+    except BriefError as error:
+        typer.echo(f"brief not built: {error}", err=True)
+        raise typer.Exit(code=2) from None
     typer.echo(f"run {shown_run}: brief built, {built.completeness}, {built.shown} candidates")
     typer.echo(f"content sha256 {digest}")
 

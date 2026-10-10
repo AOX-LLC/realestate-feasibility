@@ -12,8 +12,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import Connection, Engine
 
 from feasibility.config import Settings
-from feasibility.delivery import store as brief_store
-from feasibility.delivery.build import BriefError, build_brief
+from feasibility.delivery.build import BriefError, build_and_store
 from feasibility.jobs import queue
 from feasibility.jobs.payloads import (
     BriefDeliverPayload,
@@ -166,9 +165,7 @@ def run_morning(payload: MorningRunPayload, context: JobContext) -> None:
 
 def run_brief_deliver(payload: BriefDeliverPayload, context: JobContext) -> None:
     """Build the run's brief and store it. (Delivery to the outside comes in a later session.)"""
-    with context.engine.begin() as connection:
-        brief = build_brief(connection, payload.run_id)
-        brief_store.write_brief(connection, brief)
+    build_and_store(context.engine, payload.run_id)
 
 
 def build_registry() -> dict[str, JobKind]:

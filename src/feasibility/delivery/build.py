@@ -1,6 +1,6 @@
 """Building the brief of one run from what the run stored."""
 
-from sqlalchemy import Connection
+from sqlalchemy import Connection, Engine
 
 from feasibility.delivery import store
 from feasibility.delivery.brief import (
@@ -90,3 +90,19 @@ def build_brief(connection: Connection, run_id: int) -> Brief:
         ),
         candidates=candidates,
     )
+
+
+def build_brief_snapshot(engine: Engine, run_id: int) -> Brief:
+    """The brief, read from one snapshot of the database: a re-run that commits halfway through
+    the reads cannot give it a pro-forma from one attempt and a narrative from another."""
+    repeatable = engine.connect().execution_options(isolation_level="REPEATABLE READ")
+    with repeatable as connection, connection.begin():
+        return build_brief(connection, run_id)
+
+
+def build_and_store(engine: Engine, run_id: int) -> tuple[Brief, str]:
+    """Build the run's brief from one snapshot and keep it. Returns the brief and its hash."""
+    repeatable = engine.connect().execution_options(isolation_level="REPEATABLE READ")
+    with repeatable as connection, connection.begin():
+        brief = build_brief(connection, run_id)
+        return brief, store.write_brief(connection, brief)
