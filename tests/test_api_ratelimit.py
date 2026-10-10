@@ -9,6 +9,8 @@ from feasibility.api.app import create_app
 from feasibility.api.gate import client_address
 from feasibility.api.ratelimit import Ban, WindowCounter
 
+WRONG = {"Authorization": "Bearer " + "w" * 40}
+
 
 class Clock:
     def __init__(self) -> None:
@@ -115,12 +117,12 @@ def test_twenty_failures_ban_the_address_even_for_a_valid_token(engine: Engine) 
     clock = Clock()
     with _client(engine, clock) as client:
         for _ in range(20):
-            assert client.get("/parcels").status_code == 401
-        assert client.get("/parcels").status_code == 401  # the 21st failure starts the ban
+            assert client.get("/parcels", headers=WRONG).status_code == 401
+        assert client.get("/parcels", headers=WRONG).status_code == 401  # the 21st starts the ban
         banned = client.get("/parcels", headers=READ_HEADERS)
         assert banned.status_code == 429
         assert 890 <= int(banned.headers["retry-after"]) <= 901
-        assert client.get("/livez").status_code == 429
+        assert client.get("/livez").status_code == 200  # the open route is not banned
         clock.now += 901
         assert client.get("/parcels", headers=READ_HEADERS).status_code == 200
 
@@ -130,7 +132,7 @@ def test_good_requests_do_not_count_toward_a_ban(engine: Engine) -> None:
     with _client(engine, clock, api_reads_per_minute=1000) as client:
         for _ in range(100):
             assert client.get("/jobs", headers=READ_HEADERS).status_code == 200
-        assert client.get("/jobs").status_code == 401
+        assert client.get("/jobs", headers=WRONG).status_code == 401
 
 
 # --- which address is the client -------------------------------------------------------------
@@ -176,15 +178,17 @@ def test_a_spoofed_header_cannot_be_used_to_ban_someone_else_unless_configured(
     clock = Clock()
     with _client(engine, clock) as client:
         for _ in range(25):
-            client.get("/parcels", headers={"X-Forwarded-For": "7.7.7.7"})
+            client.get("/parcels", headers={**WRONG, "X-Forwarded-For": "7.7.7.7"})
         # The test client's own address was counted, not 7.7.7.7: it is banned now.
-        assert client.get("/livez").status_code == 429
+        assert client.get("/parcels", headers=READ_HEADERS).status_code == 429
 
     with _client(engine, clock, api_client_ip_header="X-Forwarded-For") as client:
         for _ in range(25):
-            client.get("/parcels", headers={"X-Forwarded-For": "7.7.7.7"})
-        assert client.get("/livez", headers={"X-Forwarded-For": "6.6.6.6"}).status_code == 200
-        assert client.get("/livez", headers={"X-Forwarded-For": "7.7.7.7"}).status_code == 429
+            client.get("/parcels", headers={**WRONG, "X-Forwarded-For": "7.7.7.7"})
+        ok = {**READ_HEADERS, "X-Forwarded-For": "6.6.6.6"}
+        assert client.get("/parcels", headers=ok).status_code == 200
+        banned = {**READ_HEADERS, "X-Forwarded-For": "7.7.7.7"}
+        assert client.get("/parcels", headers=banned).status_code == 429
 
 
 def test_the_token_constant_is_not_a_literal_in_this_file() -> None:

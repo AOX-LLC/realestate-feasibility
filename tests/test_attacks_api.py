@@ -152,7 +152,6 @@ def test_o10_a_body_over_the_cap_is_a_413_whatever_it_declares(declared: bytes) 
     assert spy.reached == []
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o4_two_authorization_headers_are_not_a_way_to_pick_the_better_one() -> None:
     gate, spy = gated()
     headers = [*bearer(READ_BEARER), (b"authorization", b"Bearer nope")]
@@ -163,7 +162,6 @@ def test_o4_two_authorization_headers_are_not_a_way_to_pick_the_better_one() -> 
     assert spy.reached == []
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o3_requests_with_no_credentials_do_not_ban_the_address() -> None:
     gate, _ = gated()
     for _ in range(40):
@@ -180,7 +178,6 @@ def test_o3_wrong_tokens_still_ban_the_address() -> None:
     assert call(gate, "GET", "/parcels", headers=bearer(READ_BEARER), peer="172.18.0.1") == 429
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_5A)
 def test_o2_a_spoofed_address_header_cannot_ban_the_healthcheck() -> None:
     settings = _settings().model_copy(update={"api_client_ip_header": "CF-Connecting-IP"})
     gate, _ = gated(settings)

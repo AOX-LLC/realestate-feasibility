@@ -56,6 +56,10 @@ def _header(scope: AsgiScope, name: bytes) -> str | None:
     return None
 
 
+def _all_headers(scope: AsgiScope, name: bytes) -> list[str]:
+    return [str(value.decode("latin-1")) for key, value in scope.get("headers", []) if key == name]
+
+
 def _loggable(path: str) -> str:
     return path[:MAX_LOGGED_PATH].encode("unicode_escape").decode("ascii")
 
@@ -96,12 +100,15 @@ class ApiGate:
             return
         path = scope["path"]
         address = client_address(scope, self._ip_header)
+        access = required_access(scope["method"], path)
         banned_for = self._limits.ban.retry_after_s(address)
-        if banned_for:
+        # The open route is exempt from the ban: it has its own limit, and the container's own
+        # healthcheck must not be locked out by someone else's guesses (with a client-address
+        # header configured, a forged header could otherwise name the healthcheck's address).
+        if banned_for and access is not Access.OPEN:
             await _respond(send, 429, "too many requests", _retry_after(banned_for))
             return
 
-        access = required_access(scope["method"], path)
         if access is Access.OPEN:
             verdict = self._limits.livez.hit(address)
             if not verdict.allowed:
@@ -110,10 +117,17 @@ class ApiGate:
             await self._app(scope, receive, send)
             return
 
-        presented = parse_bearer(_header(scope, b"authorization"))
+        # Exactly one Authorization header counts: with two, which one a server reads is a
+        # choice an attacker could exploit, so two is a failed attempt.
+        sent = _all_headers(scope, b"authorization")
+        presented = parse_bearer(sent[0]) if len(sent) == 1 else None
         scope_granted = self._tokens.scope_of(presented) if presented is not None else None
         if scope_granted is None:
-            self._limits.ban.record_failure(address)
+            # A request that presents nothing guesses nothing: it is refused but not counted
+            # toward a ban (on the host every request arrives from one gateway address, so a
+            # browser asking for a favicon would otherwise ban the operator's own curl).
+            if sent:
+                self._limits.ban.record_failure(address)
             log.warning("auth failed from %s on %s", address, _loggable(path))
             await _respond(send, 401, "authentication required", [(b"www-authenticate", b"Bearer")])
             return
