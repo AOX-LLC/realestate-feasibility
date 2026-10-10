@@ -229,6 +229,10 @@ def test_the_trigger_module_cannot_sync_spend_or_call_a_model() -> None:
         "anthropic",
         "sync_listings",
         "build_registry",
+        # The retention route only queues a job; the code that deletes runs in the worker.
+        "prune",
+        "policy_from",
+        "check_as_of_allowed",
     }
 
     assert forbidden.isdisjoint(vars(triggers_module))
