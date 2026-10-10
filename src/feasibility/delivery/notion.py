@@ -30,7 +30,7 @@ from feasibility.delivery.transport import (
     RecordedRequest,
     Transport,
     TransportResponse,
-    retry_after_seconds,
+    send_with_retries,
 )
 
 NOTION_VERSION = "2022-06-28"
@@ -39,8 +39,6 @@ KEY_PROPERTY = "Candidate key"
 DECISION_PROPERTY = "Decision"
 SUMMARY_LIMIT = 2000
 MIN_INTERVAL_S = 0.35
-RATE_LIMIT_TRIES = 3
-SERVER_RETRY_PAUSES = (1.0, 4.0)
 
 # The properties the app owns: name -> (Notion type, number format or None). `Decision` is the
 # builder's own column; setup creates it with its options and nothing ever writes it.
@@ -146,28 +144,15 @@ class NotionClient:
         *,
         repeatable: bool = True,
     ) -> dict[str, Any]:
-        """One request. A 429 means the request was not processed and is always waited out; a 5xx
-        or a lost connection may have been processed, so it is retried only for a request that is
-        safe to send twice (`repeatable`), never for one that creates something."""
-        server_pauses = list(SERVER_RETRY_PAUSES) if repeatable else []
-        limited = 0
-        while True:
-            self._pacer.wait()
-            try:
-                response = self._transport.request(method, path, json=body)
-            except TransportError:
-                if not server_pauses:
-                    raise NotionError("network_error") from None
-                self._sleep(server_pauses.pop(0))
-                continue
-            if response.status == 429 and limited < RATE_LIMIT_TRIES:
-                limited += 1
-                self._sleep(retry_after_seconds(response.headers))
-                continue
-            if response.status >= 500 and server_pauses:
-                self._sleep(server_pauses.pop(0))
-                continue
-            return self._checked(response, path)
+        """One request, retried as `send_with_retries` says."""
+        response = send_with_retries(
+            lambda: self._transport.request(method, path, json=body),
+            pacer=self._pacer,
+            sleep=self._sleep,
+            repeatable=repeatable,
+            fail=NotionError,
+        )
+        return self._checked(response, path)
 
     def _checked(self, response: TransportResponse, path: str) -> dict[str, Any]:
         if 200 <= response.status < 300:

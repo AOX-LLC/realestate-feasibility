@@ -33,14 +33,12 @@ from feasibility.delivery.transport import (
     Pacer,
     RecordedRequest,
     TransportResponse,
-    retry_after_seconds,
+    send_with_retries,
 )
 from feasibility.llm import figures
 
 BASE_URL = "https://slack.com/api"
 MIN_INTERVAL_S = 1.1
-RATE_LIMIT_TRIES = 3
-SERVER_RETRY_PAUSES = (1.0, 4.0)
 MAX_BLOCKS = 50
 MAX_TEXT = 3000
 DOT = chr(0xB7)
@@ -174,28 +172,15 @@ class SlackClient:
         data: dict[str, Any] | None = None,
         repeatable: bool = True,
     ) -> dict[str, Any]:
-        """One request. A 429 means the request was not processed and is always waited out; a 5xx
-        or a lost connection may have been processed, so it is retried only for a request that is
-        safe to send twice (`repeatable`), never for one that posts something."""
-        server_pauses = list(SERVER_RETRY_PAUSES) if repeatable else []
-        limited = 0
-        while True:
-            self._pacer.wait()
-            try:
-                response = self._transport.request("POST", path, json=json, data=data)
-            except TransportError:
-                if not server_pauses:
-                    raise SlackError("network_error") from None
-                self._sleep(server_pauses.pop(0))
-                continue
-            if response.status == 429 and limited < RATE_LIMIT_TRIES:
-                limited += 1
-                self._sleep(retry_after_seconds(response.headers))
-                continue
-            if response.status >= 500 and server_pauses:
-                self._sleep(server_pauses.pop(0))
-                continue
-            return self._checked(response)
+        """One request, retried as `send_with_retries` says."""
+        response = send_with_retries(
+            lambda: self._transport.request("POST", path, json=json, data=data),
+            pacer=self._pacer,
+            sleep=self._sleep,
+            repeatable=repeatable,
+            fail=SlackError,
+        )
+        return self._checked(response)
 
     @staticmethod
     def _checked(response: TransportResponse) -> dict[str, Any]:
@@ -346,7 +331,7 @@ class MockSlackTransport:
         return TransportResponse(200, None, {})
 
 
-def build_transport(settings: Settings) -> SlackTransport:
+def build_slack_transport(settings: Settings) -> SlackTransport:
     """The mock transport, or the real one when delivery is live (which needs its token)."""
     if settings.delivery_mode is DeliveryMode.LIVE and settings.slack_bot_token is not None:
         return HttpSlackTransport(settings.slack_bot_token.get_secret_value())

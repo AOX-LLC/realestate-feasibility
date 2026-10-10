@@ -560,7 +560,7 @@ def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) 
     from feasibility.config import DeliveryMode
     from feasibility.delivery.errors import DeliveryError
     from feasibility.delivery.notion import KEY_PROPERTY, NotionClient, build_notion_transport
-    from feasibility.delivery.slack import SlackClient, build_transport
+    from feasibility.delivery.slack import SlackClient, build_slack_transport
 
     settings = get_settings()
     if target not in ("notion", "slack") or target not in settings.targets:
@@ -581,7 +581,7 @@ def brief_smoke(target: Annotated[str, typer.Argument(help="notion or slack")]) 
         else:
             if settings.slack_channel_id is None:
                 raise typer.BadParameter("SLACK_CHANNEL_ID is not set")
-            slack = SlackClient(build_transport(settings), settings.slack_channel_id)
+            slack = SlackClient(build_slack_transport(settings), settings.slack_channel_id)
             blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Smoke test"}}]
             typer.echo(f"slack message {slack.post_digest(blocks, 'Smoke test')}")
     except DeliveryError as error:

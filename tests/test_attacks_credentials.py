@@ -336,7 +336,7 @@ def test_c15_tests_never_reach_the_live_services_even_with_tokens_in_the_environ
     import socket
 
     from feasibility.delivery.notion import MockNotionTransport, build_notion_transport
-    from feasibility.delivery.slack import MockSlackTransport, build_transport
+    from feasibility.delivery.slack import MockSlackTransport, build_slack_transport
 
     def refuse(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("a test opened a socket")
@@ -349,7 +349,7 @@ def test_c15_tests_never_reach_the_live_services_even_with_tokens_in_the_environ
 
     # The process environment is read, but delivery is mock unless a test says otherwise, so the
     # transports are the in-memory ones and the tokens are dropped.
-    assert isinstance(build_transport(settings), MockSlackTransport)
+    assert isinstance(build_slack_transport(settings), MockSlackTransport)
     assert isinstance(build_notion_transport(settings), MockNotionTransport)
     assert settings.slack_bot_token is None and settings.notion_token is None
 
