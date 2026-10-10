@@ -334,7 +334,6 @@ def test_d11_a_run_whose_brief_cannot_be_built_delivers_nothing(days: Any) -> No
 # --- the deliveries endpoint --------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="the endpoint is the next commit")
 def test_d12_the_deliveries_endpoint_needs_the_read_token_and_serves_no_payload(days: Any) -> None:
     engine, one, _ = days
     deliver(engine, one.run_id, MockNotionTransport(), MockSlackTransport())
