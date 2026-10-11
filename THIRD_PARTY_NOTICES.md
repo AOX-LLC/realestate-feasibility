@@ -142,7 +142,9 @@ Development and test dependencies (not in the image):
 
 The printed pro-forma uses three font families, self-hosted under `src/feasibility/delivery/fonts/`
 with each family's licence text (`OFL.txt`), all under the SIL Open Font License 1.1. The fonts are
-embedded in the PDFs as subsets, which the licence allows; they are not sold on their own.
+embedded in the PDFs as subsets, which the licence allows; they are not sold on their own. The
+same files draw the mock renderings and the social-preview image made by `scripts/capture/`; the
+images in `docs/media/` hold those drawn letters, not the font files.
 
 | Family | Used for | Files | Source | Licence |
 | --- | --- | --- | --- | --- |
@@ -175,3 +177,12 @@ its index digest. n8n is distributed under its Sustainable Use License and, for 
 files, the n8n Enterprise License (see its repository's `LICENSE.md`). This project does not copy,
 modify or redistribute n8n: the compose file names the image and the operator's Docker pulls it. It
 is used only as a clock that sends one authenticated request to this project's API.
+
+## Capture tooling (not part of the project)
+
+`scripts/capture/capture_proof.py` makes the images in `docs/media/`. It is run with
+`uv run --no-project --with ...`, so its tools are not in `uv.lock`, not in the container image and not
+distributed with this repository: [Playwright for Python](https://playwright.dev/python/) 1.58.0
+(Apache-2.0) with a Chromium it downloads separately, [pypdfium2](https://github.com/pypdfium2-team/pypdfium2)
+5.14.0 (BSD-3-Clause or Apache-2.0; it bundles PDFium and its own dependency licences) and
+[Pillow](https://python-pillow.github.io/) 12.3.0 (MIT-CMU). The images show no part of any of them.

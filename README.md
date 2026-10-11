@@ -1,12 +1,50 @@
 # Real Estate Feasibility Engine
 
+[![CI](https://github.com/AOX-LLC/realestate-feasibility/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AOX-LLC/realestate-feasibility/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-informational)](LICENSE)
+
 A daily acquisition brief for a Dallas spec builder. Each morning it lists new teardowns and lots that fit a buy box. Each candidate gets a pro-forma computed in code and a short LLM risk narrative.
 
 The thesis: **LLM for judgment, code for math.** The model reads listing text and writes the risk narrative. Every number in the pro-forma comes from deterministic, tested code.
 
+> **The demo runs on a frozen synthetic snapshot.** Every listing, parcel, value estimate and remark in this repository is synthetic, and the model's responses are recordings. **Live RentCast has not been called and a real county appraisal (DCAD) archive has not been imported:** both were built from published documentation and are unverified. **No message has been sent to a real Notion or Slack**; delivery has run only against mock services. The numbers below describe how the code and the prompts behave on this synthetic set, not how they would on real listings.
+
+![The morning brief arrives and a pro-forma PDF opens](docs/media/morning-brief.gif)
+
+*A morning run on the seeded Compose stack: the digest arrives and a pro-forma PDF opens from its thread. **This is a mock rendering**: it draws the Slack message the app builds in mock delivery mode, in this project's own style, because no Slack workspace is connected. The PDF pages are the real PDF.*
+
+| The PDF pro-forma (a real page, rendered from the PDF) | The Slack digest (mock rendering) | The Notion rows (mock rendering) |
+| --- | --- | --- |
+| [![Page 1 of a pro-forma PDF](docs/media/pro-forma-page-1.png)](docs/media/pro-forma-page-1.png) | [![The digest the app builds for Slack, drawn as a mock](docs/media/slack-digest-mock.png)](docs/media/slack-digest-mock.png) | [![The rows the app writes to Notion, drawn as a mock](docs/media/notion-table-mock.png)](docs/media/notion-table-mock.png) |
+
+Real Slack and Notion screenshots are pending test workspaces; the slots are listed in [docs/media/README.md](docs/media/README.md).
+
+## What is code and what is the model
+
+| Code (deterministic, tested) | Model (recorded in this repository) |
+| --- | --- |
+| Sourcing: the daily feed, the diff, the buy box, matching listings to parcels, scoring and ranking | **Signals** from listing remarks: twelve closed signals, each with a quote that code must find verbatim in the (redacted) text |
+| **Every number**: sizing, value from comparable sales, the cost chain, financing, maximum offer, a 60-cell sensitivity grid | **The narrative**: a short risk write-up of a facts sheet that code builds, with no address and no listing text |
+| The checks on the model: a quote that is not in the text is dropped; a narrative is accepted only if every figure in it is a string code gave it, copied exactly | |
+| Delivery: the brief, the PDF, Notion rows and the Slack digest, each sent once through a ledger; spend caps; retention | |
+
+## The evals, in short
+
+Full report, with every table: **[docs/EVALS.md](docs/EVALS.md)** (generated from the committed scorecards, and a test keeps it current).
+
+| | Result |
+| --- | --- |
+| Extraction, holdout (25 records) | precision 90.2% (on its 90% target), recall 100%, evidence match 100%, injection resisted 3 of 3; no personal data leaked in the forms the eval gates on, but a bare first name with no cue word reached the prompt in 2 of 2 residual cases (reported, not gated) |
+| Extraction, dev (31 records) | precision 87.5%; **one injection case missed** (5 of 6): the answer carried an extra signal, and no injected text reached an output |
+| Narrative (13 cases) | accepted 13 of 13, all on the first attempt; every figure exactly the facts sheet's; both injection cases resisted. Before the mid tier was set to low effort it was 8 of 9 scored (88.9%, under its 90% target) with 4 cases cut off |
+| Pro-forma math | 270 tests, including an independent reference workbook held to the cent |
+| Cost and speed | the two snapshot days cost $0.1277 in model calls (23 recorded calls); a projected live day about $0.05; trigger to delivered takes 5.3 to 5.6 seconds on the stack with replayed model calls |
+
+**Honest misses.** The weakest signal is `teardown_language`: on the holdout it has 3 false positives against 3 true ones (precision 50%), and the holdout's overall precision sits on its target, so one more false positive would put it under. The dev split's injection case `SYN000103` failed. The narrative's tone and quality are not scored by anything. The eval set is 56 extraction records and 13 narrative cases, written by this project; it says nothing about real listings.
+
 ## Status
 
-Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM layer) and 5 (delivery) exist today. Delivery has run only against mock services; nothing in this repository has sent a real message to Notion or Slack.
+Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM layer), 5 (delivery) and 6 (evals, retention, the proof kit) exist today. Delivery has run only against mock services; nothing in this repository has sent a real message to Notion or Slack.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -15,14 +53,14 @@ Phases 1 (foundation), 2 (sourcing and scoring), 3 (the pro-forma), 4 (the LLM l
 | 3 | Pro-forma: value estimates for the top candidates, a code-only pro-forma for every ranked one (sizing, ARV from sale comps, costs, financing, holding, selling, maximum offer, sensitivity grid), read-only API and CLI | Built |
 | 4 | LLM layer: listing-text signals and risk narratives, recorded model responses, eval scorecards | Built: both run in the daily run and replay committed recordings in mock mode with no key; read-only API and CLI; two evals with committed scorecards, which miss one of their targets, the extraction dev split's injection check (see [The LLM layer](#the-llm-layer)) |
 | 5 | Delivery: the morning brief, scheduling | Built in mock mode: the API auth gate and morning trigger, the brief, the PDF pro-forma, the Notion and Slack clients, a delivery ledger that sends each item once, and an opt-in n8n schedule; a morning run goes from the trigger to mock Notion rows, a mock Slack digest and PDFs (see [Delivery and the morning run](#delivery-and-the-morning-run)). The live Notion and Slack calls are unverified |
-| 6 | Evals, retention and the proof kit | Started: the two model evals exist (Phase 4); retention is built (see [Retention](#retention)); the eval report and the proof kit are to come |
+| 6 | Evals, retention and the proof kit | Built: the two model evals (Phase 4) and a generated report of them, with cost and latency per run ([docs/EVALS.md](docs/EVALS.md)); retention (see [Retention](#retention)); the proof kit (this page's media, `scripts/capture/`). Not done: live RentCast, a real DCAD archive and live Notion and Slack, none of which has been run; real Slack and Notion screenshots are waiting for test workspaces |
 
 ## Quick start
 
 Needs Docker with Compose. A fresh clone needs no `.env` and mock mode needs no model key and no network. **Every API route except `/livez` needs a bearer token**, so make two (any 32 or more characters of `A-Za-z0-9._~+/=-`; they must differ) and put them in `.env`:
 
 ```bash
-printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
+(umask 077; printf 'API_READ_TOKEN=%s\nAPI_TRIGGER_TOKEN=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env)
 docker compose up -d --wait
 set -a; . ./.env; set +a
 R="Authorization: Bearer $API_READ_TOKEN"
@@ -167,7 +205,7 @@ On the snapshot, day 1 computes five pro-formas (two clear the 15% target, two a
 
 ## The LLM layer
 
-After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). **The model never produces a number.** A signal survives only if code finds its quote verbatim in the listing's remarks; a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). The model sees no address and no listing text when it writes a narrative.
+After the pro-formas, a run reads each ranked candidate's signals (stage 6) and writes a risk narrative for each one whose pro-forma was computed (stage 7). **The model never originates a number.** A signal survives only if code finds its quote verbatim in the listing's remarks; a narrative survives only if every figure in it is a string code gave the model, copied exactly (a rejected narrative keeps its violations and none of its text). The model sees no address and no listing text when it writes a narrative.
 
 **The twelve remarks signals** are a closed set. Risks: `as_is_sale`, `environmental_hazard`, `flood_or_drainage`, `easement_or_encroachment`, `deed_restrictions`, `conservation_or_historic_district`, `protected_trees`, `tenant_occupied`. Opportunities: `teardown_language`, `plans_or_permits`, `seller_financing`, `multiple_lots`. Negations ("no HOA", "not in a flood zone") are not signals. Three more signals (`price_reduced`, `relisted`, `long_on_market`) are computed in code from the listing's fields and need no model.
 
@@ -213,7 +251,7 @@ cat evals/scorecards/signals-holdout.md
 
 `feasibility eval signals [--split dev|holdout|all]` scores extraction on 56 synthetic records against a committed answer key (per-signal precision and recall, evidence match, injection resistance, personal-data leaks); `feasibility eval narrative` scores 13 facts sheets. Both replay the recordings by default and need `--allow-spend` in record or live mode. The scorecards are in [evals/scorecards](evals/scorecards/README.md), and a test regenerates them from the recordings. What they show, from a recording session that cost about $0.53 and a second, narrative-only one that cost about $0.13:
 
-- Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked, all 3 injection cases resisted. Precision sits on its 0.90 target.
+- Extraction, holdout (25 records): micro precision 90.2% and recall 100.0%, evidence match 100%, no personal data leaked in the gated forms (a bare first name with no cue word reached the prompt in 2 of 2 residual cases, reported and not gated), all 3 injection cases resisted. Precision sits on its 0.90 target.
 - Extraction, dev: micro precision 87.5%; one of its 6 injection cases fails the "signal set equals the key" check (an extra signal; no injected text reached an output).
 - Narrative: **acceptance is 13 of 13 cases (100%), all on the first attempt**, with every accepted narrative's figures matching the facts sheet exactly and both injection cases resisted. It was 8 of 9 scored (88.9%, under the 0.90 target) with 4 of 13 cases cut off at the 1,500-token limit before the mid tier was set to low effort (hidden thinking was using the output tokens) and the narrative eval was recorded again. The new replies are about 8% shorter; tone and quality are not scored.
 - The answer key, prompts, catalogue and cases were not changed after seeing these numbers; the one change was the mid tier's effort setting, which needed the narrative recording again. Changing a prompt or a token limit is a decision that needs a new recording.
@@ -368,6 +406,8 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 - `uv run pytest -m slow` runs the memory test.
 - `uv run python scripts/generate_snapshot.py` regenerates the snapshot. CI requires the committed files to match the output byte for byte.
 - `uv run python scripts/check_rentcast_docs.py` diffs the models against RentCast's published docs. It needs the network but no key.
+- `uv run python scripts/build_eval_report.py` rewrites [docs/EVALS.md](docs/EVALS.md) from the scorecards (`--check` exits 1 if it is stale; a test does the same).
+- The media on the front page is captured from the seeded stack with `scripts/capture/capture_proof.py` (Playwright, pinned in the command, not in `uv.lock`); see [docs/media/README.md](docs/media/README.md). Final media is written outside the repository; only the small optimised copies under `docs/media/` are committed.
 - Pre-commit runs ruff and gitleaks: `uvx pre-commit install`. The gitleaks hook runs in a container that sees only the working directory, so in a git worktree it scans nothing; run `gitleaks git` against the main checkout instead.
 
 Design notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
