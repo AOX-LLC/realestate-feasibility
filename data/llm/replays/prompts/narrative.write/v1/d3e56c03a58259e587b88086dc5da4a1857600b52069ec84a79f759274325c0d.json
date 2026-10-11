@@ -54,7 +54,7 @@
   },
   "replay_hash": "d3e56c03a58259e587b88086dc5da4a1857600b52069ec84a79f759274325c0d",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -128,13 +128,13 @@
   },
   "response": {
     "model": "claude-sonnet-5-5",
-    "stop_reason": "max_tokens",
-    "text": "{\"summary\":\"At the assumed offer of $420,000.00, projected profit is $107,560.14, a margin of 7.57% against a builder target of 15.00%. The most the target margin allows is $324,271.50, so the offer sits above that ceiling. Annualized return looks strong at 44.92%, but the thin margin leaves little cushion.\",\"risks\":[{\"basis\":[\"below_target\"],\"text\":\"The margin is 7.57%, which falls short of the builder's target, so the deal does not reach the desired bar at this price.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The most the target",
+    "stop_reason": "end_turn",
+    "text": "{\"summary\":\"At the assumed offer price of $420,000.00 the project shows a margin of $107,560.14 profit, or 7.57%, which falls short of the 15.00% target. The most the target margin allows is $324,271.50, so the offer sits above that ceiling. The return looks healthy on cash at 33.69% ROI, but the margin is thin for a finished value of $1,420,799.85.\",\"risks\":[{\"basis\":[\"below_target\"],\"text\":\"The margin of 7.57% is under the 15.00% target, so the deal does not clear the builder's own bar at this price.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The target margin supports a price of only $324,271.50, which leaves headroom of -$95,728.50 against the offer of $420,000.00.\"},{\"basis\":[\"below_target\"],\"text\":\"A lower finished value turns profit to -$25,995.04, and higher building costs turn it to -$42,693.55. The thin margin has little room for error.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"A longer hold still leaves profit at $84,670.08, so time is a smaller exposure than value or cost.\"},{\"basis\":[\"gis_group\"],\"text\":\"The site is several parcels grouped under one map identifier, so the lot size of 6,400 sq ft and buildable area of 3,168 sq ft may not describe a single clean parcel.\"}],\"checks_before_offer\":[\"Confirm whether the parcels grouped under one map identifier can be bought and built on as a single lot.\",\"Re-check the finished value against the 7 comps behind it, since a lower value erases the profit.\",\"Get firm building cost quotes, because higher costs push profit negative.\",\"Decide whether to negotiate toward $324,271.50 or accept a margin under the 15.00% target.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2214,
-      "output_tokens": 1500
+      "output_tokens": 588
     }
   },
   "sequence": 0

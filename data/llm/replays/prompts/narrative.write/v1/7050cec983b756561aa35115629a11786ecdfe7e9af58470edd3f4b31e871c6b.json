@@ -58,7 +58,7 @@
   },
   "replay_hash": "7050cec983b756561aa35115629a11786ecdfe7e9af58470edd3f4b31e871c6b",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -133,12 +133,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"At an offer of $300,000.00 the pro-forma shows a profit of $238,226.56 on a finished value of $1,489,400.50, a margin of 15.99% against a target of 15.00%. The deal clears the target with a thin cushion, and the annualized return is 106.10% over a hold of 9 months.\",\"risks\":[{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The margin of 15.99% only just clears the target of 15.00%. The most the target allows is $313,436.54, so headroom is $13,436.54 and there is little room to pay more.\"},{\"basis\":[\"clears_target\"],\"text\":\"If the finished value came in lower than estimated, profit would fall to $98,222.93. The value rests on 4 comps, so a thin comp set leaves the finished value exposed.\"},{\"basis\":[\"clears_target\"],\"text\":\"If building costs ran higher than estimated, profit would drop to $72,226.60. This is the harshest stress case shown and the one most likely to erase the margin.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was cut to the market's largest home size. The finished value may not support more space, and the lot of 10,134 sq ft adds no extra upside here.\"},{\"basis\":[\"vacant_lot\",\"clears_target\"],\"text\":\"The site is vacant, so the pro-forma has no demolition cost. Any clearing, site prep or hidden ground issues would come on top of the total cost of $1,251,173.94.\"}],\"checks_before_offer\":[\"Confirm the 4 comps are close, recent and truly comparable to a home of this size.\",\"Get a firm build quote to test the total cost of $1,251,173.94 against real bids.\",\"Verify the lot is clear and needs no demolition or unexpected site work.\",\"Confirm zoning allows the capped buildable size and that the 9 months hold is realistic.\"]}",
+    "text": "{\"summary\":\"At an offer price of $300,000.00 the pro-forma shows a finished value of $1,489,400.50 against a total cost of $1,251,173.94, leaving a profit of $238,226.56. The margin of 15.99% clears the target margin of 15.00%, with a max offer of $313,436.54 giving some room above the price. The return is strong over a hold of 9 months, but the cushion on margin is thin.\",\"risks\":[{\"basis\":[\"clears_target\"],\"text\":\"The margin of 15.99% only just clears the target margin of 15.00%, so small slips in value or cost could erase the cushion.\"},{\"basis\":[\"max_offer_above_price\"],\"text\":\"Headroom versus the offer is $13,436.54, with a max offer of $313,436.54. That is a limited buffer if negotiations push the price up.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size of 3,500 sq ft was cut to the market's largest home size, so the finished value may lean on a big home that fewer buyers want.\"},{\"basis\":[\"clears_target\",\"size_capped_max\"],\"text\":\"The finished value of $1,489,400.50 rests on 4 comps. If it came in lower, profit would fall to $98,222.93, a sharp drop from the base case.\"},{\"basis\":[\"clears_target\"],\"text\":\"Higher building costs would cut profit to $72,226.60, the weakest of the stress cases. A longer hold would leave profit at $217,389.53.\"}],\"checks_before_offer\":[\"Confirm the 4 comps truly support the finished value for a home of this size.\",\"Get a firm builder bid to test the cost stress case and the total cost.\",\"Verify the lot of 10,134 sq ft allows the capped buildable size under local rules.\",\"Confirm the site is vacant and that no demolition or clearing work is needed.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2253,
-      "output_tokens": 627
+      "output_tokens": 602
     }
   },
   "sequence": 0

@@ -65,7 +65,7 @@
   },
   "replay_hash": "44a9ce707a7265812336ec8934f40001123a11f4afcb2edcc3ab7b91f980e4ef",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -140,12 +140,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"At the assumed offer price of $517,000.00 this deal reaches a margin of $3.94%, well short of the 15.00% target. Profit is $62,121.09 on a finished value of $1,578,431.40. The most the target margin allows is $358,621.86, so the offer sits above that ceiling. Two listing signals point to possible site or title trouble.\",\"risks\":[{\"basis\":[\"below_target\"],\"text\":\"The margin is $3.94% against a target of 15.00%, so the deal leaves little cushion for the risk taken on.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The highest price that still reaches the target margin is $358,621.86, and headroom against the offer is -$158,378.14. The offer is above that ceiling.\"},{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"Stress cases turn negative: profit is -$86,251.46 if the finished value comes in lower and -$103,878.87 if building costs run higher. A longer hold still leaves $35,354.87.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, so the build is already at the top of what the pro-forma allows.\"},{\"basis\":[\"environmental_hazard\",\"easement_or_encroachment\"],\"text\":\"Signals point to possible environmental hazards and easement or encroachment issues. Either could raise demolition, site or legal cost and push the thin margin lower.\"}],\"checks_before_offer\":[\"Test whether the seller will move toward the $358,621.86 maximum offer, or walk away.\",\"Confirm the finished value of $1,578,431.40 against the comps behind it.\",\"Order environmental and demolition checks for hazards before relying on the cost estimate.\",\"Get a survey and title review for easements, encroachments or shared driveways.\"]}",
+    "text": "{\"summary\":\"The deal is thin at the offer price. Profit is $62,121.09, a margin of 3.94% against a target of 15.00%. The highest offer that still reaches the target is $358,621.86, well below the $517,000.00 the pro-forma assumes. The finished value of $1,578,431.40 rests on 5 comps.\",\"risks\":[{\"basis\":[\"below_target\"],\"text\":\"The margin of 3.94% falls short of the 15.00% target, so the project leaves little cushion for surprises at the current offer.\"},{\"basis\":[\"max_offer_below_price\"],\"text\":\"The target margin only works at $358,621.86, and the headroom against the offer is -$158,378.14. Closing the gap would take a much lower price.\"},{\"basis\":[\"below_target\",\"max_offer_below_price\"],\"text\":\"A lower finished value would turn profit to -$86,251.46, and higher building costs would give -$103,878.87. A longer hold still leaves $35,354.87.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, so the 3,500 sq ft allowance and the finished value may be optimistic.\"},{\"basis\":[\"environmental_hazard\",\"easement_or_encroachment\"],\"text\":\"Possible environmental hazards could raise demolition or site cost, and easements or encroachments could limit the build. Both would hit an already thin margin.\"}],\"checks_before_offer\":[\"Confirm the finished value against the 5 comps, given the size cap on the home.\",\"Investigate environmental conditions and likely demolition and remediation costs.\",\"Review the survey and title for easements, encroachments or shared driveways.\",\"Test whether the seller will move toward $358,621.86 or the deal should be passed.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2327,
-      "output_tokens": 596
+      "output_tokens": 570
     }
   },
   "sequence": 0

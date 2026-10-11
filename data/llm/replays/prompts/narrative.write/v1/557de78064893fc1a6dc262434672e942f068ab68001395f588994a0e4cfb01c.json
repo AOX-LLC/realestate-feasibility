@@ -65,7 +65,7 @@
   },
   "replay_hash": "557de78064893fc1a6dc262434672e942f068ab68001395f588994a0e4cfb01c",
   "request": {
-    "effort": null,
+    "effort": "low",
     "max_tokens": 1500,
     "messages": [
       {
@@ -140,12 +140,12 @@
   "response": {
     "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
-    "text": "{\"summary\":\"At an offer price of $430,000.00, the pro-forma shows a profit of $306,482.59 on a finished value of $1,726,478.60. That is a margin of 17.75% against a target margin of 15.00%. The margin clears the target, and the max offer of $473,085.86 sits above the offer price. The listing also reads as a teardown with seller financing available.\",\"risks\":[{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size. The finished value rests on a home of 3,500 sq ft, so a smaller allowed build would weaken the numbers.\"},{\"basis\":[\"clears_target\"],\"text\":\"The margin clears the target, but profit falls to $144,193.60 if the finished value comes in lower and to $140,482.63 if building costs run higher. A longer hold takes profit to $282,112.84.\"},{\"basis\":[\"max_offer_above_price\"],\"text\":\"The max offer of $473,085.86 gives headroom of $43,085.86 over the offer price. That is the only room to pay more before the target margin is missed.\"},{\"basis\":[\"seller_financing\",\"teardown_language\"],\"text\":\"Seller financing and teardown language look like opportunities, but the note terms and the condition of the existing house are unknown. Either could change cost or timing.\"}],\"checks_before_offer\":[\"Check that the 5 comps support the finished value of $1,726,478.60 for a new home of this size and quality.\",\"Confirm zoning and permits allow 3,500 sq ft on the 11,153 sq ft lot, since the size was capped.\",\"Get the seller financing terms in writing and test them against the 9 months hold.\",\"Re-bid the build cost, since higher costs cut profit to $140,482.63.\"]}",
+    "text": "{\"summary\":\"The deal clears the target margin of 15.00% with a margin of 17.75% and a profit of $306,482.59 on an offer of $430,000.00. The most the target margin allows is $473,085.86, which leaves headroom of $43,085.86. The return is strong at 119.62% annualized over a hold of 9 months, but the finished value of $1,726,478.60 rests on 5 comps.\",\"risks\":[{\"basis\":[\"clears_target\",\"max_offer_above_price\"],\"text\":\"The cushion is real but not wide. Headroom of $43,085.86 over the offer is the room to pay more before the target margin is lost.\"},{\"basis\":[\"size_capped_max\"],\"text\":\"The buildable size was cut to the market's largest home size, so the 3,500 sq ft planned may be the ceiling. Any further upsizing should not be counted on.\"},{\"basis\":[\"clears_target\"],\"text\":\"If the finished value came in lower, profit falls to $144,193.60. That is the sharpest stress case shown and it depends on the 5 comps holding up.\"},{\"basis\":[\"clears_target\"],\"text\":\"If building costs ran higher, profit falls to $140,482.63. A longer hold is milder, leaving profit at $282,112.84.\"}],\"checks_before_offer\":[\"Confirm the 5 comps truly match the finished home's size, finish level and location.\",\"Get a builder's cost bid to test the total cost of $1,419,996.01.\",\"Confirm the lot of 11,153 sq ft allows the planned size under local rules.\",\"Ask whether the seller's note terms are real and what they would be.\"]}",
     "usage": {
       "cache_creation_input_tokens": 0,
       "cache_read_input_tokens": 0,
       "input_tokens": 2312,
-      "output_tokens": 1461
+      "output_tokens": 523
     }
   },
   "sequence": 0
